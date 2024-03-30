@@ -2,7 +2,7 @@ use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose};
 use crate::parameters::opw_kinematics::Parameters;
 use nalgebra::{Isometry3, Matrix3, Quaternion, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
 
-struct OPWKinematics {
+pub(crate) struct OPWKinematics {
     parameters: Parameters,
 }
 
@@ -39,12 +39,15 @@ impl Kinematics for OPWKinematics {
     }
 
     fn forward(&self, joints: &[f64; 6]) -> Pose {
-        let mut q = [0.0; 6];
         let p = &self.parameters;
 
-        for i in 0..6 {
-            q[i] = joints[i] * p.sign_corrections[i] as f64 - p.offsets[i];
-        }
+        let q: Vec<f64> = joints.iter()
+            .zip(p.sign_corrections.iter())
+            .zip(p.offsets.iter())
+            .map(|((&joint, &sign_correction), &offset)| {
+                joint * sign_correction as f64 - offset
+            })
+            .collect();
 
         let psi3 = f64::atan2(p.a2, p.c3);
         let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
