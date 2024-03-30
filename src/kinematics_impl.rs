@@ -1,6 +1,6 @@
 use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose};
 use crate::parameters::opw_kinematics::Parameters;
-use nalgebra::{Isometry3, Matrix3, Quaternion, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
 
 pub(crate) struct OPWKinematics {
     parameters: Parameters,

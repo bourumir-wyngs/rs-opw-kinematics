@@ -35,6 +35,37 @@
                 </Pins>
               </value>
             </entry>
+            <entry>
+              <key>
+                <RunConfigurationRef>
+                  <option name="icon" value="rust.svg)" />
+                  <option name="name" value="Test" />
+                </RunConfigurationRef>
+              </key>
+              <value>
+                <Pins>
+                  <option name="pins">
+                    <list>
+                      <Pin>
+                        <option name="consoleUUID" value="4f27b5bf-accc-49b1-a7ab-ed0c714b7fc3" />
+                        <option name="contentType" value="ConsoleContent" />
+                        <option name="grepCompositeModel">
+                          <GrepCompositeModel>
+                            <option name="models">
+                              <list>
+                                <GrepModel>
+                                  <option name="expression" value="fanuc_r2000ib_200r" />
+                                </GrepModel>
+                              </list>
+                            </option>
+                          </GrepCompositeModel>
+                        </option>
+                      </Pin>
+                    </list>
+                  </option>
+                </Pins>
+              </value>
+            </entry>
           </map>
         </option>
       </PinnedGrepConsolesState>

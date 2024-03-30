@@ -120,9 +120,16 @@ mod tests {
         let cases = result.expect("Expected a valid Cases struct after parsing");
 
         // Create map to get actual parameters that are not in the yaml file (maybe should be?)
-        let mut all_parameters: HashMap<String, Parameters> = HashMap::new();
-        all_parameters.insert(String::from("Irb2400_10"), Parameters::irb2400_10());
-        all_parameters.insert(String::from("KukaKR6_R700_sixx"), Parameters::kuka_kr6_r700_sixx());
+        let all_parameters: HashMap<String, Parameters> = vec![
+            (String::from("Irb2400_10"), Parameters::irb2400_10()),
+            (String::from("KukaKR6_R700_sixx"), Parameters::kuka_kr6_r700_sixx()),
+            (String::from("Fanuc_r2000ib_200r"), Parameters::fanuc_r2000ib_200r()),
+            (String::from("Staubli_tx40"), Parameters::staubli_tx40()),
+            (String::from("Irb2600_12_165"), Parameters::irb2600_12_165()),
+            (String::from("Irb4600_60_205"), Parameters::irb4600_60_205()),
+        ]
+            .into_iter()
+            .collect();
 
         println!("{} test cases", cases.cases.len());
 
