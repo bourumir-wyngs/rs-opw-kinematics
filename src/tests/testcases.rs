@@ -90,7 +90,7 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use crate::kinematic_traits::kinematics_traits::Kinematics;
+    use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
     use super::*;
@@ -118,25 +118,14 @@ mod tests {
         let result = load_yaml(filename);
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
         let cases = result.expect("Expected a valid Cases struct after parsing");
-
-        // Create map to get actual parameters that are not in the yaml file (maybe should be?)
-        let all_parameters: HashMap<String, Parameters> = vec![
-            (String::from("Irb2400_10"), Parameters::irb2400_10()),
-            (String::from("KukaKR6_R700_sixx"), Parameters::kuka_kr6_r700_sixx()),
-            (String::from("Fanuc_r2000ib_200r"), Parameters::fanuc_r2000ib_200r()),
-            (String::from("Staubli_tx40"), Parameters::staubli_tx40()),
-            (String::from("Irb2600_12_165"), Parameters::irb2600_12_165()),
-            (String::from("Irb4600_60_205"), Parameters::irb4600_60_205()),
-        ]
-            .into_iter()
-            .collect();
-
-        println!("{} test cases", cases.cases.len());
+        let all_parameters = create_parameter_map();
+        println!("Forward IK: {} test cases", cases.cases.len());
 
         for case in cases.cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
-            });            let kinematics = OPWKinematics::new(parameters.clone());
+            });
+            let kinematics = OPWKinematics::new(parameters.clone());
 
             // Try forward on the initial data set first.
             let ik = kinematics.forward(&case.joints_in_radians());
@@ -152,5 +141,71 @@ mod tests {
                 panic!("Forward kinematics of the primary pose seems not equal");
             }
         }
+    }
+
+    #[test]
+    fn test_inverse_ik() {
+        let filename = "src/tests/cases.yaml";
+        let result = load_yaml(filename);
+        assert!(result.is_ok(), "Failed to load or parse the YAML file");
+        let cases = result.expect("Expected a valid Cases struct after parsing");
+        let all_parameters = create_parameter_map();
+        println!("Inverse IK: {} test cases", cases.cases.len());
+
+        for case in cases.cases.iter() {
+            let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
+                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+            });
+            let kinematics = OPWKinematics::new(parameters.clone());
+
+            // Try forward on the initial data set first.
+            let solutions = kinematics.inverse(&case.pose.to_isometry());
+            if found_joints_approx_equal(&solutions, &case.joints_in_radians(), 0.1_f32.to_degrees() as f64).is_none() {
+                println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
+                let joints_str = &case.joints.iter()
+                    .map(|&val| format!("{:5.2}", val))
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                println!("Expected joints: [{}]", joints_str);
+
+                println!("Solutions Matrix:");
+                for row in solutions.row_iter() {
+                    let mut row_str = String::new();
+                    for &val in row.iter() {
+                        row_str.push_str(&format!("{:5.2} ", val.to_degrees())); // Format each value to 2 decimal places
+                    }
+                    println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+                }
+                println!("---");
+                //panic!("Inverse kinematics does not produce valid solution");
+            }
+        }
+    }
+
+    fn found_joints_approx_equal(solutions: &Solutions, expected: &[f64; 6], tolerance: f64) -> Option<i32> {
+        for (index, row) in solutions.row_iter().enumerate() {
+            if row.iter().zip(expected.iter()).all(|(&val, &target)| (val - target).abs() < tolerance) {
+                // If all values in this row are approximately equal to the corresponding values in p1
+                // Return the index as an i32
+                return Some(index as i32);
+            }
+        }
+        // If no row matches, return None
+        None
+    }
+
+    fn create_parameter_map() -> HashMap<String, Parameters> {
+// Create map to get actual parameters that are not in the yaml file (maybe should be?)
+        let all_parameters: HashMap<String, Parameters> = vec![
+            (String::from("Irb2400_10"), Parameters::irb2400_10()),
+            (String::from("KukaKR6_R700_sixx"), Parameters::kuka_kr6_r700_sixx()),
+            (String::from("Fanuc_r2000ib_200r"), Parameters::fanuc_r2000ib_200r()),
+            (String::from("Staubli_tx40"), Parameters::staubli_tx40()),
+            (String::from("Irb2600_12_165"), Parameters::irb2600_12_165()),
+            (String::from("Irb4600_60_205"), Parameters::irb4600_60_205()),
+        ]
+            .into_iter()
+            .collect();
+        all_parameters
     }
 }

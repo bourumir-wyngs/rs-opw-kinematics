@@ -100,19 +100,16 @@ impl Kinematics for OPWKinematics {
 
         let theta1_i_sin = theta1_i.sin();
         let theta1_i_cos = theta1_i.cos();
+        let theta1_ii_sin = theta1_ii.sin();
+        let theta1_ii_cos = theta1_ii.cos();
 
+        // orientation part
         let sin1: [f64; 4] = [
-            theta1_i_sin,
-            theta1_i_sin, // Intentionally duplicated based on the original C++ code
-            theta1_ii.sin(),
-            theta1_ii.sin(),
+            theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin,
         ];
 
         let cos1: [f64; 4] = [
-            theta1_i_cos,
-            theta1_i_cos, // Intentionally duplicated based on the original C++ code
-            theta1_ii.cos(),
-            theta1_ii.cos(),
+            theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos
         ];
 
         let s23: [f64; 4] = [
@@ -147,8 +144,9 @@ impl Kinematics for OPWKinematics {
         let theta5_viii = -theta5_iv;
 
         let zero_threshold: f64 = 1e-6;
-        let (mut theta4_i, mut theta6_i): (f64, f64);
-
+        let theta4_i;
+        let theta6_i;
+        // Till here OK!!!
         if theta5_i.abs() < zero_threshold {
             theta4_i = 0.0;
             let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
@@ -171,7 +169,8 @@ impl Kinematics for OPWKinematics {
             theta6_i = theta6_iy.atan2(theta6_ix);
         }
 
-        let (mut theta4_ii, mut theta6_ii): (f64, f64);
+        let theta4_ii;
+        let theta6_ii;
 
         if theta5_ii.abs() < zero_threshold {
             theta4_ii = 0.0;
@@ -195,7 +194,8 @@ impl Kinematics for OPWKinematics {
             theta6_ii = theta6_iiy.atan2(theta6_iix);
         }
 
-        let (mut theta4_iii, mut theta6_iii): (f64, f64);
+        let theta4_iii;
+        let theta6_iii;
 
         if theta5_iii.abs() < zero_threshold {
             theta4_iii = 0.0;
@@ -219,7 +219,8 @@ impl Kinematics for OPWKinematics {
             theta6_iii = theta6_iiiy.atan2(theta6_iiix);
         }
 
-        let (mut theta4_iv, mut theta6_iv): (f64, f64);
+        let theta4_iv;
+        let theta6_iv;
 
         if theta5_iv.abs() < zero_threshold {
             theta4_iv = 0.0;
@@ -251,12 +252,12 @@ impl Kinematics for OPWKinematics {
         let theta6_vii = theta6_iii - PI;
         let theta6_viii = theta6_iv - PI;
 
-        // Assuming `params` struct with `offsets` and `sign_corrections` as Vec<f64>
+
         let offsets = &params.offsets;
         let signs: Vec<f64> = params.sign_corrections.iter().map(|&x| x as f64).collect();
 
 
-        // Assuming theta values have been calculated
+        //  Till here ok
         let theta = SMatrix::<f64, 6, 8>::from_columns(&[
             SMatrix::<f64, 6, 1>::new(theta1_i, theta2_i, theta3_i, theta4_i, theta5_i, theta6_i),
             SMatrix::<f64, 6, 1>::new(theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii),
@@ -267,25 +268,41 @@ impl Kinematics for OPWKinematics {
             SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii),
             SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii, theta6_viii),
         ]);
+        // Up till here all thetas look ok
 
-        // Assuming offsets and signs are Vec<f64> with the correct sizes (6 elements each)
         let offsets_matrix = SMatrix::<f64, 6, 1>::from_column_slice(offsets);
         let signs_matrix = SMatrix::<f64, 6, 1>::from_column_slice(&signs);
 
-        // Perform the computation
+
         for i in 0..solutions.ncols() {
             for j in 0..solutions.nrows() {
                 // Directly accessing and modifying elements in the matrix
                 solutions[(j, i)] = (theta[(j, i)] + offsets_matrix[j]) * signs_matrix[j];
             }
         }
-
-        // If debug check
-        for i in 0..solutions.ncols() {
-            let column = solutions.column(i);
-            if column.iter().all(|&x| x.is_finite()) {
-                let column = solutions.column(i);
-                let array: [f64; 6] = [
+        // Solutions look good, also even order matches.
+        // Debug check. Solution failing cross-verification is flagged
+        // as invalid. This loop also normalizes valid solutions to 0
+        for si in 0..solutions.ncols() {
+            let mut valid = true;
+            for ji in 0..6 {
+                let mut angle = solutions[(ji, si)];
+                if angle.is_finite() {
+                    while angle > PI {
+                        angle -= 2.0 * PI;
+                    }
+                    while angle < -PI {
+                        angle += 2.0 * PI;
+                    }
+                    solutions[(ji, si)] = angle;
+                } else {
+                    valid = false;
+                    break;
+                }
+            };
+            if valid {
+                let column = solutions.column(si);
+                let solution: [f64; 6] = [
                     column[(0, 0)],
                     column[(1, 0)],
                     column[(2, 0)],
@@ -293,9 +310,9 @@ impl Kinematics for OPWKinematics {
                     column[(4, 0)],
                     column[(5, 0)],
                 ];
-                let check_pose = self.forward(&array);
+                let check_pose = self.forward(&solution);
                 if !compare_poses(&pose, &check_pose, 1e-3) {
-                    let t = match i {
+                    let t = match si {
                         0 => theta5_i,
                         1 => theta5_ii,
                         2 => theta5_iii,
@@ -308,10 +325,12 @@ impl Kinematics for OPWKinematics {
                     };
 
                     println!("*********************************");
-                    println!("********** Pose Failure *********");
+                    println!("********** Pose Failure, t {} *********", t);
                     println!("*********************************");
                     // Kill the entry making the failed solution invalid.
-                    solutions[(i, 0)] = f64::NAN;
+                    solutions[(si, 0)] = f64::NAN;
+                } else {
+                    // Normalize to zero
                 }
             }
         }
