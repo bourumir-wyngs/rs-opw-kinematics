@@ -90,6 +90,7 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::f64::consts::PI;
     use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
@@ -153,6 +154,9 @@ mod tests {
         println!("Inverse IK: {} test cases", cases.cases.len());
 
         for case in cases.cases.iter() {
+            if case.id != 81 {
+                // continue;
+            }
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
@@ -160,7 +164,8 @@ mod tests {
 
             // Try forward on the initial data set first.
             let solutions = kinematics.inverse(&case.pose.to_isometry());
-            if found_joints_approx_equal(&solutions, &case.joints_in_radians(), 0.1_f32.to_degrees() as f64).is_none() {
+            if found_joints_approx_equal(&solutions, &case.joints_in_radians(),
+                                         0.1_f32.to_radians() as f64).is_none() {
                 println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
                 let joints_str = &case.joints.iter()
                     .map(|&val| format!("{:5.2}", val))
@@ -169,29 +174,48 @@ mod tests {
                 println!("Expected joints: [{}]", joints_str);
 
                 println!("Solutions Matrix:");
-                for row in solutions.row_iter() {
+                for sol_idx in 0..8 {
                     let mut row_str = String::new();
-                    for &val in row.iter() {
-                        row_str.push_str(&format!("{:5.2} ", val.to_degrees())); // Format each value to 2 decimal places
+                    for joint_idx in 0..6 {
+                        let computed = solutions[(joint_idx, sol_idx)];
+                        row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                     }
                     println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
                 }
+
                 println!("---");
-                //panic!("Inverse kinematics does not produce valid solution");
+                // panic!("Inverse kinematics does not produce valid solution");
             }
         }
     }
 
     fn found_joints_approx_equal(solutions: &Solutions, expected: &[f64; 6], tolerance: f64) -> Option<i32> {
-        for (index, row) in solutions.row_iter().enumerate() {
-            if row.iter().zip(expected.iter()).all(|(&val, &target)| (val - target).abs() < tolerance) {
-                // If all values in this row are approximately equal to the corresponding values in p1
-                // Return the index as an i32
-                return Some(index as i32);
+        for sol_idx in 0..8 {
+            // println!("Checking solution at index {}", sol_idx);
+
+            let mut solution_matches = true;
+            for joint_idx in 0..6 {
+                let computed = solutions[(joint_idx, sol_idx)];
+                let asserted = expected[joint_idx];
+
+                let diff = (computed - asserted).abs();
+                //println!("Column value: {}, Expected value: {}, Difference: {}",
+                //         computed, asserted, diff);
+
+                if diff >= tolerance && (diff - 2.* PI).abs() > tolerance {
+                    // For angles, 360 degree difference means the same angle.
+                    solution_matches = false;
+                    break;
+                }
+            }
+
+            if solution_matches {
+                return Some(sol_idx as i32); // Return the index of the matching solution
             }
         }
-        // If no row matches, return None
-        None
+
+        println!("No matching solution found");
+        return None; // Explicitly indicate that no matching column was found
     }
 
     fn create_parameter_map() -> HashMap<String, Parameters> {

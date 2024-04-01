@@ -146,7 +146,7 @@ impl Kinematics for OPWKinematics {
         let zero_threshold: f64 = 1e-6;
         let theta4_i;
         let theta6_i;
-        // Till here OK!!!
+
         if theta5_i.abs() < zero_threshold {
             theta4_i = 0.0;
             let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
@@ -256,8 +256,6 @@ impl Kinematics for OPWKinematics {
         let offsets = &params.offsets;
         let signs: Vec<f64> = params.sign_corrections.iter().map(|&x| x as f64).collect();
 
-
-        //  Till here ok
         let theta = SMatrix::<f64, 6, 8>::from_columns(&[
             SMatrix::<f64, 6, 1>::new(theta1_i, theta2_i, theta3_i, theta4_i, theta5_i, theta6_i),
             SMatrix::<f64, 6, 1>::new(theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii),
@@ -268,7 +266,6 @@ impl Kinematics for OPWKinematics {
             SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii),
             SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii, theta6_viii),
         ]);
-        // Up till here all thetas look ok
 
         let offsets_matrix = SMatrix::<f64, 6, 1>::from_column_slice(offsets);
         let signs_matrix = SMatrix::<f64, 6, 1>::from_column_slice(&signs);
@@ -280,7 +277,7 @@ impl Kinematics for OPWKinematics {
                 solutions[(j, i)] = (theta[(j, i)] + offsets_matrix[j]) * signs_matrix[j];
             }
         }
-        // Solutions look good, also even order matches.
+
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
         for si in 0..solutions.ncols() {
@@ -312,25 +309,9 @@ impl Kinematics for OPWKinematics {
                 ];
                 let check_pose = self.forward(&solution);
                 if !compare_poses(&pose, &check_pose, 1e-3) {
-                    let t = match si {
-                        0 => theta5_i,
-                        1 => theta5_ii,
-                        2 => theta5_iii,
-                        3 => theta5_iv,
-                        4 => theta5_v,
-                        5 => theta5_vi,
-                        6 => theta5_vii,
-                        7 => theta5_viii,
-                        _ => f64::NAN, // Handling unexpected case, though this should not happen given the matrix size
-                    };
-
-                    println!("*********************************");
-                    println!("********** Pose Failure, t {} *********", t);
-                    println!("*********************************");
+                    println!("********** Pose Failure *********");
                     // Kill the entry making the failed solution invalid.
-                    solutions[(si, 0)] = f64::NAN;
-                } else {
-                    // Normalize to zero
+                    solutions[(0, si)] = f64::NAN;
                 }
             }
         }
