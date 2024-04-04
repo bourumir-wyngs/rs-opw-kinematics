@@ -1,5 +1,5 @@
 use std::f64::{consts::PI};
-use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose};
+use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose, Singularity};
 use crate::parameters::opw_kinematics::Parameters;
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3, SMatrix};
@@ -375,4 +375,31 @@ impl Kinematics for OPWKinematics {
         Pose::from_parts(Translation3::from(translation),
                          UnitQuaternion::from_rotation_matrix(&rotation))
     }
+
+    fn kinematic_singularity(&self, joints: &[f64; 6]) -> Option<Singularity> {
+        let b = self.parameters.b == 0.0 && is_close_to_multiple_of_pi(joints[1]);
+        let a = is_close_to_multiple_of_pi(joints[4]);
+
+        if a && b {
+            return Some(Singularity::AB);
+        } else if a {
+            return Some(Singularity::A);
+        } else if b {
+            return Some(Singularity::B);
+        }
+        None
+    }
 }
+
+// Adjusted helper function to check for n*pi where n is any integer
+fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
+    const SINGULARITY_THRESHOLD: f64 = 0.01 * PI / 180.0;
+
+    // Normalize angle within [0, 2*PI)
+    let normalized_angle = joint_value.rem_euclid(2.0 * PI);
+    // Check if the normalized angle is close to 0 or PI
+    normalized_angle < SINGULARITY_THRESHOLD ||
+        (PI - normalized_angle).abs() < SINGULARITY_THRESHOLD
+}
+
+

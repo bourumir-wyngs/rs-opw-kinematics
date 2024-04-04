@@ -91,7 +91,7 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 mod tests {
     use std::collections::HashMap;
     use std::f64::consts::PI;
-    use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions};
+    use crate::kinematic_traits::kinematics_traits::{Kinematics, Singularity, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
     use super::*;
@@ -184,7 +184,7 @@ mod tests {
                 }
 
                 println!("---");
-                // panic!("Inverse kinematics does not produce valid solution");
+                panic!("Inverse kinematics does not produce valid solution");
             }
         }
     }
@@ -202,7 +202,7 @@ mod tests {
                 //println!("Column value: {}, Expected value: {}, Difference: {}",
                 //         computed, asserted, diff);
 
-                if diff >= tolerance && (diff - 2.* PI).abs() > tolerance {
+                if diff >= tolerance && (diff - 2. * PI).abs() > tolerance {
                     // For angles, 360 degree difference means the same angle.
                     solution_matches = false;
                     break;
@@ -227,9 +227,64 @@ mod tests {
             (String::from("Staubli_tx40"), Parameters::staubli_tx40()),
             (String::from("Irb2600_12_165"), Parameters::irb2600_12_165()),
             (String::from("Irb4600_60_205"), Parameters::irb4600_60_205()),
+            (String::from("Staubli_tx2_140"), Parameters::staubli_tx2_140()),
+            (String::from("Staubli_tx2_160"), Parameters::staubli_tx2_160()),
+            (String::from("Staubli_tx2_160l"), Parameters::staubli_tx2_160l()),
         ]
             .into_iter()
             .collect();
         all_parameters
+    }
+
+
+    #[test]
+    fn test_singularity_a() {
+        // Assuming joint[4] close to π triggers A type singularity
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, PI, 0.0]).unwrap(),
+                   Singularity::A);
+        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, -PI, 0.0]).unwrap(),
+                   Singularity::A);
+        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 0.0, PI]).unwrap(),
+                   Singularity::A);
+        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 3. * PI, 0.0]).unwrap(),
+                   Singularity::A);
+    }
+
+    #[test]
+    fn test_singularity_b() {
+        let robot_vulnerable = OPWKinematics::new(Parameters::irb2400_10());
+        let robot_immune = OPWKinematics::new(Parameters::staubli_tx40());
+
+        // Assuming joint[1] close to 0 triggers B type singularity if b = 0
+        let joints = [0.0, 0.00001 * PI / 180.0, 0.0, 0.0, 0.9, PI];
+
+        // This robot has b = 0.
+        assert_eq!(robot_vulnerable.kinematic_singularity(&joints), Some(Singularity::B));
+
+        // This robot has b = 0.035 and is immune to the B type singularity .
+        assert_eq!(robot_immune.kinematic_singularity(&joints), None);
+    }
+
+    #[test]
+    fn test_singularity_ab() {
+        let robot_vulnerable = OPWKinematics::new(Parameters::irb2400_10());
+        let robot_immune = OPWKinematics::new(Parameters::staubli_tx40());
+
+        // These joints have both A and (for vulnerable robot) B singularity
+        let joints = [0.0, 0.00001 * PI / 180.0, 0.0, 0.0, 0.0, PI];
+
+        // This robot has b = 0.
+        assert_eq!(robot_vulnerable.kinematic_singularity(&joints).unwrap(), Singularity::AB);
+
+        // This robot has b = 0.035 and is immune to the B type singularity but A applies
+        assert_eq!(robot_immune.kinematic_singularity(&joints).unwrap(), Singularity::A);
+    }
+
+    #[test]
+    fn test_no_singularity() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
+        assert_eq!(robot.kinematic_singularity(&joints), None);
     }
 }
