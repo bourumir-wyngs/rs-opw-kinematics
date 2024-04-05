@@ -309,7 +309,7 @@ impl Kinematics for OPWKinematics {
                 ];
                 let check_pose = self.forward(&solution);
                 if !compare_poses(&pose, &check_pose, 1e-3) {
-                    println!("********** Pose Failure *********");
+                    println!("********** Pose Failure sol {} *********", si);
                     // Kill the entry making the failed solution invalid.
                     solutions[(0, si)] = f64::NAN;
                 }
@@ -377,7 +377,12 @@ impl Kinematics for OPWKinematics {
     }
 
     fn kinematic_singularity(&self, joints: &[f64; 6]) -> Option<Singularity> {
-        let b = self.parameters.b == 0.0 && is_close_to_multiple_of_pi(joints[1]);
+        let b =
+            self.parameters.b == 0.0 &&
+            self.parameters.a1 == 0.0 &&
+            self.parameters.a2 == 0.0 &&
+            is_close_to_multiple_of_pi(joints[1]) &&
+            is_close_to_multiple_of_pi(joints[2]);
         let a = is_close_to_multiple_of_pi(joints[4]);
 
         if a && b {
