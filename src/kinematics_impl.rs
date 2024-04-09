@@ -41,7 +41,9 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
 
 const DISTANCE_TOLERANCE: f64 = 1E-6;
 const ANGULAR_TOLERANCE: f64 = 1E-4;
-const SINGULARITY_THRESHOLD: f64 = 0.01 * PI / 180.0;
+const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
+
+const SINGULARITY_POSITION_THR: f64 = 0.0001;
 
 impl Kinematics for OPWKinematics {
     fn inverse(&self, pose: &Pose) -> Solutions {
@@ -307,6 +309,8 @@ impl Kinematics for OPWKinematics {
         sols
     }
 
+    // Replaces one invalid or clearly singular case with "shifted" version
+    // that is also within the tolerance bounds.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
         let mut sols = self.inverse(pose);
         let mut problematic: Option<usize> = None;
@@ -324,8 +328,30 @@ impl Kinematics for OPWKinematics {
             return sols;
         }
 
-        // TODO this is not finished.
-
+        let rotation = pose.rotation;
+        for dx in -1..2 {
+            for dy in -1..2 {
+                for dz in -1..2 {
+                    if dx != 0 || dy != 0 || dz != 0 {
+                        let translation =
+                            Translation3::new(
+                                dx as f64 * SINGULARITY_POSITION_THR,
+                                dy as f64 * SINGULARITY_POSITION_THR,
+                                dz as f64 * SINGULARITY_POSITION_THR);
+                            let shifted= Pose::from_parts(translation, rotation);
+                            let ik = self.inverse(&shifted);
+                            for s_idx in 0..sols.len() {
+                                if is_valid(&ik[s_idx]) &&
+                                    self.kinematic_singularity(&ik[s_idx]).is_some() {
+                                    // Detected valid shifted case of kinematic singularity
+                                    sols[problematic.unwrap()] = ik[s_idx];
+                                    break;
+                                }
+                            }
+                    }
+                }
+            }
+        }
         sols
     }
 
@@ -389,10 +415,10 @@ impl Kinematics for OPWKinematics {
     fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
         let b =
             self.parameters.b == 0.0 &&
-            self.parameters.a1 == 0.0 &&
-            self.parameters.a2 == 0.0 &&
-            is_close_to_multiple_of_pi(joints[1]) &&
-            is_close_to_multiple_of_pi(joints[2]);
+                self.parameters.a1 == 0.0 &&
+                self.parameters.a2 == 0.0 &&
+                is_close_to_multiple_of_pi(joints[1]) &&
+                is_close_to_multiple_of_pi(joints[2]);
         let a = is_close_to_multiple_of_pi(joints[4]);
 
         if a && b {
@@ -411,8 +437,8 @@ fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
     // Normalize angle within [0, 2*PI)
     let normalized_angle = joint_value.rem_euclid(2.0 * PI);
     // Check if the normalized angle is close to 0 or PI
-    normalized_angle < SINGULARITY_THRESHOLD ||
-        (PI - normalized_angle).abs() < SINGULARITY_THRESHOLD
+    normalized_angle < SINGULARITY_ANGLE_THR ||
+        (PI - normalized_angle).abs() < SINGULARITY_ANGLE_THR
 }
 
 
