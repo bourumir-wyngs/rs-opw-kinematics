@@ -27,12 +27,12 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
     let angular_distance = ta.rotation.angle_to(&tb.rotation);
 
     if translation_distance.abs() > distance_tolerance {
-        println!("Translation Error: {}", translation_distance);
+        println!("Positioning error: {}", translation_distance);
         return false;
     }
 
-    if angular_distance.abs() > angular_distance {
-        println!("Angular Error: {}", angular_distance);
+    if angular_distance.abs() > angular_tolerance {
+        println!("Orientation errors: {}", angular_distance);
         return false;
     }
     true

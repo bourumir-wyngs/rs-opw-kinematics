@@ -1,6 +1,5 @@
 pub(crate) mod opw_kinematics {
-    use std::f64::consts::PI;
-    use crate::kinematic_traits::kinematics_traits::{Joints, Solutions};
+    use crate::kinematic_traits::kinematics_traits::{Joints};
 
     /// Checks if all elements in the array are finite
     pub fn is_valid(qs: &Joints) -> bool {
