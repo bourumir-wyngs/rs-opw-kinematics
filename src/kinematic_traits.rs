@@ -38,7 +38,17 @@ pub mod kinematics_traits {
     pub(crate) type Solutions = [Joints; 8];
 
     pub trait Kinematics {
+        /// Find inverse kinematics (joint position) for this pose
+        /// This function is faster but does not handle the singularity J5 = 0 well.
         fn inverse(&self, pose: &Pose) -> Solutions;
+
+
+        /// Find inverse kinematics (joint position) for this pose
+        /// This function handles the singularity J5 = 0 by keeping the previous values
+        /// the values J4 and J6 from the previous solution
+        fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
+
+        /// Find forward kinematics (pose from joint positions).
         fn forward(&self, qs: &Joints) -> Pose;
 
         /// Detect the singularity. Returns either A, B type singlularity or None if

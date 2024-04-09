@@ -1,6 +1,7 @@
 use std::f64::{consts::PI};
 use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
-use crate::parameters::opw_kinematics::Parameters;
+use crate::parameters::opw_kinematics::{Parameters};
+use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
 
@@ -20,22 +21,27 @@ impl OPWKinematics {
 }
 
 // Compare two poses with the given tolerance.
-fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>, tolerance: f64) -> bool {
+fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
+                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
     let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
     let angular_distance = ta.rotation.angle_to(&tb.rotation);
 
-    if translation_distance.abs() > tolerance {
+    if translation_distance.abs() > distance_tolerance {
         println!("Translation Error: {}", translation_distance);
         return false;
     }
 
-    if angular_distance.abs() > tolerance {
+    if angular_distance.abs() > angular_distance {
         println!("Angular Error: {}", angular_distance);
         return false;
     }
     true
 }
 
+
+const DISTANCE_TOLERANCE: f64 = 1E-6;
+const ANGULAR_TOLERANCE: f64 = 1E-4;
+const SINGULARITY_THRESHOLD: f64 = 0.01 * PI / 180.0;
 
 impl Kinematics for OPWKinematics {
     fn inverse(&self, pose: &Pose) -> Solutions {
@@ -290,13 +296,35 @@ impl Kinematics for OPWKinematics {
             };
             if valid {
                 let check_pose = self.forward(&sols[si]);
-                if !compare_poses(&pose, &check_pose, 1e-3) {
+                if !compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
                     println!("********** Pose Failure sol {} *********", si);
                     // Kill the entry making the failed solution invalid.
                     sols[si][0] = f64::NAN;
                 }
             }
         }
+
+        sols
+    }
+
+    fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+        let mut sols = self.inverse(pose);
+        let mut problematic: Option<usize> = None;
+
+        for s_idx in 0..sols.len() {
+            if !is_valid(&sols[s_idx]) ||
+                self.kinematic_singularity(&sols[s_idx]).is_some() {
+                problematic = Some(s_idx);
+                break;
+            }
+        }
+
+        // All solutions are valid with no singularity suspected - there can be any problems!
+        if problematic.is_none() {
+            return sols;
+        }
+
+        // TODO this is not finished.
 
         sols
     }
@@ -380,8 +408,6 @@ impl Kinematics for OPWKinematics {
 
 // Adjusted helper function to check for n*pi where n is any integer
 fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
-    const SINGULARITY_THRESHOLD: f64 = 0.01 * PI / 180.0;
-
     // Normalize angle within [0, 2*PI)
     let normalized_angle = joint_value.rem_euclid(2.0 * PI);
     // Check if the normalized angle is close to 0 or PI
