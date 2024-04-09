@@ -174,7 +174,7 @@ mod tests {
                 for sol_idx in 0..8 {
                     let mut row_str = String::new();
                     for joint_idx in 0..6 {
-                        let computed = solutions[(joint_idx, sol_idx)];
+                        let computed = solutions[sol_idx][joint_idx];
                         row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                     }
                     println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
@@ -198,6 +198,21 @@ mod tests {
         investigate_singularity(&kinematics, [10, 20, 30, 40, -180, 60]);
         investigate_singularity(&kinematics, [10, 20, 30, 41, 0, 59]);
         investigate_singularity(&kinematics, [15, 25, 25, 39, 50, 60]);
+    }
+
+    #[test]
+    fn test_singularity_ik_1_near() {
+        // This robot has both A and B type singularity
+        // B type singularity two angles, maestro
+        let parameters = Parameters::staubli_tx2_160l();
+        let kinematics = OPWKinematics::new(parameters.clone());
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0., 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0.00001, 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0.0001, 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0.001, 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0.01, 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 0.1, 60.]);
+        investigate_singularity_deep(&kinematics, [10., 20., 30., 40., 1.0, 60.]);
     }
 
     #[test]
@@ -235,12 +250,71 @@ mod tests {
         for sol_idx in 0..8 {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
-                let computed = solutions[(joint_idx, sol_idx)];
+                let computed = solutions[sol_idx][joint_idx];
                 row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
             }
             println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
             println!("---");
         }
+    }
+
+    fn investigate_singularity_deep(kinematics: &dyn Kinematics, joints: [f64; 6]) {
+        let mut joints_in_radians: [f64; 6] = [0.0; 6];
+        for (i, &deg) in joints.iter().enumerate() {
+            joints_in_radians[i] = deg as f64 * std::f64::consts::PI / 180.0;
+        }
+        let ik = kinematics.forward(&joints_in_radians);
+        let solutions = kinematics.inverse(&ik);
+
+        println!();
+        println!("**** Singularity case ****");
+        let joints_str = &joints.iter()
+            .map(|&val| format!("{:5}", val))
+            .collect::<Vec<String>>()
+            .join(" ");
+        println!("Joints joints: [{}]", joints_str);
+
+        println!("Solutions Matrix:");
+        for sol_idx in 0..8 {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = solutions[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+            println!("---");
+        }
+
+        let mut ik2 = ik;
+        ik2.translation.x = ik2.translation.x + 0.000001;
+        let solutions = kinematics.inverse(&ik2);
+
+        println!("Solutions Matrix IK2:");
+        for sol_idx in 0..8 {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = solutions[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+            println!("---");
+        }
+
+        let mut ik2 = ik;
+        ik2.translation.x = ik2.translation.x - 0.000001;
+        let solutions = kinematics.inverse(&ik2);
+
+        println!("Solutions Matrix IK2:");
+        for sol_idx in 0..8 {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = solutions[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+            println!("---");
+        }
+
     }
 
     fn found_joints_approx_equal(solutions: &Solutions, expected: &[f64; 6], tolerance: f64) -> Option<i32> {
@@ -249,7 +323,7 @@ mod tests {
 
             let mut solution_matches = true;
             for joint_idx in 0..6 {
-                let computed = solutions[(joint_idx, sol_idx)];
+                let computed = solutions[sol_idx][joint_idx];
                 let asserted = expected[joint_idx];
 
                 let diff = (computed - asserted).abs();

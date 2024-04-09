@@ -33,14 +33,16 @@ pub mod kinematics_traits {
 
     /// This library may return up to 8 solutions, each defining the rotations of the 6 joints.
     /// Use isValid in utils.rs to check if the solution is valid.
-    pub(crate) type Solutions = na::Matrix<f64, na::U6, na::U8, na::ArrayStorage<f64, 6, 8>>;
+    pub(crate) type Joints = [f64; 6];
+
+    pub(crate) type Solutions = [Joints; 8];
 
     pub trait Kinematics {
         fn inverse(&self, pose: &Pose) -> Solutions;
-        fn forward(&self, qs: &[f64; 6]) -> Pose;
+        fn forward(&self, qs: &Joints) -> Pose;
 
         /// Detect the singularity. Returns either A, B type singlularity or None if
         /// no singularity detected.
-        fn kinematic_singularity(&self, qs: &[f64; 6]) -> Option<Singularity>;
+        fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
     }
 }

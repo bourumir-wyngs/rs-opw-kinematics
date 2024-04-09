@@ -1,8 +1,8 @@
 use std::f64::{consts::PI};
-use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose, Singularity};
+use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
 use crate::parameters::opw_kinematics::Parameters;
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
-               Vector3, SMatrix};
+               Vector3};
 
 pub(crate) struct OPWKinematics {
     parameters: Parameters,
@@ -40,8 +40,6 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>, tolerance: f64) -> bo
 impl Kinematics for OPWKinematics {
     fn inverse(&self, pose: &Pose) -> Solutions {
         let params = &self.parameters;
-
-        let mut solutions: Solutions = Solutions::from_element(f64::NAN);
 
         // Adjust to wrist center
         let matrix = pose.rotation.to_rotation_matrix();
@@ -87,14 +85,14 @@ impl Kinematics for OPWKinematics {
         // theta3
         let tmp7 = s1_2 - c2_2 - kappa_2;
         let tmp8 = s2_2 - c2_2 - kappa_2;
-        let tmp9 = 2.0 * params.c2 * f64::sqrt(kappa_2); // Using f64::sqrt for the square root calculation
-        let tmp10 = f64::atan2(params.a2, params.c3); // atan2 used directly on f64 values
+        let tmp9 = 2.0 * params.c2 * f64::sqrt(kappa_2);
+        let tmp10 = f64::atan2(params.a2, params.c3);
 
-        let tmp11 = f64::acos(tmp7 / tmp9); // acos used directly on the f64 value
+        let tmp11 = f64::acos(tmp7 / tmp9);
         let theta3_i = tmp11 - tmp10;
         let theta3_ii = -tmp11 - tmp10;
 
-        let tmp12 = f64::acos(tmp8 / tmp9); // acos used directly on the f64 value
+        let tmp12 = f64::acos(tmp8 / tmp9);
         let theta3_iii = tmp12 - tmp10;
         let theta3_iv = -tmp12 - tmp10;
 
@@ -252,38 +250,31 @@ impl Kinematics for OPWKinematics {
         let theta6_vii = theta6_iii - PI;
         let theta6_viii = theta6_iv - PI;
 
+        let theta: [[f64; 6]; 8] = [
+            [theta1_i, theta2_i, theta3_i, theta4_i, theta5_i, theta6_i],
+            [theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii],
+            [theta1_ii, theta2_iii, theta3_iii, theta4_iii, theta5_iii, theta6_iii],
+            [theta1_ii, theta2_iv, theta3_iv, theta4_iv, theta5_iv, theta6_iv],
+            [theta1_i, theta2_i, theta3_i, theta4_v, theta5_v, theta6_v],
+            [theta1_i, theta2_ii, theta3_ii, theta4_vi, theta5_vi, theta6_vi],
+            [theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii],
+            [theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii, theta6_viii],
+        ];
 
-        let offsets = &params.offsets;
-        let signs: Vec<f64> = params.sign_corrections.iter().map(|&x| x as f64).collect();
-
-        let theta = SMatrix::<f64, 6, 8>::from_columns(&[
-            SMatrix::<f64, 6, 1>::new(theta1_i, theta2_i, theta3_i, theta4_i, theta5_i, theta6_i),
-            SMatrix::<f64, 6, 1>::new(theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii),
-            SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iii, theta3_iii, theta4_iii, theta5_iii, theta6_iii),
-            SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iv, theta3_iv, theta4_iv, theta5_iv, theta6_iv),
-            SMatrix::<f64, 6, 1>::new(theta1_i, theta2_i, theta3_i, theta4_v, theta5_v, theta6_v),
-            SMatrix::<f64, 6, 1>::new(theta1_i, theta2_ii, theta3_ii, theta4_vi, theta5_vi, theta6_vi),
-            SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii),
-            SMatrix::<f64, 6, 1>::new(theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii, theta6_viii),
-        ]);
-
-        let offsets_matrix = SMatrix::<f64, 6, 1>::from_column_slice(offsets);
-        let signs_matrix = SMatrix::<f64, 6, 1>::from_column_slice(&signs);
-
-
-        for i in 0..solutions.ncols() {
-            for j in 0..solutions.nrows() {
-                // Directly accessing and modifying elements in the matrix
-                solutions[(j, i)] = (theta[(j, i)] + offsets_matrix[j]) * signs_matrix[j];
+        let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
+        for si in 0..sols.len() {
+            for ji in 0..6 {
+                sols[si][ji] = (theta[si][ji] + params.offsets[ji]) *
+                    params.sign_corrections[ji] as f64;
             }
         }
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for si in 0..solutions.ncols() {
+        for si in 0..sols.len() {
             let mut valid = true;
             for ji in 0..6 {
-                let mut angle = solutions[(ji, si)];
+                let mut angle = sols[si][ji];
                 if angle.is_finite() {
                     while angle > PI {
                         angle -= 2.0 * PI;
@@ -291,35 +282,26 @@ impl Kinematics for OPWKinematics {
                     while angle < -PI {
                         angle += 2.0 * PI;
                     }
-                    solutions[(ji, si)] = angle;
+                    sols[si][ji] = angle;
                 } else {
                     valid = false;
                     break;
                 }
             };
             if valid {
-                let column = solutions.column(si);
-                let solution: [f64; 6] = [
-                    column[(0, 0)],
-                    column[(1, 0)],
-                    column[(2, 0)],
-                    column[(3, 0)],
-                    column[(4, 0)],
-                    column[(5, 0)],
-                ];
-                let check_pose = self.forward(&solution);
+                let check_pose = self.forward(&sols[si]);
                 if !compare_poses(&pose, &check_pose, 1e-3) {
                     println!("********** Pose Failure sol {} *********", si);
                     // Kill the entry making the failed solution invalid.
-                    solutions[(0, si)] = f64::NAN;
+                    sols[si][0] = f64::NAN;
                 }
             }
         }
 
-        solutions
+        sols
     }
 
-    fn forward(&self, joints: &[f64; 6]) -> Pose {
+    fn forward(&self, joints: &Joints) -> Pose {
         let p = &self.parameters;
 
         let q: Vec<f64> = joints.iter()
@@ -376,7 +358,7 @@ impl Kinematics for OPWKinematics {
                          UnitQuaternion::from_rotation_matrix(&rotation))
     }
 
-    fn kinematic_singularity(&self, joints: &[f64; 6]) -> Option<Singularity> {
+    fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
         let b =
             self.parameters.b == 0.0 &&
             self.parameters.a1 == 0.0 &&
