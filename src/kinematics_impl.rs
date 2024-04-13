@@ -402,6 +402,7 @@ impl Kinematics for OPWKinematics {
                 }
             }
         }
+        sort_by_closeness(&mut sols, &previous);
         sols
     }
 
@@ -499,5 +500,21 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
         diff = (2.0 * PI) - diff;
     }
     diff < SINGULARITY_ANGLE_THR
+}
+
+fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
+    joint1.iter()
+        .zip(joint2.iter())
+        .map(|(a, b)| (a - b).abs())
+        .sum()
+}
+
+/// Sorts the solutions vector by closeness to the `previous` joint.
+fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
+    solutions.sort_by(|a, b| {
+        let distance_a = calculate_distance(a, previous);
+        let distance_b = calculate_distance(b, previous);
+        distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
