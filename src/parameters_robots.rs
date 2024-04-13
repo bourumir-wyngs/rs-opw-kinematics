@@ -38,7 +38,7 @@ pub mod opw_kinematics {
             Parameters {
                 a1: 0.,
                 a2: 0.,
-                b: 0.000, // axis aligned
+                b: 0., // axis aligned
                 c1: 0.550,
                 c2: 0.825,
                 c3: 0.925,

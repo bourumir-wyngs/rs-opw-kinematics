@@ -201,6 +201,20 @@ mod tests {
     }
 
     #[test]
+    fn test_singularity_ik_continuing () {
+        // This robot has both A and B type singularity
+        // B type singularity two angles, maestro
+        let parameters = Parameters::staubli_tx2_160l();
+        let kinematics = OPWKinematics::new(parameters.clone());
+        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 0, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 180, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, -180, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 41, 0, 59]);
+        //investigate_singularity_continuing(&kinematics, [15, 25, 25, 39, 0, 60]);
+    }
+
+
+    #[test]
     fn test_singularity_ik_1_near() {
         // This robot has both A and B type singularity
         // B type singularity two angles, maestro
@@ -237,6 +251,34 @@ mod tests {
         }
         let ik = kinematics.forward(&joints_in_radians);
         let solutions = kinematics.inverse(&ik);
+
+        println!();
+        println!("**** Singularity case ****");
+        let joints_str = &joints.iter()
+            .map(|&val| format!("{:5}", val))
+            .collect::<Vec<String>>()
+            .join(" ");
+        println!("Joints joints: [{}]", joints_str);
+
+        println!("Solutions Matrix:");
+        for sol_idx in 0..8 {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = solutions[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+            println!("---");
+        }
+    }
+
+    fn investigate_singularity_continuing(kinematics: &dyn Kinematics, joints: [i32; 6]) {
+        let mut joints_in_radians: [f64; 6] = [0.0; 6];
+        for (i, &deg) in joints.iter().enumerate() {
+            joints_in_radians[i] = deg as f64 * std::f64::consts::PI / 180.0;
+        }
+        let ik = kinematics.forward(&joints_in_radians);
+        let solutions = kinematics.inverse_continuing(&ik, &joints_in_radians);
 
         println!();
         println!("**** Singularity case ****");

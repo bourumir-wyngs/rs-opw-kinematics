@@ -35,6 +35,10 @@ pub mod kinematics_traits {
     /// Use isValid in utils.rs to check if the solution is valid.
     pub(crate) type Joints = [f64; 6];
 
+    /// For providing singularity - proof solution when the previous value is not known.
+    /// Joints that take arbitrary angles will take angles as close to 0 as possible
+    pub(crate) const ZERO_JOINTS: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
     pub(crate) type Solutions = [Joints; 8];
 
     pub trait Kinematics {

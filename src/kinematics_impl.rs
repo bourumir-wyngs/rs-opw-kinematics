@@ -18,6 +18,18 @@ impl OPWKinematics {
             unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
         }
     }
+
+    fn dump_shifted_solutions(d: [f64; 3], ik: Solutions) {
+        println!("Shifted solutions {} {} {}", d[0], d[1], d[2]);
+        for sol_idx in 0..ik.len() {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = ik[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+        }
+    }
 }
 
 // Compare two poses with the given tolerance.
@@ -39,11 +51,17 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
 }
 
 
-const DISTANCE_TOLERANCE: f64 = 1E-6;
-const ANGULAR_TOLERANCE: f64 = 1E-4;
+const MM: f64 = 0.001;
+const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
+const ANGULAR_TOLERANCE: f64 = 1E-6;
+
+// USe for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
 
-const SINGULARITY_POSITION_THR: f64 = 0.0001;
+// Define indices for easier reading (numbering in array starts from 0)
+const J4: usize = 3;
+const J5: usize = 4;
+const J6: usize = 5;
 
 impl Kinematics for OPWKinematics {
     fn inverse(&self, pose: &Pose) -> Solutions {
@@ -312,9 +330,14 @@ impl Kinematics for OPWKinematics {
     // Replaces one invalid or clearly singular case with "shifted" version
     // that is also within the tolerance bounds.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 2.;
+        const SINGULARITY_SHIFTS: [[f64; 3]; 3] =
+            [[SINGULARITY_SHIFT, 0., 0.], [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
+
         let mut sols = self.inverse(pose);
         let mut problematic: Option<usize> = None;
 
+        // Find free slot to put the alternative solution
         for s_idx in 0..sols.len() {
             if !is_valid(&sols[s_idx]) ||
                 self.kinematic_singularity(&sols[s_idx]).is_some() {
@@ -328,27 +351,67 @@ impl Kinematics for OPWKinematics {
             return sols;
         }
 
+        println!("Main solutions");
+        for sol_idx in 0..sols.len() {
+            let mut row_str = String::new();
+            for joint_idx in 0..6 {
+                let computed = sols[sol_idx][joint_idx];
+                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+            }
+            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+        }
+
+        let pt = pose.translation;
+
         let rotation = pose.rotation;
-        for dx in -1..2 {
-            for dy in -1..2 {
-                for dz in -1..2 {
-                    if dx != 0 || dy != 0 || dz != 0 {
-                        let translation =
-                            Translation3::new(
-                                dx as f64 * SINGULARITY_POSITION_THR,
-                                dy as f64 * SINGULARITY_POSITION_THR,
-                                dz as f64 * SINGULARITY_POSITION_THR);
-                            let shifted= Pose::from_parts(translation, rotation);
-                            let ik = self.inverse(&shifted);
-                            for s_idx in 0..sols.len() {
-                                if is_valid(&ik[s_idx]) &&
-                                    self.kinematic_singularity(&ik[s_idx]).is_some() {
-                                    // Detected valid shifted case of kinematic singularity
-                                    sols[problematic.unwrap()] = ik[s_idx];
-                                    break;
-                                }
+        'shifts: for d in SINGULARITY_SHIFTS {
+            let shifted = Pose::from_parts(
+                Translation3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
+            let mut ik = self.inverse(&shifted);
+            // Self::dump_shifted_solutions(d, ik);
+
+            for s_idx in 0..ik.len() {
+                let singularity = self.kinematic_singularity(&ik[s_idx]);
+                if is_valid(&ik[s_idx]) &&
+                    singularity.is_some() &&
+                    are_angles_close(ik[s_idx][J5], previous[J5]) {
+                    let check_pose = self.forward(&ik[s_idx]);
+                    if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                        println!("********** Singlurarity resolved {} *********", s_idx);
+
+                        let s;
+                        let s_n;
+                        if let Some(Singularity::A) = singularity {
+                            if are_angles_close(previous[J5], 0.) {
+                                // J5 = 0 singlularity, J4 and J6 rotate same direction
+                                s = previous[J4] + previous[J6];
+                                s_n = ik[s_idx][J4] + ik[s_idx][J6];
+                            } else {
+                                // J5 = -180 or 180 singularity, even if the robot would need
+                                // specific design to rotate J5 to this angle without self-colliding.
+                                // J4 and J6 rotate in opposite directions
+                                s = previous[J4] - previous[J6];
+                                s_n = ik[s_idx][J4] - ik[s_idx][J6];
                             }
+
+                            println!("Sum old {} new {}", s.to_degrees(), s_n.to_degrees());
+
+                            let j_d = (s_n - s) / 2.0;
+                            ik[s_idx][J4] = previous[J4] + j_d;
+                            ik[s_idx][J6] = previous[J6] + j_d;
+
+                            // Check last time if the pose is ok
+                            let check_pose_2 = self.forward(&ik[s_idx]);
+                            if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                                println!("A type singularity {} substituted at {:?}", s_idx, problematic);
+                                sols[problematic.unwrap()] = ik[s_idx];
+                                break 'shifts;
+                            }
+                        }
+                    } else {
+                        println!("********** Alternative too far {} *********", s_idx);
                     }
+                    break;
                 }
             }
         }
@@ -434,6 +497,7 @@ impl Kinematics for OPWKinematics {
 
 // Adjusted helper function to check for n*pi where n is any integer
 fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
+
     // Normalize angle within [0, 2*PI)
     let normalized_angle = joint_value.rem_euclid(2.0 * PI);
     // Check if the normalized angle is close to 0 or PI
@@ -441,4 +505,12 @@ fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
         (PI - normalized_angle).abs() < SINGULARITY_ANGLE_THR
 }
 
+fn are_angles_close(angle1: f64, angle2: f64) -> bool {
+    let mut diff = (angle1 - angle2).abs();
+    diff = diff % (2.0 * PI);
+    while diff > PI {
+        diff = (2.0 * PI) - diff;
+    }
+    diff < SINGULARITY_ANGLE_THR
+}
 
