@@ -39,7 +39,7 @@ pub mod kinematics_traits {
     /// Joints that take arbitrary angles will take angles as close to 0 as possible
     pub(crate) const ZERO_JOINTS: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
-    pub(crate) type Solutions = [Joints; 8];
+    pub(crate) type Solutions = Vec<Joints>;
 
     pub trait Kinematics {
         /// Find inverse kinematics (joint position) for this pose

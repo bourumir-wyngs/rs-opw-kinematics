@@ -295,6 +295,8 @@ impl Kinematics for OPWKinematics {
             }
         }
 
+        let mut result: Solutions = Vec::with_capacity(8);
+
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
         for si in 0..sols.len() {
@@ -316,15 +318,15 @@ impl Kinematics for OPWKinematics {
             };
             if valid {
                 let check_pose = self.forward(&sols[si]);
-                if !compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                    result.push(sols[si]);
+                } else {
                     println!("********** Pose Failure sol {} *********", si);
-                    // Kill the entry making the failed solution invalid.
-                    sols[si][0] = f64::NAN;
                 }
             }
         }
 
-        sols
+        result
     }
 
     // Replaces one invalid or clearly singular case with "shifted" version
@@ -335,21 +337,6 @@ impl Kinematics for OPWKinematics {
             [[SINGULARITY_SHIFT, 0., 0.], [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
 
         let mut sols = self.inverse(pose);
-        let mut problematic: Option<usize> = None;
-
-        // Find free slot to put the alternative solution
-        for s_idx in 0..sols.len() {
-            if !is_valid(&sols[s_idx]) ||
-                self.kinematic_singularity(&sols[s_idx]).is_some() {
-                problematic = Some(s_idx);
-                break;
-            }
-        }
-
-        // All solutions are valid with no singularity suspected - there can be any problems!
-        if problematic.is_none() {
-            return sols;
-        }
 
         println!("Main solutions");
         for sol_idx in 0..sols.len() {
@@ -403,8 +390,8 @@ impl Kinematics for OPWKinematics {
                             // Check last time if the pose is ok
                             let check_pose_2 = self.forward(&ik[s_idx]);
                             if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                                println!("A type singularity {} substituted at {:?}", s_idx, problematic);
-                                sols[problematic.unwrap()] = ik[s_idx];
+                                println!("A type singularity {} added", s_idx);
+                                sols.push(ik[s_idx]);
                                 break 'shifts;
                             }
                         }

@@ -171,7 +171,7 @@ mod tests {
                 println!("Expected joints: [{}]", joints_str);
 
                 println!("Solutions Matrix:");
-                for sol_idx in 0..8 {
+                for sol_idx in 0..solutions.len() {
                     let mut row_str = String::new();
                     for joint_idx in 0..6 {
                         let computed = solutions[sol_idx][joint_idx];
@@ -261,7 +261,7 @@ mod tests {
         println!("Joints joints: [{}]", joints_str);
 
         println!("Solutions Matrix:");
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
@@ -317,7 +317,7 @@ mod tests {
         println!("Joints joints: [{}]", joints_str);
 
         println!("Solutions Matrix:");
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
@@ -332,7 +332,7 @@ mod tests {
         let solutions = kinematics.inverse(&ik2);
 
         println!("Solutions Matrix IK2:");
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
@@ -347,7 +347,7 @@ mod tests {
         let solutions = kinematics.inverse(&ik2);
 
         println!("Solutions Matrix IK2:");
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
@@ -360,7 +360,7 @@ mod tests {
     }
 
     fn found_joints_approx_equal(solutions: &Solutions, expected: &[f64; 6], tolerance: f64) -> Option<i32> {
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             // println!("Checking solution at index {}", sol_idx);
 
             let mut solution_matches = true;
