@@ -19,7 +19,7 @@ impl OPWKinematics {
         }
     }
 
-    fn dump_shifted_solutions(d: [f64; 3], ik: Solutions) {
+    fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
         println!("Shifted solutions {} {} {}", d[0], d[1], d[2]);
         for sol_idx in 0..ik.len() {
             let mut row_str = String::new();
@@ -58,7 +58,11 @@ const ANGULAR_TOLERANCE: f64 = 1E-6;
 // USe for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
 
-// Define indices for easier reading (numbering in array starts from 0)
+// Define indices for easier reading (numbering in array starts from 0 and this one-off is
+// contra - intuitive)
+const J1: usize = 0;
+const J2: usize = 1;
+const J3: usize = 2;
 const J4: usize = 3;
 const J5: usize = 4;
 const J6: usize = 5;
@@ -329,70 +333,89 @@ impl Kinematics for OPWKinematics {
         result
     }
 
-    // Replaces one invalid or clearly singular case with "shifted" version
-    // that is also within the tolerance bounds.
+    // Replaces singularity with correct solution
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
         const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 2.;
-        const SINGULARITY_SHIFTS: [[f64; 3]; 3] =
-            [[SINGULARITY_SHIFT, 0., 0.], [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
+        const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
+            [[0.,0.,0.,],[SINGULARITY_SHIFT, 0., 0.],
+                [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
 
-        let mut sols = self.inverse(pose);
-
-        println!("Main solutions");
-        for sol_idx in 0..sols.len() {
-            let mut row_str = String::new();
-            for joint_idx in 0..6 {
-                let computed = sols[sol_idx][joint_idx];
-                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-            }
-            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
-        }
-
+        let mut solutions: Vec<Joints> = Vec::with_capacity(9);
         let pt = pose.translation;
 
         let rotation = pose.rotation;
         'shifts: for d in SINGULARITY_SHIFTS {
             let shifted = Pose::from_parts(
                 Translation3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
-            let mut ik = self.inverse(&shifted);
-            // Self::dump_shifted_solutions(d, ik);
+            let ik = self.inverse(&shifted);
+            // Self::dump_shifted_solutions(d, &ik);
+            if solutions.is_empty() {
+                // Unshifted version that comes first is always included into results
+                solutions.extend(&ik);
+            }
 
             for s_idx in 0..ik.len() {
                 let singularity = self.kinematic_singularity(&ik[s_idx]);
-                if is_valid(&ik[s_idx]) &&
-                    singularity.is_some() &&
-                    are_angles_close(ik[s_idx][J5], previous[J5]) {
+                if singularity.is_some() && is_valid(&ik[s_idx]) {
+                    println!("Valid singularity {:?} detected for {:?}", singularity, ik[s_idx]);
                     let check_pose = self.forward(&ik[s_idx]);
                     if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                        println!("********** Singlurarity resolved {} *********", s_idx);
+                        println!("********** Singularity resolved {} typpe {:?} *********",
+                                 s_idx, singularity);
 
                         let s;
                         let s_n;
                         if let Some(Singularity::A) = singularity {
-                            if are_angles_close(previous[J5], 0.) {
+                            let mut now = ik[s_idx];
+                            if are_angles_close(now[J5], 0.) {
                                 // J5 = 0 singlularity, J4 and J6 rotate same direction
                                 s = previous[J4] + previous[J6];
-                                s_n = ik[s_idx][J4] + ik[s_idx][J6];
+                                s_n = now[J4] + now[J6];
                             } else {
                                 // J5 = -180 or 180 singularity, even if the robot would need
                                 // specific design to rotate J5 to this angle without self-colliding.
                                 // J4 and J6 rotate in opposite directions
                                 s = previous[J4] - previous[J6];
-                                s_n = ik[s_idx][J4] - ik[s_idx][J6];
+                                s_n = now[J4] - now[J6];
                             }
 
-                            println!("Sum old {} new {}", s.to_degrees(), s_n.to_degrees());
-
                             let j_d = (s_n - s) / 2.0;
-                            ik[s_idx][J4] = previous[J4] + j_d;
-                            ik[s_idx][J6] = previous[J6] + j_d;
+                            now[J4] = previous[J4] + j_d;
+                            now[J6] = previous[J6] + j_d;
 
                             // Check last time if the pose is ok
-                            let check_pose_2 = self.forward(&ik[s_idx]);
+                            let check_pose_2 = self.forward(&now);
                             if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
                                 println!("A type singularity {} added", s_idx);
-                                sols.push(ik[s_idx]);
+                                solutions.push(now);
                                 break 'shifts;
+                            }
+                        } else if let Some(Singularity::B) = singularity {
+                            let mut now = ik[s_idx];
+                            assert!(is_close_to_multiple_of_pi(now[J2]));
+                            assert!(is_close_to_multiple_of_pi(now[J3]));
+                            if are_angles_close(now[J2], now[J3]) {
+                                // J4 and J6 rotate same direction
+                                s = previous[J1] + previous[J4];
+                                s_n = now[J1] + now[J4];
+                            } else {
+                                // J4 and J6 rotate in opposite directions
+                                s = previous[J1] - previous[J4];
+                                s_n = now[J1] - now[J4];
+                            }
+
+                            let j_d = (s_n - s) / 2.0;
+                            now[J1] = previous[J1] + j_d;
+                            now[J4] = previous[J4] + j_d;
+
+                            // Check last time if the pose is ok
+                            let check_pose_2 = self.forward(&now);
+                            if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                                println!("B type singularity {} added", s_idx);
+                                solutions.push(now);
+                                break 'shifts;
+                            } else {
+                                println!("B type singularity {} does not resolve back", s_idx);
                             }
                         }
                     } else {
@@ -402,8 +425,8 @@ impl Kinematics for OPWKinematics {
                 }
             }
         }
-        sort_by_closeness(&mut sols, &previous);
-        sols
+        sort_by_closeness(&mut solutions, &previous);
+        solutions
     }
 
     fn forward(&self, joints: &Joints) -> Pose {
@@ -468,9 +491,9 @@ impl Kinematics for OPWKinematics {
             self.parameters.b == 0.0 &&
                 self.parameters.a1 == 0.0 &&
                 self.parameters.a2 == 0.0 &&
-                is_close_to_multiple_of_pi(joints[1]) &&
-                is_close_to_multiple_of_pi(joints[2]);
-        let a = is_close_to_multiple_of_pi(joints[4]);
+                is_close_to_multiple_of_pi(joints[J2]) &&
+                is_close_to_multiple_of_pi(joints[J3]);
+        let a = is_close_to_multiple_of_pi(joints[J5]);
 
         if a && b {
             return Some(Singularity::AB);

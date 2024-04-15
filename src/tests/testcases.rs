@@ -206,11 +206,11 @@ mod tests {
         // B type singularity two angles, maestro
         let parameters = Parameters::staubli_tx2_160l();
         let kinematics = OPWKinematics::new(parameters.clone());
-        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 0, 60]);
-        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 180, 60]);
-        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, -180, 60]);
-        //investigate_singularity_continuing(&kinematics, [10, 20, 30, 41, 0, 59]);
-        //investigate_singularity_continuing(&kinematics, [15, 25, 25, 39, 0, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 0, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 180, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, -180, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 20, 30, 41, 0, 59]);
+        investigate_singularity_continuing(&kinematics, [15, 25, 25, 39, 0, 60]);
     }
 
 
@@ -230,16 +230,15 @@ mod tests {
     }
 
     #[test]
-    fn test_singularity_ik_2() {
+    fn test_singularity_ik_b_continuing() {
         // This robot has both A and B type singularity
         // B type singularity two angles, maestro
         let parameters = Parameters::singularities_robot();
         let kinematics = OPWKinematics::new(parameters.clone());
-        investigate_singularity(&kinematics, [10, 20, 30, 40, 50, 60]);
-        investigate_singularity(&kinematics, [10, 0, 0, 40, 50, 60]);
-        investigate_singularity(&kinematics, [10, -90, 90, 40, 50, 60]);
-        investigate_singularity(&kinematics, [10, 90,  0, 40, 50, 60]);
-        investigate_singularity(&kinematics, [10, -90, 0, 40, 50, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 0, 0, 40, 50, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 0, 180, 40, 50, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 180, 0, 40, 50, 60]);
+        investigate_singularity_continuing(&kinematics, [10, 180, 180, 40, 50, 60]);
     }
 
 
@@ -289,7 +288,7 @@ mod tests {
         println!("Joints joints: [{}]", joints_str);
 
         println!("Solutions Matrix:");
-        for sol_idx in 0..8 {
+        for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
@@ -427,13 +426,16 @@ mod tests {
         let robot_immune = OPWKinematics::new(Parameters::staubli_tx40());
 
         // Assuming joint[1] close to 0 triggers B type singularity if b = 0
-        let joints = [0.0, 0.00001 * PI / 180.0, 0.0, 0.0, 0.9, PI];
+        let joints_1 = [0.0, 0.00001 * PI / 180.0, 0.0, 0.0, 0.9, PI];
+        let joints_2 = [0.0, 0.0, 0.00001 * PI / 180.0, 0.0, 0.9, PI];
 
         // This robot has b = 0.
-        assert_eq!(robot_vulnerable.kinematic_singularity(&joints), Some(Singularity::B));
+        assert_eq!(robot_vulnerable.kinematic_singularity(&joints_1), Some(Singularity::B));
+        assert_eq!(robot_vulnerable.kinematic_singularity(&joints_2), Some(Singularity::B));
 
         // This robot has b = 0.035 and is immune to the B type singularity .
-        assert_eq!(robot_immune.kinematic_singularity(&joints), None);
+        assert_eq!(robot_immune.kinematic_singularity(&joints_1), None);
+        assert_eq!(robot_immune.kinematic_singularity(&joints_2), None);
     }
 
     #[test]
