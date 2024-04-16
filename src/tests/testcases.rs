@@ -177,7 +177,7 @@ mod tests {
                         let computed = solutions[sol_idx][joint_idx];
                         row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                     }
-                    println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
+                    println!("[{}]", row_str.trim_end());
                 }
 
                 println!("---");
@@ -235,10 +235,12 @@ mod tests {
         // B type singularity two angles, maestro
         let parameters = Parameters::singularities_robot();
         let kinematics = OPWKinematics::new(parameters.clone());
-        investigate_singularity_continuing(&kinematics, [10, 0, 0, 40, 50, 60]);
-        investigate_singularity_continuing(&kinematics, [10, 0, 180, 40, 50, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 0, 0, 40, 50, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 0, 180, 40, 50, 60]);
         investigate_singularity_continuing(&kinematics, [10, 180, 0, 40, 50, 60]);
-        investigate_singularity_continuing(&kinematics, [10, 180, 180, 40, 50, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 180, 180, 40, 50, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, 180, -180, 40, 50, 60]);
+        //investigate_singularity_continuing(&kinematics, [10, -180, 180, 40, 50, 60]);
     }
 
 
@@ -287,15 +289,14 @@ mod tests {
             .join(" ");
         println!("Joints joints: [{}]", joints_str);
 
-        println!("Solutions Matrix:");
+        println!("Solutions:");
         for sol_idx in 0..solutions.len() {
             let mut row_str = String::new();
             for joint_idx in 0..6 {
                 let computed = solutions[sol_idx][joint_idx];
                 row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
             }
-            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
-            println!("---");
+            println!("{}. [{}]", sol_idx, row_str.trim_end());
         }
     }
 

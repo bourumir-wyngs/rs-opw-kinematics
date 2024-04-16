@@ -57,6 +57,8 @@ const ANGULAR_TOLERANCE: f64 = 1E-6;
 
 // USe for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
+const SUSPECTED_SINGULARITY_THR: f64 = 0.1 * PI / 180.0;
+
 
 // Define indices for easier reading (numbering in array starts from 0 and this one-off is
 // contra - intuitive)
@@ -335,9 +337,10 @@ impl Kinematics for OPWKinematics {
 
     // Replaces singularity with correct solution
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
-        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 2.;
+        // TODO hard singularity rounding
+        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 4.;
         const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
-            [[0.,0.,0.,],[SINGULARITY_SHIFT, 0., 0.],
+            [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
                 [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
 
         let mut solutions: Vec<Joints> = Vec::with_capacity(9);
@@ -355,9 +358,12 @@ impl Kinematics for OPWKinematics {
             }
 
             for s_idx in 0..ik.len() {
-                let singularity = self.kinematic_singularity(&ik[s_idx]);
+                let singularity =
+                    self.suspected_kinematic_singularity(&ik[s_idx]);
                 if singularity.is_some() && is_valid(&ik[s_idx]) {
-                    println!("Valid singularity {:?} detected for {:?}", singularity, ik[s_idx]);
+                    println!("Valid singularity {:?} detected for:", singularity);
+                    dump_joints(&ik[s_idx]);
+
                     let check_pose = self.forward(&ik[s_idx]);
                     if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
                         println!("********** Singularity resolved {} typpe {:?} *********",
@@ -392,8 +398,8 @@ impl Kinematics for OPWKinematics {
                             }
                         } else if let Some(Singularity::B) = singularity {
                             let mut now = ik[s_idx];
-                            assert!(is_close_to_multiple_of_pi(now[J2]));
-                            assert!(is_close_to_multiple_of_pi(now[J3]));
+                            assert!(is_close_to_multiple_of_pi(now[J2], SUSPECTED_SINGULARITY_THR));
+                            assert!(is_close_to_multiple_of_pi(now[J3], SUSPECTED_SINGULARITY_THR));
                             if are_angles_close(now[J2], now[J3]) {
                                 // J4 and J6 rotate same direction
                                 s = previous[J1] + previous[J4];
@@ -411,11 +417,13 @@ impl Kinematics for OPWKinematics {
                             // Check last time if the pose is ok
                             let check_pose_2 = self.forward(&now);
                             if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                                println!("B type singularity {} added", s_idx);
+                                println!("B type singularity {} added:", s_idx);
+                                dump_joints(&now);
                                 solutions.push(now);
                                 break 'shifts;
                             } else {
                                 println!("B type singularity {} does not resolve back", s_idx);
+                                dump_joints(&now);
                             }
                         }
                     } else {
@@ -491,9 +499,30 @@ impl Kinematics for OPWKinematics {
             self.parameters.b == 0.0 &&
                 self.parameters.a1 == 0.0 &&
                 self.parameters.a2 == 0.0 &&
-                is_close_to_multiple_of_pi(joints[J2]) &&
-                is_close_to_multiple_of_pi(joints[J3]);
-        let a = is_close_to_multiple_of_pi(joints[J5]);
+                is_close_to_multiple_of_pi(joints[J2], SINGULARITY_ANGLE_THR) &&
+                is_close_to_multiple_of_pi(joints[J3], SINGULARITY_ANGLE_THR);
+        let a = is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR);
+
+        if a && b {
+            return Some(Singularity::AB);
+        } else if a {
+            return Some(Singularity::A);
+        } else if b {
+            return Some(Singularity::B);
+        }
+        None
+    }
+}
+
+impl OPWKinematics {
+    fn suspected_kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
+        let b =
+            self.parameters.b == 0.0 &&
+                self.parameters.a1 == 0.0 &&
+                self.parameters.a2 == 0.0 &&
+                is_close_to_multiple_of_pi(joints[J2], SUSPECTED_SINGULARITY_THR) &&
+                is_close_to_multiple_of_pi(joints[J3], SUSPECTED_SINGULARITY_THR);
+        let a = is_close_to_multiple_of_pi(joints[J5], SUSPECTED_SINGULARITY_THR);
 
         if a && b {
             return Some(Singularity::AB);
@@ -507,13 +536,13 @@ impl Kinematics for OPWKinematics {
 }
 
 // Adjusted helper function to check for n*pi where n is any integer
-fn is_close_to_multiple_of_pi(joint_value: f64) -> bool {
+fn is_close_to_multiple_of_pi(joint_value: f64, threshold: f64) -> bool {
 
     // Normalize angle within [0, 2*PI)
     let normalized_angle = joint_value.rem_euclid(2.0 * PI);
     // Check if the normalized angle is close to 0 or PI
-    normalized_angle < SINGULARITY_ANGLE_THR ||
-        (PI - normalized_angle).abs() < SINGULARITY_ANGLE_THR
+    normalized_angle < threshold ||
+        (PI - normalized_angle).abs() < threshold
 }
 
 fn are_angles_close(angle1: f64, angle2: f64) -> bool {
@@ -541,3 +570,22 @@ fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
     });
 }
 
+fn dump_solutions(solutions: &Solutions) {
+    for sol_idx in 0..solutions.len() {
+        let mut row_str = String::new();
+        for joint_idx in 0..6 {
+            let computed = solutions[sol_idx][joint_idx];
+            row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+        }
+        println!("[{}]", row_str.trim_end());
+    }
+}
+
+fn dump_joints(joints: &Joints) {
+    let mut row_str = String::new();
+    for joint_idx in 0..6 {
+        let computed = joints[joint_idx];
+        row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+    }
+    println!("[{}]", row_str.trim_end());
+}
