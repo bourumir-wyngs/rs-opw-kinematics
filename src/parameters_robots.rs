@@ -33,21 +33,6 @@ pub mod opw_kinematics {
             }
         }
 
-        // Hypothetical robot with b = 0 and a1=a2 so prone to A type singularity
-        pub fn singularities_robot() -> Self {
-            Parameters {
-                a1: 0.,
-                a2: 0.,
-                b: 0., // axis aligned
-                c1: 0.550,
-                c2: 0.825,
-                c3: 0.925,
-                c4: 0.110,
-                offsets: [0.0; 6],
-                ..Self::new()
-            }
-        }
-
 
         // See https://www.staubli.com/content/dam/robotics/products/robots/tx2/TX2-140-160-datasheet-EN.pdf.
         // These three Staubli robots have spherical wrist and mostly identical plan, with only

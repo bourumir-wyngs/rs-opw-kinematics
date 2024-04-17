@@ -55,9 +55,8 @@ const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
 const ANGULAR_TOLERANCE: f64 = 1E-6;
 
-// USe for singularity checks.
+// Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
-const SUSPECTED_SINGULARITY_THR: f64 = 0.1 * PI / 180.0;
 
 
 // Define indices for easier reading (numbering in array starts from 0 and this one-off is
@@ -337,7 +336,6 @@ impl Kinematics for OPWKinematics {
 
     // Replaces singularity with correct solution
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
-        // TODO hard singularity rounding
         const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 4.;
         const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
             [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
@@ -359,16 +357,10 @@ impl Kinematics for OPWKinematics {
 
             for s_idx in 0..ik.len() {
                 let singularity =
-                    self.suspected_kinematic_singularity(&ik[s_idx]);
+                    self.kinematic_singularity(&ik[s_idx]);
                 if singularity.is_some() && is_valid(&ik[s_idx]) {
-                    println!("Valid singularity {:?} detected for:", singularity);
-                    dump_joints(&ik[s_idx]);
-
                     let check_pose = self.forward(&ik[s_idx]);
                     if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                        println!("********** Singularity resolved {} typpe {:?} *********",
-                                 s_idx, singularity);
-
                         let s;
                         let s_n;
                         if let Some(Singularity::A) = singularity {
@@ -381,9 +373,17 @@ impl Kinematics for OPWKinematics {
                                 // J5 = -180 or 180 singularity, even if the robot would need
                                 // specific design to rotate J5 to this angle without self-colliding.
                                 // J4 and J6 rotate in opposite directions
+                                assert!(is_close_to_multiple_of_pi(now[J5], 
+                                                                   SINGULARITY_ANGLE_THR));                                
+                                
                                 s = previous[J4] - previous[J6];
                                 s_n = now[J4] - now[J6];
-                            }
+
+                                // Fix J5 sign to match the previous
+                                if now[J5].signum() != previous[J5].signum() {
+                                    now[J5] = -now[J5];
+                                }
+                            } 
 
                             let j_d = (s_n - s) / 2.0;
                             now[J4] = previous[J4] + j_d;
@@ -392,38 +392,8 @@ impl Kinematics for OPWKinematics {
                             // Check last time if the pose is ok
                             let check_pose_2 = self.forward(&now);
                             if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                                println!("A type singularity {} added", s_idx);
                                 solutions.push(now);
                                 break 'shifts;
-                            }
-                        } else if let Some(Singularity::B) = singularity {
-                            let mut now = ik[s_idx];
-                            assert!(is_close_to_multiple_of_pi(now[J2], SUSPECTED_SINGULARITY_THR));
-                            assert!(is_close_to_multiple_of_pi(now[J3], SUSPECTED_SINGULARITY_THR));
-                            if are_angles_close(now[J2], now[J3]) {
-                                // J4 and J6 rotate same direction
-                                s = previous[J1] + previous[J4];
-                                s_n = now[J1] + now[J4];
-                            } else {
-                                // J4 and J6 rotate in opposite directions
-                                s = previous[J1] - previous[J4];
-                                s_n = now[J1] - now[J4];
-                            }
-
-                            let j_d = (s_n - s) / 2.0;
-                            now[J1] = previous[J1] + j_d;
-                            now[J4] = previous[J4] + j_d;
-
-                            // Check last time if the pose is ok
-                            let check_pose_2 = self.forward(&now);
-                            if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                                println!("B type singularity {} added:", s_idx);
-                                dump_joints(&now);
-                                solutions.push(now);
-                                break 'shifts;
-                            } else {
-                                println!("B type singularity {} does not resolve back", s_idx);
-                                dump_joints(&now);
                             }
                         }
                     } else {
@@ -495,43 +465,11 @@ impl Kinematics for OPWKinematics {
     }
 
     fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
-        let b =
-            self.parameters.b == 0.0 &&
-                self.parameters.a1 == 0.0 &&
-                self.parameters.a2 == 0.0 &&
-                is_close_to_multiple_of_pi(joints[J2], SINGULARITY_ANGLE_THR) &&
-                is_close_to_multiple_of_pi(joints[J3], SINGULARITY_ANGLE_THR);
-        let a = is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR);
-
-        if a && b {
-            return Some(Singularity::AB);
-        } else if a {
-            return Some(Singularity::A);
-        } else if b {
-            return Some(Singularity::B);
+        if is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR) {
+            Some(Singularity::A)
+        } else {
+            None
         }
-        None
-    }
-}
-
-impl OPWKinematics {
-    fn suspected_kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
-        let b =
-            self.parameters.b == 0.0 &&
-                self.parameters.a1 == 0.0 &&
-                self.parameters.a2 == 0.0 &&
-                is_close_to_multiple_of_pi(joints[J2], SUSPECTED_SINGULARITY_THR) &&
-                is_close_to_multiple_of_pi(joints[J3], SUSPECTED_SINGULARITY_THR);
-        let a = is_close_to_multiple_of_pi(joints[J5], SUSPECTED_SINGULARITY_THR);
-
-        if a && b {
-            return Some(Singularity::AB);
-        } else if a {
-            return Some(Singularity::A);
-        } else if b {
-            return Some(Singularity::B);
-        }
-        None
     }
 }
 
