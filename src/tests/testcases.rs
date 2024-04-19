@@ -199,8 +199,8 @@ mod tests {
         println!("Inverse IK: {} test cases", cases.cases.len());
 
         for case in cases.cases.iter() {
-            if case.id == 215 {
-                println!("Here we are");
+            if case.id != 1241 {
+                //continue;
             }
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
@@ -211,8 +211,9 @@ mod tests {
             let found_matching =
                 found_joints_approx_equal(&solutions, &case.joints_in_radians(),
                                           0.001_f64.to_radians());
-            if found_matching.is_none() {
-                println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
+            if !matches!(found_matching, Some(0)) {
+                println!("**** No valid solution: {:?} for case {} on {} ****", 
+                         found_matching, case.id, case.parameters);
                 let joints_str = &case.joints.iter()
                     .map(|&val| format!("{:5.2}", val))
                     .collect::<Vec<String>>()
@@ -232,7 +233,8 @@ mod tests {
                 println!("---");
             }
             assert!(matches!(found_matching, Some(0)),
-                    "Fully matching joints must come first. Expected Some(0), got {:?}", found_matching);
+                    "Fully matching joints must come first. At {}, Expected Some(0), got {:?}", 
+                    case.id,found_matching);
         }
     }
 

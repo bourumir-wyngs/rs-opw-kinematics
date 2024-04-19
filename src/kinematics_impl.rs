@@ -53,7 +53,7 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
 
 const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
-const ANGULAR_TOLERANCE: f64 = 1E-6;
+const ANGULAR_TOLERANCE: f64 = 1E-6; 
 
 // Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
@@ -336,7 +336,7 @@ impl Kinematics for OPWKinematics {
 
     // Replaces singularity with correct solution
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
-        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 4.;
+        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
         const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
             [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
                 [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
@@ -373,27 +373,46 @@ impl Kinematics for OPWKinematics {
                                 // J5 = -180 or 180 singularity, even if the robot would need
                                 // specific design to rotate J5 to this angle without self-colliding.
                                 // J4 and J6 rotate in opposite directions
-                                assert!(is_close_to_multiple_of_pi(now[J5], 
-                                                                   SINGULARITY_ANGLE_THR));                                
-                                
+                                assert!(is_close_to_multiple_of_pi(now[J5],
+                                                                   SINGULARITY_ANGLE_THR));
+
                                 s = previous[J4] - previous[J6];
                                 s_n = now[J4] - now[J6];
 
                                 // Fix J5 sign to match the previous
-                                if now[J5].signum() != previous[J5].signum() {
-                                    now[J5] = -now[J5];
-                                }
-                            } 
+                                normalize_near(&mut now[J5], previous[J5]);
+                            }
 
-                            let j_d = (s_n - s) / 2.0;
+                            let mut angle = s_n - s;
+                            while angle > PI {
+                                angle -= 2.0 * PI;
+                            }
+                            while angle < -PI {
+                                angle += 2.0 * PI;
+                            }
+                            let j_d = angle / 2.0;
+
                             now[J4] = previous[J4] + j_d;
                             now[J6] = previous[J6] + j_d;
 
                             // Check last time if the pose is ok
                             let check_pose_2 = self.forward(&now);
                             if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                                println!("FROM");
+                                dump_joints(&previous);
+                                println!("NOW:");
+                                dump_joints(&now);
+                                println!("Angle diff: {} from {} now {}",
+                                         angle.to_degrees(), s.to_degrees(), s_n.to_degrees());
                                 solutions.push(now);
                                 break 'shifts;
+                            } else {
+                                println!("FROM (failed)");
+                                dump_joints(&previous);
+                                println!("NOW (wrong):");
+                                dump_joints(&now);
+                                println!("Angle diff: {} from {} now {}",
+                                         angle.to_degrees(), s.to_degrees(), s_n.to_degrees());
                             }
                         }
                     } else {
@@ -403,6 +422,13 @@ impl Kinematics for OPWKinematics {
                 }
             }
         }
+        // Before any sorting, normalize all angles to be close to
+        // 'previous'
+        for s_idx in 0..solutions.len() {
+            for joint_idx in 0..6 {
+                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
+            }
+        }
         sort_by_closeness(&mut solutions, &previous);
         solutions
     }
@@ -410,13 +436,10 @@ impl Kinematics for OPWKinematics {
     fn forward(&self, joints: &Joints) -> Pose {
         let p = &self.parameters;
 
-        let q: Vec<f64> = joints.iter()
-            .zip(p.sign_corrections.iter())
-            .zip(p.offsets.iter())
-            .map(|((&joint, &sign_correction), &offset)| {
-                joint * sign_correction as f64 - offset
-            })
-            .collect();
+        let mut q: Joints = joints.clone();
+        for j in 0..6 {
+            q[j] = q[j] * p.sign_corrections[j] as f64 - p.offsets[j];
+        }
 
         let psi3 = f64::atan2(p.a2, p.c3);
         let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
@@ -491,6 +514,34 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
     }
     diff < SINGULARITY_ANGLE_THR
 }
+
+/// Normalizes the angle `now` to be as close as possible to `prev`
+///
+/// # Arguments
+///
+/// * `now` - A mutable reference to the angle to be normalized
+/// * `prev` - The reference angle in radians
+fn normalize_near(now: &mut f64, must_be_near: f64) {
+    let two_pi = 2.0 * PI;
+
+    fn adjust(now: &mut f64, prev: f64, two_pi: f64) {
+        if (*now - prev).abs() > ((*now - two_pi) - prev).abs() {
+            *now -= two_pi;
+        }
+        if (*now - prev).abs() > ((*now + two_pi) - prev).abs() {
+            *now += two_pi;
+        }
+        // Handle case -pi and pi that are identical angles
+        if (*now).abs() == PI && (prev.signum() != (*now).signum()) {
+            *now = -*now;
+        }
+    }
+
+    // Perform the adjustment potentially twice to ensure minimum difference
+    adjust(now, must_be_near, two_pi);
+    adjust(now, must_be_near, two_pi);
+}
+
 
 fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
     joint1.iter()
