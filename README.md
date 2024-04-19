@@ -1,7 +1,7 @@
 # rs-opw-kinematics
 
-Rust implementation of inverse kinematic solutions for 6 axis industrial robots with a parallel base and spherical
-wrist.
+Rust implementation of inverse and forward kinematic solutions for 6 axis industrial robots with a parallel base 
+and spherical wrist.
 
 [![license - apache 2.0](https://img.shields.io/:license-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -18,7 +18,8 @@ Not just the code has been rewritten in Rust: there are some differences and ext
 
 This library makes use of 7 kinematic parameters (a1, a2, b, c1, c2, c3, and c4) defined in the
 paper `An Analytical Solution of the Inverse Kinematics Problem
-of Industrial Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist`.
+of Industrial Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist`. This paper can be found
+[here](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf).
 
 This paper assumes that the arm is at zero when all joints are sticking straight up in the air as seen in the image
 below. It also assumes that all rotations are positive about the base axis of the robot. No other setup is required.
