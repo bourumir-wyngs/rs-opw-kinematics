@@ -395,7 +395,7 @@ impl Kinematics for OPWKinematics {
                         if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
                             solutions.push(now);
                             // We only expect one singularity case hence once we found, we can end
-                            break 'shifts; 
+                            break 'shifts;
                         }
                     }
 
@@ -417,35 +417,37 @@ impl Kinematics for OPWKinematics {
     fn forward(&self, joints: &Joints) -> Pose {
         let p = &self.parameters;
 
-        let mut q: Joints = joints.clone();
-        for j in 0..6 {
-            q[j] = q[j] * p.sign_corrections[j] as f64 - p.offsets[j];
-        }
+        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
+        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
+        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
+        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
+        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
+        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
         let psi3 = f64::atan2(p.a2, p.c3);
         let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
 
-        let cx1 = p.c2 * f64::sin(q[1]) + k * f64::sin(q[1] + q[2] + psi3) + p.a1;
+        let cx1 = p.c2 * f64::sin(q2) + k * f64::sin(q2 + q3 + psi3) + p.a1;
         let cy1 = p.b;
-        let cz1 = p.c2 * f64::cos(q[1]) + k * f64::cos(q[1] + q[2] + psi3);
+        let cz1 = p.c2 * f64::cos(q2) + k * f64::cos(q2 + q3 + psi3);
 
-        let cx0 = cx1 * f64::cos(q[0]) - cy1 * f64::sin(q[0]);
-        let cy0 = cx1 * f64::sin(q[0]) + cy1 * f64::cos(q[0]);
+        let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
+        let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
         let cz0 = cz1 + p.c1;
 
-        let s1 = f64::sin(q[0]);
-        let s2 = f64::sin(q[1]);
-        let s3 = f64::sin(q[2]);
-        let s4 = f64::sin(q[3]);
-        let s5 = f64::sin(q[4]);
-        let s6 = f64::sin(q[5]);
+        let s1 = f64::sin(q1);
+        let s2 = f64::sin(q2);
+        let s3 = f64::sin(q3);
+        let s4 = f64::sin(q4);
+        let s5 = f64::sin(q5);
+        let s6 = f64::sin(q6);
 
-        let c1 = f64::cos(q[0]);
-        let c2 = f64::cos(q[1]);
-        let c3 = f64::cos(q[2]);
-        let c4 = f64::cos(q[3]);
-        let c5 = f64::cos(q[4]);
-        let c6 = f64::cos(q[5]);
+        let c1 = f64::cos(q1);
+        let c2 = f64::cos(q2);
+        let c3 = f64::cos(q3);
+        let c4 = f64::cos(q4);
+        let c5 = f64::cos(q5);
+        let c6 = f64::cos(q6);
 
         let r_0c = Matrix3::new(
             c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
@@ -500,8 +502,8 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
 ///
 /// # Arguments
 ///
-/// * `now` - A mutable reference to the angle to be normalized
-/// * `prev` - The reference angle in radians
+/// * `now` - A mutable reference to the angle to be normalized, radians
+/// * `prev` - The reference angle, radians
 fn normalize_near(now: &mut f64, must_be_near: f64) {
     let two_pi = 2.0 * PI;
 

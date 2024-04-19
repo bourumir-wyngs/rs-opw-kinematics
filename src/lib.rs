@@ -7,8 +7,5 @@ mod kinematics_impl;
 #[cfg(test)]
 mod tests;
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
 
 
