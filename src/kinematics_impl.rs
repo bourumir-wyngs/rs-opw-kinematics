@@ -53,7 +53,7 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
 
 const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
-const ANGULAR_TOLERANCE: f64 = 1E-6; 
+const ANGULAR_TOLERANCE: f64 = 1E-6;
 
 // Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
@@ -359,65 +359,46 @@ impl Kinematics for OPWKinematics {
                 let singularity =
                     self.kinematic_singularity(&ik[s_idx]);
                 if singularity.is_some() && is_valid(&ik[s_idx]) {
-                    let check_pose = self.forward(&ik[s_idx]);
-                    if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                        let s;
-                        let s_n;
-                        if let Some(Singularity::A) = singularity {
-                            let mut now = ik[s_idx];
-                            if are_angles_close(now[J5], 0.) {
-                                // J5 = 0 singlularity, J4 and J6 rotate same direction
-                                s = previous[J4] + previous[J6];
-                                s_n = now[J4] + now[J6];
-                            } else {
-                                // J5 = -180 or 180 singularity, even if the robot would need
-                                // specific design to rotate J5 to this angle without self-colliding.
-                                // J4 and J6 rotate in opposite directions
-                                assert!(is_close_to_multiple_of_pi(now[J5],
-                                                                   SINGULARITY_ANGLE_THR));
+                    let s;
+                    let s_n;
+                    if let Some(Singularity::A) = singularity {
+                        let mut now = ik[s_idx];
+                        if are_angles_close(now[J5], 0.) {
+                            // J5 = 0 singlularity, J4 and J6 rotate same direction
+                            s = previous[J4] + previous[J6];
+                            s_n = now[J4] + now[J6];
+                        } else {
+                            // J5 = -180 or 180 singularity, even if the robot would need
+                            // specific design to rotate J5 to this angle without self-colliding.
+                            // J4 and J6 rotate in opposite directions
+                            s = previous[J4] - previous[J6];
+                            s_n = now[J4] - now[J6];
 
-                                s = previous[J4] - previous[J6];
-                                s_n = now[J4] - now[J6];
-
-                                // Fix J5 sign to match the previous
-                                normalize_near(&mut now[J5], previous[J5]);
-                            }
-
-                            let mut angle = s_n - s;
-                            while angle > PI {
-                                angle -= 2.0 * PI;
-                            }
-                            while angle < -PI {
-                                angle += 2.0 * PI;
-                            }
-                            let j_d = angle / 2.0;
-
-                            now[J4] = previous[J4] + j_d;
-                            now[J6] = previous[J6] + j_d;
-
-                            // Check last time if the pose is ok
-                            let check_pose_2 = self.forward(&now);
-                            if compare_poses(&pose, &check_pose_2, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                                println!("FROM");
-                                dump_joints(&previous);
-                                println!("NOW:");
-                                dump_joints(&now);
-                                println!("Angle diff: {} from {} now {}",
-                                         angle.to_degrees(), s.to_degrees(), s_n.to_degrees());
-                                solutions.push(now);
-                                break 'shifts;
-                            } else {
-                                println!("FROM (failed)");
-                                dump_joints(&previous);
-                                println!("NOW (wrong):");
-                                dump_joints(&now);
-                                println!("Angle diff: {} from {} now {}",
-                                         angle.to_degrees(), s.to_degrees(), s_n.to_degrees());
-                            }
+                            // Fix J5 sign to match the previous
+                            normalize_near(&mut now[J5], previous[J5]);
                         }
-                    } else {
-                        println!("********** Alternative too far {} *********", s_idx);
+
+                        let mut angle = s_n - s;
+                        while angle > PI {
+                            angle -= 2.0 * PI;
+                        }
+                        while angle < -PI {
+                            angle += 2.0 * PI;
+                        }
+                        let j_d = angle / 2.0;
+
+                        now[J4] = previous[J4] + j_d;
+                        now[J6] = previous[J6] + j_d;
+
+                        // Check last time if the pose is ok
+                        let check_pose = self.forward(&now);
+                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                            solutions.push(now);
+                            // We only expect one singularity case hence once we found, we can end
+                            break 'shifts; 
+                        }
                     }
+
                     break;
                 }
             }
@@ -551,6 +532,7 @@ fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
 }
 
 /// Sorts the solutions vector by closeness to the `previous` joint.
+/// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
 fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
     solutions.sort_by(|a, b| {
         let distance_a = calculate_distance(a, previous);
