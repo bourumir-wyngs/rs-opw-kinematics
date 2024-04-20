@@ -22,7 +22,7 @@ pub type Pose = Isometry3<f64>;
 /// b = 0 and a1 = a2 so not possible with most of the robots. 
 /// Joints are counted from 1 to 6 in this comment.
 #[derive(PartialEq, Debug)]
-pub(crate) enum Singularity {
+pub enum Singularity {
     /// Represents singularity when J5 = 0, possible with any robot.
     A,
 }
