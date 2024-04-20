@@ -4,6 +4,7 @@ version = "1.0.2"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
+keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
 license = "BSD-3-Clause"
 
 [dependencies]

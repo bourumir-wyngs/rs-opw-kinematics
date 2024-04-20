@@ -1,5 +1,3 @@
-# rs-opw-kinematics
-
 Rust implementation of inverse and forward kinematic solutions for 6 axis industrial robots with a parallel base 
 and spherical wrist. Hardened against the J5 = 0&deg; or &plusmn; 180&deg; singularity and optimized for trajectory planning.
 
