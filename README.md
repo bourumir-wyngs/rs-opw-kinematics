@@ -65,7 +65,7 @@ ABB IRB 2600-12/1.65, ABB IRB 4600-60/2.05, Stäubli TX2-140, Stäubli TX2-160, 
 testing. Many such configurations are provided by robot manufacturers for they robots.
 For instance, FANUC M10IA is described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
 Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
-We are working in possibility of reading these configuration files directly.
+We are working on possibility of reading these configuration files directly.
 
 # Example
 Cargo.toml:
