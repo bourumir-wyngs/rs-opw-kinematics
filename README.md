@@ -60,14 +60,6 @@ let parameters = Parameters {
 Note that the offset of the third joint is -90 degrees, bringing the joint from the upright position to parallel with
 the ground at "zero".
 
-The project contains built-in definitions for ABB IRB 2400/10, KUKA KR 6 R700 sixx, FANUC R-2000iB/200R, Stäubli TX40,
-ABB IRB 2600-12/1.65, ABB IRB 4600-60/2.05, Stäubli TX2-140, Stäubli TX2-160, Stäubli TX2-160L with various level of
-testing. Many such configurations are provided by robot manufacturers for they robots.
-For instance, FANUC M10IA is described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
-Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
-This project contains the code for reading such configurations directly, including support for *deg(angle)*
-function that sometimes occurs there.
-
 # Example
 Cargo.toml:
 ```toml
@@ -111,6 +103,15 @@ fn main() {
   dump_solutions(&solutions);
 }
 ```
+
+# Configuring the solver for your robot
+The project contains built-in definitions for ABB IRB 2400/10, KUKA KR 6 R700 sixx, FANUC R-2000iB/200R, Stäubli TX40,
+ABB IRB 2600-12/1.65, ABB IRB 4600-60/2.05, Stäubli TX2-140, Stäubli TX2-160, Stäubli TX2-160L with various level of
+testing. Such configurations may be provided by robot manufacturers for they robots.
+For instance, FANUC M10IA is described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
+Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
+This project contains the code for reading such configurations directly, including support for *deg(angle)*
+function that sometimes occurs there.
 
 Is possible to read YAML parameter files directly, including parsing of the deg(angle)
 function that sometimes occurs there. 
