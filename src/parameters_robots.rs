@@ -2,6 +2,7 @@ pub mod opw_kinematics {
     use std::f64::consts::PI;
     use crate::parameters::opw_kinematics::Parameters;
 
+    #[allow(dead_code)]
     impl Parameters {
 
         // Provides default values

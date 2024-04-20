@@ -1,55 +1,25 @@
 use std::f64::{consts::PI};
-use crate::kinematic_traits::kinematics_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
+use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
 use crate::parameters::opw_kinematics::{Parameters};
 use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
 
-pub(crate) struct OPWKinematics {
+pub struct OPWKinematics {
     parameters: Parameters,
     unit_z: Unit<OVector<f64, U3>>,
 }
 
 impl OPWKinematics {
     /// Creates a new `OPWKinematics` instance with the given parameters.
+    #[allow(dead_code)]
     pub fn new(parameters: Parameters) -> Self {
         OPWKinematics {
             parameters,
             unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
         }
     }
-
-    fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
-        println!("Shifted solutions {} {} {}", d[0], d[1], d[2]);
-        for sol_idx in 0..ik.len() {
-            let mut row_str = String::new();
-            for joint_idx in 0..6 {
-                let computed = ik[sol_idx][joint_idx];
-                row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-            }
-            println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
-        }
-    }
 }
-
-// Compare two poses with the given tolerance.
-fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
-                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
-    let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
-    let angular_distance = ta.rotation.angle_to(&tb.rotation);
-
-    if translation_distance.abs() > distance_tolerance {
-        println!("Positioning error: {}", translation_distance);
-        return false;
-    }
-
-    if angular_distance.abs() > angular_tolerance {
-        println!("Orientation errors: {}", angular_distance);
-        return false;
-    }
-    true
-}
-
 
 const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
@@ -58,14 +28,19 @@ const ANGULAR_TOLERANCE: f64 = 1E-6;
 // Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
 
-
 // Define indices for easier reading (numbering in array starts from 0 and this one-off is
 // contra - intuitive)
+#[allow(dead_code)]
 const J1: usize = 0;
+#[allow(dead_code)]
 const J2: usize = 1;
+#[allow(dead_code)]
 const J3: usize = 2;
+#[allow(dead_code)]
 const J4: usize = 3;
+#[allow(dead_code)]
 const J5: usize = 4;
+#[allow(dead_code)]
 const J6: usize = 5;
 
 impl Kinematics for OPWKinematics {
@@ -543,22 +518,33 @@ fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
     });
 }
 
-fn dump_solutions(solutions: &Solutions) {
-    for sol_idx in 0..solutions.len() {
-        let mut row_str = String::new();
-        for joint_idx in 0..6 {
-            let computed = solutions[sol_idx][joint_idx];
-            row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-        }
-        println!("[{}]", row_str.trim_end());
+// Compare two poses with the given tolerance.
+fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
+                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
+    let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
+    let angular_distance = ta.rotation.angle_to(&tb.rotation);
+
+    if translation_distance.abs() > distance_tolerance {
+        println!("Positioning error: {}", translation_distance);
+        return false;
     }
+
+    if angular_distance.abs() > angular_tolerance {
+        println!("Orientation errors: {}", angular_distance);
+        return false;
+    }
+    true
 }
 
-fn dump_joints(joints: &Joints) {
-    let mut row_str = String::new();
-    for joint_idx in 0..6 {
-        let computed = joints[joint_idx];
-        row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+#[allow(dead_code)]
+fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
+    println!("Shifted solutions {} {} {}", d[0], d[1], d[2]);
+    for sol_idx in 0..ik.len() {
+        let mut row_str = String::new();
+        for joint_idx in 0..6 {
+            let computed = ik[sol_idx][joint_idx];
+            row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+        }
+        println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
     }
-    println!("[{}]", row_str.trim_end());
 }

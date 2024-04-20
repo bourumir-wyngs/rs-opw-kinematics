@@ -10,19 +10,30 @@ and spherical wrist.
 This work is based on the paper `An Analytical Solution of the Inverse Kinematics Problem
 of Industrial Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist` by
 Mathias Brandstötter, Arthur Angerer, and Michael Hofbaur. It is also inspired by the similar
-C++ project [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics) (used as a reference
-implementation to generate data for the the test suite) but is not a direct clone of it.
-Not just the code has been rewritten in Rust: there are some differences and extensions.
+C++ project [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics) (that was used as a reference
+implementation to generate data for the test suite, also this documentation uses the robot diagram from there).
+This paper can be found
+[here](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf).
+
+
+# Features
+- rs-opw-kinematics is written entirely in Rust (not a C++ binding) and could be deployed using Cargo.
+- all returned solutions are valid, normalized and cross-checked with forward kinematics. 
+- to generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as additional input.
+- if the previous joint positions are provided, the solutions are sorted by proximity to them (closest first)
+- for kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
+- values close to the previous positions of these joints (and not arbitrary that may result a large jerk of the real robot)
+- use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
+
+# Limitations
+The solver currently requires to use 64 bit floats (Rust f64). 
+The positional accuracy for the robots tested (KUKA KR 6 R700 sixx and ABB IRB 2400/10) is below 1&micro;m.
 
 # Parameters
 
-This library makes use of 7 kinematic parameters (a1, a2, b, c1, c2, c3, and c4) defined in the
-paper `An Analytical Solution of the Inverse Kinematics Problem
-of Industrial Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist`. This paper can be found
-[here](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf).
-
-This paper assumes that the arm is at zero when all joints are sticking straight up in the air as seen in the image
-below. It also assumes that all rotations are positive about the base axis of the robot. No other setup is required.
+This library makes use of 7 kinematic parameters (a1, a2, b, c1, c2, c3, and c4). This solver assumes that the arm is 
+at zero when all joints are sticking straight up in the air as seen in the image below. It also assumes that all 
+rotations are positive about the base axis of the robot. No other setup is required. 
 
 ![OPW Diagram](documentation/opw.png)
 
@@ -57,10 +68,43 @@ testing.
 # Example
 
 ```Rust
-    fn test_no_singularity() {
+use crate::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
+use crate::kinematics_impl::OPWKinematics;
+use crate::parameters::opw_kinematics::Parameters;
+use crate::utils::{dump_joints, dump_solutions};
+
+mod parameters;
+mod parameters_robots;
+mod utils;
+mod kinematic_traits;
+mod kinematics_impl;
+
+fn main() {
     let robot = OPWKinematics::new(Parameters::irb2400_10());
-    let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
-    assert_eq!(robot.kinematic_singularity(&joints), None);
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
+    println!("Initial joints with singularity J5 = 0: ");
+    dump_joints(&joints);
+
+    println!("Solutions (original angle set is lacking due singularity there: ");
+    let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
+
+    let solutions = robot.inverse(&pose); // Solutions is alias of Vec<Joints>
+    dump_solutions(&solutions);
+
+    println!("Solutions assuming we continue from somewhere close. The 'lost solution' returns");
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    dump_solutions(&solutions);
+
+    println!("Same pose, all J4+J6 rotation assumed to be previously concentrated on J4 only");
+    let when_continuing_from_J6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_J6_0);
+    dump_solutions(&solutions);
+
+    println!("If we do not have the previous position, we can assume we want J4, J6 close to 0.0");
+    println!("The solution appears and the needed rotation is now equally distributed between J4 and J6.");
+    let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
+    dump_solutions(&solutions);
 }
 
 ```
