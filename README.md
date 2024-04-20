@@ -61,6 +61,13 @@ ABB IRB 2600-12/1.65, ABB IRB 4600-60/2.05, Stäubli TX2-140, Stäubli TX2-160, 
 testing. 
 
 # Example
+Cargo.toml:
+```toml
+[dependencies]
+rs-opw-kinematics = "1.0.1"
+```
+
+main.rs:
 
 ```Rust
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
