@@ -1,8 +1,8 @@
-mod parameters;
-mod parameters_robots;
-mod utils;
-mod kinematic_traits;
-mod kinematics_impl;
+pub mod parameters;
+pub mod parameters_robots;
+pub mod utils;
+pub mod kinematic_traits;
+pub mod kinematics_impl;
 
 #[cfg(test)]
 mod tests;
