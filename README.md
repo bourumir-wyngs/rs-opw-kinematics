@@ -23,7 +23,7 @@ This paper can be found
 - to generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as additional input.
 - if the previous joint positions are provided, the solutions are sorted by proximity to them (closest first)
 - for kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
-- values close to the previous positions of these joints (and not arbitrary that may result a large jerk of the real robot)
+  values close to the previous positions of these joints (and not arbitrary that may result a large jerk of the real robot)
 - use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
 - The solver currently use 64 bit floats (Rust f64), providing the positional accuracy below 1&micro;m for
   the two robots tested.
