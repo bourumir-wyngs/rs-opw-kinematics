@@ -1,5 +1,7 @@
 use crate::kinematic_traits::{Joints, Solutions};
 
+/// Checks the solution for validity. This is only internally needed as all returned
+/// solutions are already checked.
 pub(crate) mod opw_kinematics {
     use crate::kinematic_traits::{Joints};
 
@@ -9,6 +11,7 @@ pub(crate) mod opw_kinematics {
     }
 }
 
+/// Print joint values for all solutions, converting radianst to degrees.
 #[allow(dead_code)]
 pub fn dump_solutions(solutions: &Solutions) {
     for sol_idx in 0..solutions.len() {
@@ -21,6 +24,7 @@ pub fn dump_solutions(solutions: &Solutions) {
     }
 }
 
+/// Print joint values, converting radianst to degrees.
 #[allow(dead_code)]
 pub fn dump_joints(joints: &Joints) {
     let mut row_str = String::new();

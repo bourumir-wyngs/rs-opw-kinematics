@@ -1,6 +1,5 @@
 extern crate nalgebra as na;
 
-
 use na::{Isometry3};
 
 /// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
@@ -27,20 +26,25 @@ pub enum Singularity {
     A,
 }
 
-/// This library may return up to 8 solutions, each defining the rotations of the 6 joints.
-/// Use isValid in utils.rs to check if the solution is valid.
+/// Six rotary joints of the robot with angles in radians. 
 pub type Joints = [f64; 6];
 
 /// For providing singularity - proof solution when the previous value is not known.
-/// Joints that take arbitrary angles will take angles as close to 0 as possible
+/// Joints that take arbitrary angles will take angles as close to 0 as possible:
+/// let solutions = kinematics.inverse_continuing(&pose, &JOINTS_AT_ZERO);
 #[allow(dead_code)]
 pub const JOINTS_AT_ZERO: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
-pub(crate) type Solutions = Vec<Joints>;
+/// For providing solutions. As invalid solutions are discarded, 
+/// this is a variable length vector (may be empty if robot cannot reach the 
+/// given point).
+pub type Solutions = Vec<Joints>;
 
 pub trait Kinematics {
     /// Find inverse kinematics (joint position) for this pose
     /// This function is faster but does not handle the singularity J5 = 0 well.
+    /// All returned solutions are cross-checked with forward kinematics and
+    /// valid. 
     fn inverse(&self, pose: &Pose) -> Solutions;
 
 
@@ -52,7 +56,7 @@ pub trait Kinematics {
     /// Find forward kinematics (pose from joint positions).
     fn forward(&self, qs: &Joints) -> Pose;
 
-    /// Detect the singularity. Returns either A, B type singlularity or None if
+    /// Detect the singularity. Returns either A type singlularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
 }
