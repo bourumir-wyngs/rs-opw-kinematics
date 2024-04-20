@@ -355,4 +355,34 @@ mod tests {
         let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
         assert_eq!(robot.kinematic_singularity(&joints), None);
     }
+
+    #[test]
+    fn test_parameters_from_yaml() {
+        let filename = "src/tests/fanuc_m16ib20.yaml";        
+        let loaded = 
+            Parameters::from_yaml_file(filename).expect("Failed to load parameters from file");
+       
+        let expected = Parameters {
+            a1: 0.15,
+            a2: -0.10,
+            b: 0.0,
+            c1: 0.525,
+            c2: 0.77,
+            c3: 0.74,
+            c4: 0.10,
+            offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 0.0, 180.0_f64.to_radians()],
+            sign_corrections: [1, 1, -1, -1, -1, -1],
+        };
+        
+
+        assert_eq!(expected.a1, loaded.a1);
+        assert_eq!(expected.a2, loaded.a2);
+        assert_eq!(expected.b, loaded.b);
+        assert_eq!(expected.c1, loaded.c1);
+        assert_eq!(expected.c2, loaded.c2);
+        assert_eq!(expected.c3, loaded.c3);
+        assert_eq!(expected.c4, loaded.c4);
+        assert_eq!(expected.offsets, loaded.offsets);
+        assert_eq!(expected.sign_corrections, loaded.sign_corrections);
+    }   
 }
