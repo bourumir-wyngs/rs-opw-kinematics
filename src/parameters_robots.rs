@@ -19,7 +19,7 @@ pub mod opw_kinematics {
                 sign_corrections: [1; 6],
             }
         }
-
+       
         pub fn irb2400_10() -> Self {
             Parameters {
                 a1: 0.100,
