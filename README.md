@@ -60,18 +60,19 @@ let parameters = Parameters {
 Note that the offset of the third joint is -90 degrees, bringing the joint from the upright position to parallel with
 the ground at "zero".
 
-The project already contains definitions for ABB IRB 2400/10, KUKA KR 6 R700 sixx, FANUC R-2000iB/200R, Stäubli TX40,
+The project contains built-in definitions for ABB IRB 2400/10, KUKA KR 6 R700 sixx, FANUC R-2000iB/200R, Stäubli TX40,
 ABB IRB 2600-12/1.65, ABB IRB 4600-60/2.05, Stäubli TX2-140, Stäubli TX2-160, Stäubli TX2-160L with various level of
 testing. Many such configurations are provided by robot manufacturers for they robots.
 For instance, FANUC M10IA is described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
 Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
-We are working on possibility of reading these configuration files directly.
+This project contains the code for reading such configurations directly, including support for *deg(angle)*
+function that sometimes occurs there.
 
 # Example
 Cargo.toml:
 ```toml
 [dependencies]
-rs-opw-kinematics = "1.0.1"
+rs-opw-kinematics = "1.0.2"
 ```
 
 main.rs:
@@ -109,6 +110,14 @@ fn main() {
   let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
   dump_solutions(&solutions);
 }
+```
+
+Is possible to read YAML parameter files directly, including parsing of the deg(angle)
+function that sometimes occurs there. 
+
+```Rust
+  let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters from file");
+  let robot = OPWKinematics::new(parameters);
 ```
 
 # Testing
