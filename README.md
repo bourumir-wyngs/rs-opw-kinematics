@@ -1,9 +1,7 @@
 # rs-opw-kinematics
 
 Rust implementation of inverse and forward kinematic solutions for 6 axis industrial robots with a parallel base 
-and spherical wrist.
-
-[![license - apache 2.0](https://img.shields.io/:license-Apache%202.0-yellowgreen.svg)](https://opensource.org/licenses/Apache-2.0)
+and spherical wrist. Hardened against the J5 = 0&deg; or &plusmn; 180&deg; singularity and optimized for trajectory planning.
 
 # Intro
 
@@ -15,7 +13,6 @@ implementation to generate data for the test suite, also this documentation uses
 This paper can be found
 [here](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf).
 
-
 # Features
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and could be deployed using Cargo.
 - all returned solutions are valid, normalized and cross-checked with forward kinematics. 
@@ -24,10 +21,8 @@ This paper can be found
 - for kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
 - values close to the previous positions of these joints (and not arbitrary that may result a large jerk of the real robot)
 - use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
-
-# Limitations
-The solver currently requires to use 64 bit floats (Rust f64). 
-The positional accuracy for the robots tested (KUKA KR 6 R700 sixx and ABB IRB 2400/10) is below 1&micro;m.
+- The solver currently use 64 bit floats (Rust f64), providing the positional accuracy below 1&micro;m for
+  the two robots tested.
 
 # Parameters
 
@@ -109,5 +104,10 @@ fn main() {
 
 ```
 
-# Notes
+# Testing
+The code of this project is tested against the test set (cases.yaml, 2048 cases per robot) that is 
+believed to be correct for the two robots, KUKA KR 6 R700 sixx and ABB IRB 2400/10. It has been produced 
+using independent C++ implementation by [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics). The testing suite checks if the solutions
+match.
+
 

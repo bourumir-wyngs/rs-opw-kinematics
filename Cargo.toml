@@ -1,10 +1,10 @@
 [package]
 name = "rs-opw-kinematics"
 version = "1.0.0"
-edition = "2024"
+edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematic for 6 axis robots with a parallel base and spherical wrist."
-license = "BSD-3"
+license = "BSD-3-Clause"
 
 [dependencies]
 nalgebra = "0.32.5"

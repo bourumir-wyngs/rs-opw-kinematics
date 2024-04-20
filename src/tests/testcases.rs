@@ -91,7 +91,7 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 mod tests {
     use std::collections::HashMap;
     use std::f64::consts::PI;
-    use crate::kinematic_traits::kinematics_traits::{Kinematics, Singularity, Solutions};
+    use crate::kinematic_traits::{Kinematics, Singularity, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
     use super::*;
