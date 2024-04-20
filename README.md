@@ -3,9 +3,15 @@
 Rust implementation of inverse and forward kinematic solutions for 6 axis industrial robots with a parallel base 
 and spherical wrist. Hardened against the J5 = 0&deg; or &plusmn; 180&deg; singularity and optimized for trajectory planning.
 
+[![crates.io](https://img.shields.io/crates/v/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/rust.yml)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions)
+[![crates.io](https://img.shields.io/crates/l/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
+[![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
+[![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
+
 # Intro
 
-This work is based on the paper `An Analytical Solution of the Inverse Kinematics Problem
+This work is based on 2014 year paper `An Analytical Solution of the Inverse Kinematics Problem
 of Industrial Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist` by
 Mathias Brandstötter, Arthur Angerer, and Michael Hofbaur. It is also inspired by the similar
 C++ project [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics) (that was used as a reference
