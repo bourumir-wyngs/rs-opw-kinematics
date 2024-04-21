@@ -66,7 +66,7 @@ the ground at "zero."
 Cargo.toml:
 ```toml
 [dependencies]
-rs-opw-kinematics = "1.0.2"
+rs-opw-kinematics = "1.1.0"
 ```
 
 main.rs:
