@@ -107,7 +107,7 @@ fn main() {
 ```
 
 # Configuring the solver for your robot
-The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, RB 4600-60/2.05; KUKA KR 6 R700 sixx, 
+The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx, 
 FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160 and TX2-160L with various levels of
 testing. Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
