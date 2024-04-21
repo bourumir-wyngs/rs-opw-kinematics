@@ -10,7 +10,7 @@ repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 
 [dependencies]
 nalgebra = "0.32.5"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.34"
 regex = "1.10.4"

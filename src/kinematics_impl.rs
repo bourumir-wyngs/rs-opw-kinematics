@@ -5,6 +5,8 @@ use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
 
+const DEBUG: bool = false;
+
 pub struct OPWKinematics {
     parameters: Parameters,
     unit_z: Unit<OVector<f64, U3>>,
@@ -301,7 +303,9 @@ impl Kinematics for OPWKinematics {
                 if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
                     result.push(sols[si]);
                 } else {
-                    println!("********** Pose Failure sol {} *********", si);
+                    if DEBUG {
+                        println!("********** Pose Failure sol {} *********", si);
+                    }
                 }
             }
         }
@@ -525,12 +529,16 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
     let angular_distance = ta.rotation.angle_to(&tb.rotation);
 
     if translation_distance.abs() > distance_tolerance {
-        println!("Positioning error: {}", translation_distance);
+        if DEBUG {
+            println!("Positioning error: {}", translation_distance);
+        }
         return false;
     }
 
     if angular_distance.abs() > angular_tolerance {
-        println!("Orientation errors: {}", angular_distance);
+        if DEBUG {
+            println!("Orientation errors: {}", angular_distance);
+        }
         return false;
     }
     true
