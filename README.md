@@ -36,6 +36,7 @@ at zero when all joints stick straight up in the air, as seen in the image below
 rotations are positive about the base axis of the robot. No other setup is required.
 
 ![OPW Diagram](https://bourumir-wyngs.github.io/rs-opw-kinematics/documentation/opw.gif)
+<!-- ![OPW Diagram](documentation/opw.gif) -->
 
 To use the library, fill out an `opw_kinematics::Parameters` data structure with the appropriate values for the 7
 kinematic parameters and any joint offsets required to bring the paper's zero position (arm up in Z) to the
