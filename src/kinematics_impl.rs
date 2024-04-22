@@ -4,12 +4,14 @@ use crate::parameters::opw_kinematics::{Parameters};
 use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
+use crate::constraints::Constraints;
 
 const DEBUG: bool = false;
 
 pub struct OPWKinematics {
     parameters: Parameters,
     unit_z: Unit<OVector<f64, U3>>,
+    constraints: Option<Constraints>,
 }
 
 impl OPWKinematics {
@@ -19,6 +21,7 @@ impl OPWKinematics {
         OPWKinematics {
             parameters,
             unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
+            constraints: None,
         }
     }
 }
@@ -310,7 +313,7 @@ impl Kinematics for OPWKinematics {
             }
         }
 
-        result
+        self.constraints_compliant(result)
     }
 
     // Replaces singularity with correct solution
@@ -372,9 +375,12 @@ impl Kinematics for OPWKinematics {
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
                         if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                            solutions.push(now);
-                            // We only expect one singularity case hence once we found, we can end
-                            break 'shifts;
+                            // Guard against the case our solution is out of constraints.
+                            if self.constraints.as_ref().map_or(true, |c| c.compliant(&now)) {
+                                solutions.push(now);
+                                // We only expect one singularity case hence once we found, we can end
+                                break 'shifts;
+                            }
                         }
                     }
 
@@ -454,6 +460,19 @@ impl Kinematics for OPWKinematics {
             Some(Singularity::A)
         } else {
             None
+        }
+    }
+
+    fn constraints(&mut self, constraints: Option<Constraints>) {
+        self.constraints = constraints;
+    }
+}
+
+impl OPWKinematics {
+    fn constraints_compliant(&self, solutions: Solutions) -> Solutions {
+        match &self.constraints {
+            Some(constraints) => constraints.filter(&solutions),
+            None => solutions
         }
     }
 }

@@ -1,6 +1,7 @@
 extern crate nalgebra as na;
 
 use na::{Isometry3};
+use crate::constraints::Constraints;
 
 /// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
 /// ```
@@ -59,5 +60,9 @@ pub trait Kinematics {
     /// Detect the singularity. Returns either A type singlularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
+
+    /// Set the constraints. See the documentation of this class on how to create them.
+    /// If constraints are set, all solutions returned are constraint compliant.
+    fn constraints(&mut self, constraints: Option<Constraints>); 
 }
 
