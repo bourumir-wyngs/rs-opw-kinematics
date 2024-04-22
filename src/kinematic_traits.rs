@@ -63,6 +63,6 @@ pub trait Kinematics {
 
     /// Set the constraints. See the documentation of this class on how to create them.
     /// If constraints are set, all solutions returned are constraint compliant.
-    fn constraints(&mut self, constraints: Option<Constraints>); 
+    fn constraints(&mut self, constraints: &Constraints); 
 }
 

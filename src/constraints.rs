@@ -1,5 +1,6 @@
 use std::f64::consts::PI;
 
+#[derive(Clone)]
 pub struct Constraints {
     /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
     pub from: [f64; 6],

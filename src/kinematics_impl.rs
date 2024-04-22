@@ -313,7 +313,7 @@ impl Kinematics for OPWKinematics {
             }
         }
 
-        self.constraints_compliant(result)
+        self.filter_constraints_compliant(result)
     }
 
     // Replaces singularity with correct solution
@@ -374,13 +374,12 @@ impl Kinematics for OPWKinematics {
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
-                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) &&
+                            self.constraints_compliant(now) {
                             // Guard against the case our solution is out of constraints.
-                            if self.constraints.as_ref().map_or(true, |c| c.compliant(&now)) {
-                                solutions.push(now);
-                                // We only expect one singularity case hence once we found, we can end
-                                break 'shifts;
-                            }
+                            solutions.push(now);
+                            // We only expect one singularity case hence once we found, we can end
+                            break 'shifts;
                         }
                     }
 
@@ -463,16 +462,23 @@ impl Kinematics for OPWKinematics {
         }
     }
 
-    fn constraints(&mut self, constraints: Option<Constraints>) {
-        self.constraints = constraints;
+    fn constraints(&mut self, constraints: &Constraints) {
+        self.constraints = Some(constraints.clone());
     }
 }
 
 impl OPWKinematics {
-    fn constraints_compliant(&self, solutions: Solutions) -> Solutions {
+    fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
         match &self.constraints {
             Some(constraints) => constraints.filter(&solutions),
             None => solutions
+        }
+    }
+
+    fn constraints_compliant(&self, solution: Joints) -> bool {
+        match &self.constraints {
+            Some(constraints) => constraints.compliant(&solution),
+            None => true
         }
     }
 }
