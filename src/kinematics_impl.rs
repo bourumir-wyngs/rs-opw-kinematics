@@ -24,6 +24,16 @@ impl OPWKinematics {
             constraints: None,
         }
     }
+
+    /// Create a new instance that takes also Constraints.
+    /// If constraints are set, all solutions returned by this solver are constraint compliant. 
+    pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
+        OPWKinematics {
+            parameters,
+            unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
+            constraints: Some(constraints),
+        }
+    }    
 }
 
 const MM: f64 = 0.001;
@@ -460,10 +470,6 @@ impl Kinematics for OPWKinematics {
         } else {
             None
         }
-    }
-
-    fn constraints(&mut self, constraints: &Constraints) {
-        self.constraints = Some(constraints.clone());
     }
 }
 
