@@ -1,17 +1,19 @@
 use std::f64::{consts::PI};
-use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
+use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
 use crate::parameters::opw_kinematics::{Parameters};
 use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
-use crate::constraints::Constraints;
+use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 const DEBUG: bool = false;
 
 pub struct OPWKinematics {
+    /// The parameters that were used to construct this solver.
     parameters: Parameters,
-    unit_z: Unit<OVector<f64, U3>>,
     constraints: Option<Constraints>,
+
+    unit_z: Unit<OVector<f64, U3>>,
 }
 
 impl OPWKinematics {
@@ -33,7 +35,7 @@ impl OPWKinematics {
             unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
             constraints: Some(constraints),
         }
-    }    
+    }
 }
 
 const MM: f64 = 0.001;
@@ -327,7 +329,15 @@ impl Kinematics for OPWKinematics {
     }
 
     // Replaces singularity with correct solution
-    fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+    fn inverse_continuing(&self, pose: &Pose, prev: &Joints) -> Solutions {
+        let previous;
+        if prev[0].is_nan() {
+            // Special value CONSTRAINT_CENTERED has been used
+            previous = self.constraint_centers();
+        } else {
+            previous = prev;
+        }
+        
         const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
         const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
             [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
@@ -404,7 +414,7 @@ impl Kinematics for OPWKinematics {
                 normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
             }
         }
-        sort_by_closeness(&mut solutions, &previous);
+        self.sort_by_closeness(&mut solutions, &previous);
         solutions
     }
 
@@ -487,6 +497,48 @@ impl OPWKinematics {
             None => true
         }
     }
+
+    /// Sorts the solutions vector by closeness to the `previous` joint.
+    /// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
+    fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
+        let sorting_weight = self.constraints.as_ref()
+            .map_or(BY_PREV, |c| c.sorting_weight);
+        if sorting_weight == BY_PREV {
+            // If no constraints or they weight is zero, use simpler version
+            solutions.sort_by(|a, b| {
+                let distance_a = calculate_distance(a, previous);
+                let distance_b = calculate_distance(b, previous);
+                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        } else {
+            let constraints = self.constraints.as_ref().unwrap();
+            solutions.sort_by(|a, b| {
+                let prev_a;
+                let prev_b;
+                if sorting_weight == BY_CONSTRAINS {
+                    prev_a = calculate_distance(a, previous);
+                    prev_b = calculate_distance(b, previous);
+                } else {
+                    // Do not calculate unneeded distances if these values are to be ignored.
+                    prev_a = 0.0;
+                    prev_b = 0.0;
+                }
+
+                let constr_a = calculate_distance(a, &constraints.centers);
+                let constr_b = calculate_distance(b, &constraints.centers);
+
+                let distance_a = prev_a * sorting_weight + constr_a * (1.0 - sorting_weight);
+                let distance_b = prev_b * sorting_weight + constr_b * (1.0 - sorting_weight);
+                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+    }
+
+    /// Get constraint centers in case we have the already constructed instance of the
+    fn constraint_centers(&self) -> &Joints {
+        self.constraints.as_ref()
+            .map_or(&JOINTS_AT_ZERO, |c| &c.centers)
+    }
 }
 
 // Adjusted helper function to check for n*pi where n is any integer
@@ -541,16 +593,6 @@ fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
         .zip(joint2.iter())
         .map(|(a, b)| (a - b).abs())
         .sum()
-}
-
-/// Sorts the solutions vector by closeness to the `previous` joint.
-/// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
-fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
-    solutions.sort_by(|a, b| {
-        let distance_a = calculate_distance(a, previous);
-        let distance_b = calculate_distance(b, previous);
-        distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
-    });
 }
 
 // Compare two poses with the given tolerance.

@@ -35,6 +35,12 @@ pub fn dump_joints(joints: &Joints) {
     println!("[{}]", row_str.trim_end());
 }
 
+/// Allows to specify joint values in degrees (converts to radians)
+#[allow(dead_code)]
+fn as_radians(degrees: [i32; 6]) -> Joints {
+    std::array::from_fn(|i| (degrees[i] as f64).to_radians())
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;
