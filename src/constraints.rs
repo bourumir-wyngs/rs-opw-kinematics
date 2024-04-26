@@ -1,4 +1,7 @@
 use std::f64::consts::PI;
+use std::f64::{INFINITY, NAN};
+use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
+use crate::utils::dump_joints;
 
 #[derive(Clone)]
 pub struct Constraints {
@@ -10,6 +13,9 @@ pub struct Constraints {
 
     // Constraint centers. Used in distance from constraints based sorting.
     pub centers: [f64; 6],
+
+    // How far from the center the value could be
+    pub tolerances: [f64; 6],
 
     /// Used when sorting the solutions by both middle values of the constraints and the previous
     /// values of the joints. 1.0 gives the absolute priority to constraints, 0.0. gives
@@ -24,7 +30,10 @@ pub const BY_CONSTRAINS: f64 = 1.0;
 /// previous value, the better). 
 pub const BY_PREV: f64 = 0.0;
 
+const TWO_PI: f64 = 2.0 * PI;
+
 impl Constraints {
+    
     /// Create constraints that restrict the joint rotations between 'from' to 'to' values.
     /// Wrapping arround is supported so order is important. For instance,
     /// from = 0.1 and to = 0.2 (radians) means the joint
@@ -35,41 +44,62 @@ impl Constraints {
     /// results: 0.0 (or BY_PREV) gives absolute priority to the previous values of the joints,
     /// 1.0 (or BY_CONSTRAINTS) gives absolute priority to the middle values of constraints.
     /// Intermediate values like 0.5 provide the weighted compromise.
-    pub fn new(from: [f64; 6], to: [f64; 6], sorting_weight: f64) -> Self {
-        let two_pi = 2.0 * PI;
-        let from_normalized = from.map(|f| ((f % two_pi) + two_pi) % two_pi);
-        let to_normalized = to.map(|t| ((t % two_pi) + two_pi) % two_pi);
-        let centers =
-            std::array::from_fn(|i| (from_normalized[i] + to_normalized[i]) / 2.0)
-                .map(|t| ((t % two_pi) + two_pi) % two_pi);
+    pub fn new(from: Joints, to: Joints, sorting_weight: f64) -> Self {
+        
+        let mut centers: Joints = JOINTS_AT_ZERO;
+        let mut tolerances: Joints = JOINTS_AT_ZERO;
+
+        for j_idx in 0..6 {
+            let a = from[j_idx];
+            let mut b = to[j_idx];
+            if a == b {
+                tolerances[j_idx] = INFINITY; // No constraint, not checked
+            } else if  a < b {
+                // Values do not wrap arround
+                centers[j_idx] = (a + b) / 2.0;
+                tolerances[j_idx] = (b - a) / 2.0;
+            } else {
+                // Values wrap arround. Move b forward by period till it gets ahead.
+                while b < a {
+                    b = b + TWO_PI;
+                }
+                centers[j_idx] = (a + b) / 2.0;
+                tolerances[j_idx] = (b - a) / 2.0;                
+            }
+        }
 
         Constraints {
-            from: from_normalized,
-            to: to_normalized,
+            from: from,
+            to: to,
             centers: centers,
+            tolerances: tolerances,
             sorting_weight: sorting_weight,
         }
     }
 
+    fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
+        if tolerance.is_infinite() {
+            return false;
+        }
+        let mut difference = (angle1 - angle2).abs();
+        difference = difference % TWO_PI;
+        if difference > PI {
+            difference = TWO_PI - difference;
+        }
+        difference <= tolerance
+    }    
+    
     /// Checks if all values in the given vector or angles satisfy these constraints.
     pub fn compliant(&self, angles: &[f64; 6]) -> bool {
-        let two_pi = 2.0 * PI;
-        for i in 0..6 {
-            if self.from[i] == self.to[i] {
-                continue; // Joint without constraints, from == to
-            }
-            let angle = ((angles[i] % two_pi) + two_pi) % two_pi;
-            if self.from[i] <= self.to[i] {
-                if !(angle >= self.from[i] && angle <= self.to[i]) {
-                    return false;
-                }
-            } else {
-                if !(angle >= self.from[i] || angle <= self.to[i]) {
-                    return false;
-                }
-            }
-        }
-        true
+        let ok = angles.iter().enumerate().all(|(i, &angle)| {
+            // '!' is used to negate the condition from 'out_of_bounds' directly in the 'all' call.
+            Self::inside_bounds(angle, self.centers[i], self.tolerances[i])
+        });
+        
+        println!("Questioning - {}", ok);
+        dump_joints(angles);
+        
+        ok
     }
 
     /// Return new vector of angle arrays, removing all that have members not satisfying these
@@ -84,7 +114,23 @@ impl Constraints {
 
 #[cfg(test)]
 mod tests {
+    use crate::kinematic_traits::Solutions;
+    use crate::utils::{as_radians, dump_joints};
     use super::*;
+
+    #[test]
+    fn test_historical_failure_1() {
+        let from = as_radians([9, 18, 28, 38, -5, 55]);
+        let angles = as_radians([10, 20, 30, 40, 0, 60]);
+        let to = as_radians([11, 22, 33, 44, 5, 65]);
+
+        let limits = Constraints::new(from, to, BY_CONSTRAINS);
+
+        let sols: Solutions = vec![angles];
+        assert!(limits.filter(&sols).len() == 1);
+        
+        assert!(limits.compliant(&angles));
+    }
 
     #[test]
     fn test_no_wrap_around() {
