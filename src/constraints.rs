@@ -1,7 +1,6 @@
 use std::f64::consts::PI;
 use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
-use crate::utils::dump_joints;
 
 #[derive(Clone)]
 pub struct Constraints {
@@ -33,7 +32,6 @@ pub const BY_PREV: f64 = 0.0;
 const TWO_PI: f64 = 2.0 * PI;
 
 impl Constraints {
-    
     /// Create constraints that restrict the joint rotations between 'from' to 'to' values.
     /// Wrapping arround is supported so order is important. For instance,
     /// from = 0.1 and to = 0.2 (radians) means the joint
@@ -45,7 +43,6 @@ impl Constraints {
     /// 1.0 (or BY_CONSTRAINTS) gives absolute priority to the middle values of constraints.
     /// Intermediate values like 0.5 provide the weighted compromise.
     pub fn new(from: Joints, to: Joints, sorting_weight: f64) -> Self {
-        
         let mut centers: Joints = JOINTS_AT_ZERO;
         let mut tolerances: Joints = JOINTS_AT_ZERO;
 
@@ -54,7 +51,7 @@ impl Constraints {
             let mut b = to[j_idx];
             if a == b {
                 tolerances[j_idx] = INFINITY; // No constraint, not checked
-            } else if  a < b {
+            } else if a < b {
                 // Values do not wrap arround
                 centers[j_idx] = (a + b) / 2.0;
                 tolerances[j_idx] = (b - a) / 2.0;
@@ -64,7 +61,7 @@ impl Constraints {
                     b = b + TWO_PI;
                 }
                 centers[j_idx] = (a + b) / 2.0;
-                tolerances[j_idx] = (b - a) / 2.0;                
+                tolerances[j_idx] = (b - a) / 2.0;
             }
         }
 
@@ -87,18 +84,14 @@ impl Constraints {
             difference = TWO_PI - difference;
         }
         difference <= tolerance
-    }    
-    
+    }
+
     /// Checks if all values in the given vector or angles satisfy these constraints.
     pub fn compliant(&self, angles: &[f64; 6]) -> bool {
         let ok = angles.iter().enumerate().all(|(i, &angle)| {
             // '!' is used to negate the condition from 'out_of_bounds' directly in the 'all' call.
             Self::inside_bounds(angle, self.centers[i], self.tolerances[i])
         });
-        
-        //println!("Questioning - {}", ok);
-        dump_joints(angles);
-        
         ok
     }
 
@@ -128,7 +121,7 @@ mod tests {
 
         let sols: Solutions = vec![angles];
         assert!(limits.filter(&sols).len() == 1);
-        
+
         assert!(limits.compliant(&angles));
     }
 

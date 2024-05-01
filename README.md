@@ -106,6 +106,44 @@ fn main() {
 }
 ```
 
+```Rust
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, CONSTRAINTS_CENTERED};
+use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
+
+fn main() {
+  // TODO this example is unfinished and wrong!
+  let robot = OPWKinematics::new(Parameters::irb2400_10());
+  let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
+
+  let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];  
+  println!("No constraints");
+  let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+  dump_solutions(&solutions);
+
+  println!("With constraints, sorted by proximity to the previous pose");
+  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
+  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+  dump_solutions(&solutions);
+
+  println!("With constraints, sorted by proximity to the center of constraints");
+  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
+  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+  dump_solutions(&solutions);
+
+  println!("With constraints, somewhat intermediate");
+  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
+  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+  dump_solutions(&solutions);  
+}
+```
+
+# Constraints
+Since 1.1.0, it is possible to set constraints for the joints. Robot poses where any of the joints are outside
+the specified constraint range are not included into returned list of solutions. It is also possible to
+influence the sorting of the result list by giving some preference to the center of constratints.
+
 # Configuring the solver for your robot
 The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx, 
 FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160 and TX2-160L with various levels of
