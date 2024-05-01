@@ -2,6 +2,7 @@
 mod tests {
     extern crate rand;
 
+    use std::mem;
     use rand::{Rng, SeedableRng};
     use rand::rngs::StdRng;
     use crate::constraints::{BY_CONSTRAINS, Constraints};
@@ -24,46 +25,52 @@ mod tests {
             let mut check_angles = [0; 6];
             let mut expected_results = [false; 6];
 
-            let mut all_passing = true;
             for i in 0..6 {
-                let inside_range = rng.gen::<bool>();
-                let a = rng.gen_range(1..359);
-                let b = rng.gen_range(1..359);
-                if inside_range {
-                    from_angles[i] = a.min(b);
-                    to_angles[i] = a.max(b);
-                } else {
-                    from_angles[i] = a.max(b);
-                    to_angles[i] = a.min(b);
+                // Generate two angles that are not equal
+                let mut a: i32 = rng.gen_range(0..360);
+                let mut b: i32 = rng.gen_range(0..360);
+
+                while (a - b).abs() < 2 { // Leave at least on value in between
+                    b = rng.gen_range(0..360); // generate again
                 }
 
-                expected_results[i] = rng.gen_bool(0.95);
-                if expected_results[i] {
-                    if from_angles[i] <= to_angles[i] {
-                        check_angles[i] = rng.gen_range(from_angles[i]..=to_angles[i]);
-                    } else {
-                        check_angles[i] = if rng.gen::<bool>() {
-                            rng.gen_range(from_angles[i]..360)
-                        } else {
-                            rng.gen_range(0..=to_angles[i])
-                        };
-                    }
+                // Make sure b > a
+                if b < a {
+                    mem::swap(&mut a, &mut b);
+                }
+                let c; // the value to check
+
+                // Decide if the case should pass
+                let pass = rng.gen_bool(0.95);
+
+                // ordinary case, a < c < b to pass
+                if pass {
+                    // Generate c within the range from a to b boundaries exclusive
+                    c = rng.gen_range(a + 1..b);
                 } else {
-                    if from_angles[i] <= to_angles[i] {
-                        check_angles[i] = if rng.gen::<bool>() {
-                            rng.gen_range(0..from_angles[i])
-                        } else {
-                            rng.gen_range(to_angles[i] + 1..360)
+                    c = loop {
+                        // Generate outside the range, either below a or above b:
+                        if rng.gen_bool(0.5) && a > 0 {
+                            // below a
+                            break rng.gen_range(0..a);
+                        } else if b < 360 - 2 { // 360 and 359 would not generate as expected
+                            // above b
+                            break rng.gen_range(b + 1..360);
                         };
-                    } else {
-                        // Handle wrap-around failure properly
-                        if to_angles[i] != 359 {
-                            check_angles[i] = rng.gen_range(to_angles[i] + 1..360);
-                        } else {
-                            check_angles[i] = rng.gen_range(0..from_angles[i]);
-                        }
-                        all_passing = false;
                     }
+                }
+
+                // Decide if we are doing the "wrap arround 360 or 0 case" or ordinary case
+                if rng.gen_bool(0.5) {
+                    expected_results[i] = pass;
+                    from_angles[i] = a;
+                    to_angles[i] = b;
+                    check_angles[i] = c;                    
+                } else {
+                    expected_results[i] = !pass;
+                    from_angles[i] = b;
+                    to_angles[i] = a;
+                    check_angles[i] = c;                    
                 }
             }
 
@@ -73,7 +80,7 @@ mod tests {
                 to_angles,
                 check_angles,
                 expected_results,
-                passing: all_passing
+                passing: expected_results.iter().all(|&val| val),
             }
         }
     }
@@ -97,6 +104,21 @@ mod tests {
                 println!("ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
                          case.id, case.from_angles, case.to_angles, case.check_angles,
                          case.expected_results, case.passing);
+                println!("Deep check");
+
+                // To make analysis of the glitch easier, we set contraints and all angles
+                // as one
+                for p in 0..6 {
+                    let focused_constraints =
+                        Constraints::new(
+                            as_radians([case.from_angles[p]; 6]),
+                            as_radians([case.to_angles[p]; 6]),
+                            BY_CONSTRAINS);
+                    let joints = as_radians([case.check_angles[p]; 6]);
+                    println!("{}: {} .. {} : {} ? = {}", p,
+                             case.from_angles[p], case.to_angles[p], case.check_angles[p],
+                             focused_constraints.compliant(&joints));
+                }
                 panic!("Test case {} failed", case.id);
             }
         }

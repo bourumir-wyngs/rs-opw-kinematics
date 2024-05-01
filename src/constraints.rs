@@ -96,7 +96,7 @@ impl Constraints {
             Self::inside_bounds(angle, self.centers[i], self.tolerances[i])
         });
         
-        println!("Questioning - {}", ok);
+        //println!("Questioning - {}", ok);
         dump_joints(angles);
         
         ok
@@ -115,7 +115,7 @@ impl Constraints {
 #[cfg(test)]
 mod tests {
     use crate::kinematic_traits::Solutions;
-    use crate::utils::{as_radians, dump_joints};
+    use crate::utils::{as_radians};
     use super::*;
 
     #[test]
