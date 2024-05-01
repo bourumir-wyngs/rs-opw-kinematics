@@ -65,12 +65,12 @@ mod tests {
                     expected_results[i] = pass;
                     from_angles[i] = a;
                     to_angles[i] = b;
-                    check_angles[i] = c;                    
+                    check_angles[i] = c;
                 } else {
                     expected_results[i] = !pass;
                     from_angles[i] = b;
                     to_angles[i] = a;
-                    check_angles[i] = c;                    
+                    check_angles[i] = c;
                 }
             }
 
@@ -117,6 +117,52 @@ mod tests {
                     let joints = as_radians([case.check_angles[p]; 6]);
                     println!("{}: {} .. {} : {} ? = {}", p,
                              case.from_angles[p], case.to_angles[p], case.check_angles[p],
+                             focused_constraints.compliant(&joints));
+                }
+                panic!("Test case {} failed", case.id);
+            }
+        }
+    }
+
+    #[test]
+    /// This tests checks the "shifted" case where both angles and constraints
+    /// are in the range from -180 to 180
+    fn test_generated_constraints_shifted() {
+        fn shift(angle: i32) -> i32 {
+            // 0 .. 360 to - 180 .. 180 
+            angle - 180
+        }
+
+        let seed = [0u8; 32];
+        let mut rng = StdRng::from_seed(seed);
+
+        // Generate multiple test cases
+        for id in 0..2048 {
+            let case = TestCase::generate(id, &mut rng);
+            let constraints = Constraints::new(
+                as_radians(case.from_angles),
+                as_radians(case.to_angles),
+                BY_CONSTRAINS,
+            );
+            let actual = constraints.compliant(&as_radians(case.check_angles));
+            if actual != case.passing {
+                println!("Case mimatch: expected {}, actual {}", case.passing, actual);
+                println!("ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
+                         case.id, case.from_angles, case.to_angles, case.check_angles,
+                         case.expected_results, case.passing);
+                println!("Deep check");
+
+                // To make analysis of the glitch easier, we set contraints and all angles
+                // as one
+                for p in 0..6 {
+                    let focused_constraints =
+                        Constraints::new(
+                            as_radians([shift(case.from_angles[p]); 6]),
+                            as_radians([shift(case.to_angles[p]); 6]),
+                            BY_CONSTRAINS);
+                    let joints = as_radians([shift(case.check_angles[p]); 6]);
+                    println!("{}: {} .. {} : {} ? = {}", p,
+                             case.from_angles[p], case.to_angles[p], shift(case.check_angles[p]),
                              focused_constraints.compliant(&joints));
                 }
                 panic!("Test case {} failed", case.id);
