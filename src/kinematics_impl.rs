@@ -521,7 +521,7 @@ impl OPWKinematics {
             solutions.sort_by(|a, b| {
                 let prev_a;
                 let prev_b;
-                if sorting_weight == BY_CONSTRAINS {
+                if sorting_weight != BY_CONSTRAINS {
                     prev_a = calculate_distance(a, previous);
                     prev_b = calculate_distance(b, previous);
                 } else {
@@ -533,8 +533,8 @@ impl OPWKinematics {
                 let constr_a = calculate_distance(a, &constraints.centers);
                 let constr_b = calculate_distance(b, &constraints.centers);
 
-                let distance_a = prev_a * sorting_weight + constr_a * (1.0 - sorting_weight);
-                let distance_b = prev_b * sorting_weight + constr_b * (1.0 - sorting_weight);
+                let distance_a = prev_a * (1.0 - sorting_weight) + constr_a * sorting_weight;
+                let distance_b = prev_b * (1.0 - sorting_weight) + constr_b * sorting_weight;
                 distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
             });
         }

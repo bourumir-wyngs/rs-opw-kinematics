@@ -62,20 +62,30 @@ let parameters = Parameters {
 Note that the offset of the third joint is -90 degrees, bringing the joint from the upright position to parallel with
 the ground at "zero."
 
+# Constraints
+Since 1.1.0, it is possible to set constraints for the joints. Robot poses where any of the joints are outside
+the specified constraint range are not included into returned list of solutions. It is also possible to
+influence the sorting of the result list by giving some preference to the center of constraints. 
+
+Constraints are tested for the range from -2&pi; to 2&pi;, but beware angles repeat with period of 2&pi; so
+constraint from -&pi; to &pi; already permits free rotation, covering any angle.
+
 # Example
 Cargo.toml:
 ```toml
 [dependencies]
-rs-opw-kinematics = "1.1.0"
+rs-opw-kinematics = "1.1.0-rc1"
 ```
 
 main.rs:
 
 ```Rust
+use std::f64::consts::PI;
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
+use rs_opw_kinematics::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 fn main() {
   let robot = OPWKinematics::new(Parameters::irb2400_10());
@@ -103,46 +113,31 @@ fn main() {
   println!("The solution appears and the needed rotation is now equally distributed between J4 and J6.");
   let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
   dump_solutions(&solutions);
-}
-```
 
-```Rust
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, CONSTRAINTS_CENTERED};
-use rs_opw_kinematics::kinematics_impl::OPWKinematics;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
-
-fn main() {
-  // TODO this example is unfinished and wrong!
-  let robot = OPWKinematics::new(Parameters::irb2400_10());
-  let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
-
-  let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];  
-  println!("No constraints");
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
-  dump_solutions(&solutions);
-
+  let robot = OPWKinematics::new_with_constraints(
+    Parameters::irb2400_10(), Constraints::new(
+      [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+      [ PI, PI, 2.0*PI, PI, PI, PI],
+      BY_PREV,
+    ));
   println!("With constraints, sorted by proximity to the previous pose");
-  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
   let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
   dump_solutions(&solutions);
 
+  let robot = OPWKinematics::new_with_constraints(
+    Parameters::irb2400_10(), Constraints::new(
+      [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+      [ PI, PI, 2.0*PI, PI, PI, PI],
+      BY_CONSTRAINS,
+    ));
   println!("With constraints, sorted by proximity to the center of constraints");
-  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-  dump_solutions(&solutions);
-
-  println!("With constraints, somewhat intermediate");
-  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
   let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
   dump_solutions(&solutions);  
 }
 ```
 
-# Constraints
-Since 1.1.0, it is possible to set constraints for the joints. Robot poses where any of the joints are outside
-the specified constraint range are not included into returned list of solutions. It is also possible to
-influence the sorting of the result list by giving some preference to the center of constratints.
+The constants _BY_PREV_ ( = 0.0) and _BY_CONSTRAINTS_ ( = 1.0) are for convenience only. Intermediate values like 
+0.6 can also be specified and result in weighted sorting.
 
 # Configuring the solver for your robot
 The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx, 
