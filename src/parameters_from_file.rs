@@ -35,7 +35,7 @@ impl Parameters {
     /// opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
     /// opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
     ///
-    /// FANUC provides may such files for their robots on GitHub
+    /// ROS-Industrial provides many such files for FANUC robots on GitHub
     /// (ros-industrial/fanuc, see fanuc_m10ia_support/config/opw_parameters_m10ia.yaml
     /// YAML extension to parse the deg(angle) function is supported.  
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, ParametersError> {
