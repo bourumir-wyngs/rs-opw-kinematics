@@ -67,6 +67,11 @@ Since 1.1.0, it is possible to set constraints for the joints. Robot poses where
 the specified constraint range are not included into returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints. 
 
+Constraints are specified by providing two angles, _from_ and to, for every _joint_. If _from_ < _to_, the valid range
+spans between from and to. If _from_ > _to_, the valid range spans over the 0, wrapping arround. For instance,
+if _from_ = 5 and _to_ = 15, values 6, 8 and 11 are valid, while values like 90, 180 are not. If _from_ = 15 and 
+_to_ = 5 (the opposite), values 16, 17, 100, 180, 359, 0, 1, 3, 4 are valid while 6, 8 and 11 are not.
+
 Constraints are tested for the range from -2&pi; to 2&pi;, but beware angles repeat with period of 2&pi; so
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
