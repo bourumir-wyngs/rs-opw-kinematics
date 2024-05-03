@@ -81,7 +81,7 @@ constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 Cargo.toml:
 ```toml
 [dependencies]
-rs-opw-kinematics = "1.1.0-rc1"
+rs-opw-kinematics = "1.1.0"
 ```
 
 main.rs:

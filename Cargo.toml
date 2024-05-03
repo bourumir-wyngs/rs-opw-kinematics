@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.1.0-rc1"
+version = "1.1.0"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
