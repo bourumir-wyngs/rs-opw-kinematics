@@ -19,14 +19,15 @@ This paper can be found
 [here](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf).
 
 # Features
-- rs-opw-kinematics is written entirely in Rust (not a C++ binding) and could be deployed using Cargo.
-- all returned solutions are valid, normalized, and cross-checked with forward kinematics.
-- joint angles can be checked against constraints, returning only compliant solutions.
-- to generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as additional input.
-- if the previous joint positions are provided, the solutions are sorted by proximity to them (closest first)
-- for kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
+- rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
+- All returned solutions are valid, normalized, and cross-checked with forward kinematics.
+- Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
+- To generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as additional input.
+- If the previous joint positions are provided, the solutions are sorted by proximity to them (closest first). 
+  It is also possible to prioritize proximity to the center of constraints.
+- For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real robot)
-- use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
+- Use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
 - The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for
   the two robots tested.
 
