@@ -21,6 +21,7 @@ This paper can be found
 # Features
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and could be deployed using Cargo.
 - all returned solutions are valid, normalized, and cross-checked with forward kinematics.
+- joint angles can be checked against constraints, returning only compliant solutions.
 - to generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as additional input.
 - if the previous joint positions are provided, the solutions are sorted by proximity to them (closest first)
 - for kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
