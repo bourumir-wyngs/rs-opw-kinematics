@@ -5,10 +5,15 @@ edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
 keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
-categories = ["science::robotics"]  
+categories = ["science::robotics"]
 
 license = "BSD-3-Clause"
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
+
+readme = "README.md"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.32.5"
