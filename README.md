@@ -131,7 +131,7 @@ fn main() {
       BY_PREV,
     ));
 
-  println!("If we do not have the previous pose yet, we can now ask to prever the pose \
+  println!("If we do not have the previous pose yet, we can now ask to prefer the pose \
     closer to the center of constraints.");
   let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
   dump_solutions(&solutions);
