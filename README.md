@@ -136,7 +136,6 @@ fn main() {
   let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
   dump_solutions(&solutions);
 
-
   println!("With constraints, sorted by proximity to the previous pose");
   let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
   dump_solutions(&solutions);
