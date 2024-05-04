@@ -69,9 +69,10 @@ the specified constraint range are not included into returned list of solutions.
 influence the sorting of the result list by giving some preference to the center of constraints.
 
 Constraints are specified by providing two angles, _from_ and to, for every _joint_. If _from_ < _to_, the valid range
-spans between from and to. If _from_ > _to_, the valid range spans over the 0, wrapping arround. For instance,
-if _from_ = 5 and _to_ = 15, values 6, 8 and 11 are valid, while values like 90, 180 are not. If _from_ = 15 and
-_to_ = 5 (the opposite), values 16, 17, 100, 180, 359, 0, 1, 3, 4 are valid while 6, 8 and 11 are not.
+spans between from and to. If _from_ > _to_, the valid range spans over the 0&deg;, wrapping around. For instance,
+if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are valid, while values like 90&deg;, and 
+180&deg; are not. If _from_ = 15&deg; and _to_ = 5&deg; (the opposite), values 16&deg;, 17&deg;, 100&deg;, 180&deg;,
+359&deg;, 0&deg;, 1&deg;, 3&deg;, 4&deg; are valid, while 6&deg;, 8&deg;, and 11&deg; are not.
 
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
