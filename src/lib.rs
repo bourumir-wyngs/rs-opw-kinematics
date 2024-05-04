@@ -6,6 +6,8 @@ pub mod utils;
 pub mod kinematic_traits;
 pub mod kinematics_impl;
 
+pub mod constraints;
+
 #[cfg(test)]
 mod tests;
 

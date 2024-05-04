@@ -1,5 +1,6 @@
 extern crate nalgebra as na;
 
+use std::f64::NAN;
 use na::{Isometry3};
 
 /// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
@@ -35,6 +36,12 @@ pub type Joints = [f64; 6];
 #[allow(dead_code)]
 pub const JOINTS_AT_ZERO: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
+/// Special value that can be used with inverse_continuing, indicating that there
+/// are not previous joint value, but returned joints must be sorted to be as 
+/// close as possible to the centers of the constraints. If no constraitns are set,
+/// zeroes are assumed.
+pub const CONSTRAINT_CENTERED: Joints = [NAN, 0.0, 0.0, 0.0, 0.0, 0.0];
+
 /// For providing solutions. As invalid solutions are discarded, 
 /// this is a variable length vector (may be empty if robot cannot reach the 
 /// given point).
@@ -51,6 +58,9 @@ pub trait Kinematics {
     /// Find inverse kinematics (joint position) for this pose
     /// This function handles the singularity J5 = 0 by keeping the previous values
     /// the values J4 and J6 from the previous solution
+    /// Use CONSTRAINT_CENTERED as previous if there is no previous position but we prefer
+    /// to be as close to the center of constraints (or zeroes if not set) as
+    /// possible.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
 
     /// Find forward kinematics (pose from joint positions).

@@ -1,14 +1,18 @@
 use std::f64::{consts::PI};
-use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints};
+use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
 use crate::parameters::opw_kinematics::{Parameters};
 use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
                Vector3};
+use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 const DEBUG: bool = false;
 
 pub struct OPWKinematics {
+    /// The parameters that were used to construct this solver.
     parameters: Parameters,
+    constraints: Option<Constraints>,
+
     unit_z: Unit<OVector<f64, U3>>,
 }
 
@@ -19,6 +23,17 @@ impl OPWKinematics {
         OPWKinematics {
             parameters,
             unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
+            constraints: None,
+        }
+    }
+
+    /// Create a new instance that takes also Constraints.
+    /// If constraints are set, all solutions returned by this solver are constraint compliant. 
+    pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
+        OPWKinematics {
+            parameters,
+            unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
+            constraints: Some(constraints),
         }
     }
 }
@@ -46,7 +61,170 @@ const J5: usize = 4;
 const J6: usize = 5;
 
 impl Kinematics for OPWKinematics {
+    
+    /// Return the solution that is constraint compliant anv values are valid
+    /// (no NaNs, etc) but otherwise not sorted.
     fn inverse(&self, pose: &Pose) -> Solutions {
+        self.filter_constraints_compliant(self.inverse_intern(&pose))
+    }
+
+    // Replaces singularity with correct solution
+    fn inverse_continuing(&self, pose: &Pose, prev: &Joints) -> Solutions {
+        let previous;
+        if prev[0].is_nan() {
+            // Special value CONSTRAINT_CENTERED has been used
+            previous = self.constraint_centers();
+        } else {
+            previous = prev;
+        }
+
+        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
+        const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
+            [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
+                [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
+
+        let mut solutions: Vec<Joints> = Vec::with_capacity(9);
+        let pt = pose.translation;
+
+        let rotation = pose.rotation;
+        'shifts: for d in SINGULARITY_SHIFTS {
+            let shifted = Pose::from_parts(
+                Translation3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
+            let ik = self.inverse_intern(&shifted);
+            // Self::dump_shifted_solutions(d, &ik);
+            if solutions.is_empty() {
+                // Unshifted version that comes first is always included into results
+                solutions.extend(&ik);
+            }
+
+            for s_idx in 0..ik.len() {
+                let singularity =
+                    self.kinematic_singularity(&ik[s_idx]);
+                if singularity.is_some() && is_valid(&ik[s_idx]) {
+                    let s;
+                    let s_n;
+                    if let Some(Singularity::A) = singularity {
+                        let mut now = ik[s_idx];
+                        if are_angles_close(now[J5], 0.) {
+                            // J5 = 0 singlularity, J4 and J6 rotate same direction
+                            s = previous[J4] + previous[J6];
+                            s_n = now[J4] + now[J6];
+                        } else {
+                            // J5 = -180 or 180 singularity, even if the robot would need
+                            // specific design to rotate J5 to this angle without self-colliding.
+                            // J4 and J6 rotate in opposite directions
+                            s = previous[J4] - previous[J6];
+                            s_n = now[J4] - now[J6];
+
+                            // Fix J5 sign to match the previous
+                            normalize_near(&mut now[J5], previous[J5]);
+                        }
+
+                        let mut angle = s_n - s;
+                        while angle > PI {
+                            angle -= 2.0 * PI;
+                        }
+                        while angle < -PI {
+                            angle += 2.0 * PI;
+                        }
+                        let j_d = angle / 2.0;
+
+                        now[J4] = previous[J4] + j_d;
+                        now[J6] = previous[J6] + j_d;
+
+                        // Check last time if the pose is ok
+                        let check_pose = self.forward(&now);
+                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) &&
+                            self.constraints_compliant(now) {
+                            // Guard against the case our solution is out of constraints.
+                            solutions.push(now);
+                            // We only expect one singularity case hence once we found, we can end
+                            break 'shifts;
+                        }
+                    }
+
+                    break;
+                }
+            }
+        }
+        // Before any sorting, normalize all angles to be close to
+        // 'previous'
+        for s_idx in 0..solutions.len() {
+            for joint_idx in 0..6 {
+                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
+            }
+        }
+        self.sort_by_closeness(&mut solutions, &previous);
+        self.filter_constraints_compliant(solutions)
+    }
+
+    fn forward(&self, joints: &Joints) -> Pose {
+        let p = &self.parameters;
+
+        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
+        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
+        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
+        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
+        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
+        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
+
+        let psi3 = f64::atan2(p.a2, p.c3);
+        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
+
+        let cx1 = p.c2 * f64::sin(q2) + k * f64::sin(q2 + q3 + psi3) + p.a1;
+        let cy1 = p.b;
+        let cz1 = p.c2 * f64::cos(q2) + k * f64::cos(q2 + q3 + psi3);
+
+        let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
+        let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
+        let cz0 = cz1 + p.c1;
+
+        let s1 = f64::sin(q1);
+        let s2 = f64::sin(q2);
+        let s3 = f64::sin(q3);
+        let s4 = f64::sin(q4);
+        let s5 = f64::sin(q5);
+        let s6 = f64::sin(q6);
+
+        let c1 = f64::cos(q1);
+        let c2 = f64::cos(q2);
+        let c3 = f64::cos(q3);
+        let c4 = f64::cos(q4);
+        let c5 = f64::cos(q5);
+        let c6 = f64::cos(q6);
+
+        let r_0c = Matrix3::new(
+            c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
+            s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
+            -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
+        );
+
+        let r_ce = Matrix3::new(
+            c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
+            s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
+            -s5 * c6, s5 * s6, c5,
+        );
+
+        let r_oe = r_0c * r_ce;
+
+        let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
+        let rotation = Rotation3::from_matrix_unchecked(r_oe);
+
+        Pose::from_parts(Translation3::from(translation),
+                         UnitQuaternion::from_rotation_matrix(&rotation))
+    }
+
+    fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
+        if is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR) {
+            Some(Singularity::A)
+        } else {
+            None
+        }
+    }
+}
+
+impl OPWKinematics {
+    fn inverse_intern(&self, pose: &Pose) -> Solutions {
         let params = &self.parameters;
 
         // Adjust to wrist center
@@ -312,149 +490,60 @@ impl Kinematics for OPWKinematics {
 
         result
     }
-
-    // Replaces singularity with correct solution
-    fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
-        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
-        const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
-            [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
-                [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
-
-        let mut solutions: Vec<Joints> = Vec::with_capacity(9);
-        let pt = pose.translation;
-
-        let rotation = pose.rotation;
-        'shifts: for d in SINGULARITY_SHIFTS {
-            let shifted = Pose::from_parts(
-                Translation3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
-            let ik = self.inverse(&shifted);
-            // Self::dump_shifted_solutions(d, &ik);
-            if solutions.is_empty() {
-                // Unshifted version that comes first is always included into results
-                solutions.extend(&ik);
-            }
-
-            for s_idx in 0..ik.len() {
-                let singularity =
-                    self.kinematic_singularity(&ik[s_idx]);
-                if singularity.is_some() && is_valid(&ik[s_idx]) {
-                    let s;
-                    let s_n;
-                    if let Some(Singularity::A) = singularity {
-                        let mut now = ik[s_idx];
-                        if are_angles_close(now[J5], 0.) {
-                            // J5 = 0 singlularity, J4 and J6 rotate same direction
-                            s = previous[J4] + previous[J6];
-                            s_n = now[J4] + now[J6];
-                        } else {
-                            // J5 = -180 or 180 singularity, even if the robot would need
-                            // specific design to rotate J5 to this angle without self-colliding.
-                            // J4 and J6 rotate in opposite directions
-                            s = previous[J4] - previous[J6];
-                            s_n = now[J4] - now[J6];
-
-                            // Fix J5 sign to match the previous
-                            normalize_near(&mut now[J5], previous[J5]);
-                        }
-
-                        let mut angle = s_n - s;
-                        while angle > PI {
-                            angle -= 2.0 * PI;
-                        }
-                        while angle < -PI {
-                            angle += 2.0 * PI;
-                        }
-                        let j_d = angle / 2.0;
-
-                        now[J4] = previous[J4] + j_d;
-                        now[J6] = previous[J6] + j_d;
-
-                        // Check last time if the pose is ok
-                        let check_pose = self.forward(&now);
-                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                            solutions.push(now);
-                            // We only expect one singularity case hence once we found, we can end
-                            break 'shifts;
-                        }
-                    }
-
-                    break;
-                }
-            }
+    fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
+        match &self.constraints {
+            Some(constraints) => constraints.filter(&solutions),
+            None => solutions
         }
-        // Before any sorting, normalize all angles to be close to
-        // 'previous'
-        for s_idx in 0..solutions.len() {
-            for joint_idx in 0..6 {
-                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
-            }
-        }
-        sort_by_closeness(&mut solutions, &previous);
-        solutions
     }
 
-    fn forward(&self, joints: &Joints) -> Pose {
-        let p = &self.parameters;
-
-        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
-        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
-        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
-        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
-        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
-        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
-
-        let psi3 = f64::atan2(p.a2, p.c3);
-        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
-
-        let cx1 = p.c2 * f64::sin(q2) + k * f64::sin(q2 + q3 + psi3) + p.a1;
-        let cy1 = p.b;
-        let cz1 = p.c2 * f64::cos(q2) + k * f64::cos(q2 + q3 + psi3);
-
-        let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
-        let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
-        let cz0 = cz1 + p.c1;
-
-        let s1 = f64::sin(q1);
-        let s2 = f64::sin(q2);
-        let s3 = f64::sin(q3);
-        let s4 = f64::sin(q4);
-        let s5 = f64::sin(q5);
-        let s6 = f64::sin(q6);
-
-        let c1 = f64::cos(q1);
-        let c2 = f64::cos(q2);
-        let c3 = f64::cos(q3);
-        let c4 = f64::cos(q4);
-        let c5 = f64::cos(q5);
-        let c6 = f64::cos(q6);
-
-        let r_0c = Matrix3::new(
-            c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
-            s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
-            -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
-        );
-
-        let r_ce = Matrix3::new(
-            c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
-            s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
-            -s5 * c6, s5 * s6, c5,
-        );
-
-        let r_oe = r_0c * r_ce;
-
-        let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
-        let rotation = Rotation3::from_matrix_unchecked(r_oe);
-
-        Pose::from_parts(Translation3::from(translation),
-                         UnitQuaternion::from_rotation_matrix(&rotation))
+    fn constraints_compliant(&self, solution: Joints) -> bool {
+        match &self.constraints {
+            Some(constraints) => constraints.compliant(&solution),
+            None => true
+        }
     }
 
-    fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
-        if is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR) {
-            Some(Singularity::A)
+    /// Sorts the solutions vector by closeness to the `previous` joint.
+    /// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
+    fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
+        let sorting_weight = self.constraints.as_ref()
+            .map_or(BY_PREV, |c| c.sorting_weight);
+        if sorting_weight == BY_PREV {
+            // If no constraints or they weight is zero, use simpler version
+            solutions.sort_by(|a, b| {
+                let distance_a = calculate_distance(a, previous);
+                let distance_b = calculate_distance(b, previous);
+                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+            });
         } else {
-            None
+            let constraints = self.constraints.as_ref().unwrap();
+            solutions.sort_by(|a, b| {
+                let prev_a;
+                let prev_b;
+                if sorting_weight != BY_CONSTRAINS {
+                    prev_a = calculate_distance(a, previous);
+                    prev_b = calculate_distance(b, previous);
+                } else {
+                    // Do not calculate unneeded distances if these values are to be ignored.
+                    prev_a = 0.0;
+                    prev_b = 0.0;
+                }
+
+                let constr_a = calculate_distance(a, &constraints.centers);
+                let constr_b = calculate_distance(b, &constraints.centers);
+
+                let distance_a = prev_a * (1.0 - sorting_weight) + constr_a * sorting_weight;
+                let distance_b = prev_b * (1.0 - sorting_weight) + constr_b * sorting_weight;
+                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
+    }
+
+    /// Get constraint centers in case we have the already constructed instance of the
+    fn constraint_centers(&self) -> &Joints {
+        self.constraints.as_ref()
+            .map_or(&JOINTS_AT_ZERO, |c| &c.centers)
     }
 }
 
@@ -510,16 +599,6 @@ fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
         .zip(joint2.iter())
         .map(|(a, b)| (a - b).abs())
         .sum()
-}
-
-/// Sorts the solutions vector by closeness to the `previous` joint.
-/// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
-fn sort_by_closeness(solutions: &mut Solutions, previous: &Joints) {
-    solutions.sort_by(|a, b| {
-        let distance_a = calculate_distance(a, previous);
-        let distance_b = calculate_distance(b, previous);
-        distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
-    });
 }
 
 // Compare two poses with the given tolerance.

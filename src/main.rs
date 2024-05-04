@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+use rs_opw_kinematics::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
@@ -28,5 +30,25 @@ fn main() {
     println!("If we do not have the previous position, we can assume we want J4, J6 close to 0.0");
     println!("The solution appears and the needed rotation is now equally distributed between J4 and J6.");
     let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
+    dump_solutions(&solutions);
+
+    let robot = OPWKinematics::new_with_constraints(
+        Parameters::irb2400_10(), Constraints::new(
+            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+            [ PI, PI, 2.0*PI, PI, PI, PI],
+            BY_PREV,
+        ));
+    println!("With constraints, sorted by proximity to the previous pose");
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+    dump_solutions(&solutions);
+
+    let robot = OPWKinematics::new_with_constraints(
+        Parameters::irb2400_10(), Constraints::new(
+            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+            [ PI, PI, 2.0*PI, PI, PI, PI],
+            BY_CONSTRAINS,
+        ));
+    println!("With constraints, sorted by proximity to the center of constraints");
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
     dump_solutions(&solutions);
 }

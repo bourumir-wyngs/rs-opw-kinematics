@@ -14,11 +14,29 @@ pub(crate) mod opw_kinematics {
 /// Print joint values for all solutions, converting radianst to degrees.
 #[allow(dead_code)]
 pub fn dump_solutions(solutions: &Solutions) {
+    if solutions.is_empty() {
+        println!("No solutions");
+    }
     for sol_idx in 0..solutions.len() {
         let mut row_str = String::new();
         for joint_idx in 0..6 {
             let computed = solutions[sol_idx][joint_idx];
             row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+        }
+        println!("[{}]", row_str.trim_end());
+    }
+}
+
+#[allow(dead_code)]
+pub fn dump_solutions_degrees(solutions: &Solutions) {
+    if solutions.is_empty() {
+        println!("No solutions");
+    }
+    for sol_idx in 0..solutions.len() {
+        let mut row_str = String::new();
+        for joint_idx in 0..6 {
+            let computed = solutions[sol_idx][joint_idx];
+            row_str.push_str(&format!("{:5.2} ", computed));
         }
         println!("[{}]", row_str.trim_end());
     }
@@ -33,6 +51,12 @@ pub fn dump_joints(joints: &Joints) {
         row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
     }
     println!("[{}]", row_str.trim_end());
+}
+
+/// Allows to specify joint values in degrees (converts to radians)
+#[allow(dead_code)]
+pub fn as_radians(degrees: [i32; 6]) -> Joints {
+    std::array::from_fn(|i| (degrees[i] as f64).to_radians())
 }
 
 #[cfg(test)]

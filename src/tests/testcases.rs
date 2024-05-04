@@ -91,10 +91,41 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 mod tests {
     use std::collections::HashMap;
     use std::f64::consts::PI;
-    use crate::kinematic_traits::{Kinematics, Singularity, Solutions};
+    use crate::kinematic_traits::{Joints, Kinematics, Singularity, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
     use super::*;
+
+    /// Check if 'expected' exists in the given vector of solutions. This function is also
+    /// used by other tests.
+    pub fn found_joints_approx_equal(solutions: &Solutions, expected: &Joints, tolerance: f64) -> Option<i32> {
+        for sol_idx in 0..solutions.len() {
+            // println!("Checking solution at index {}", sol_idx);
+
+            let mut solution_matches = true;
+            for joint_idx in 0..6 {
+                let computed = solutions[sol_idx][joint_idx];
+                let asserted = expected[joint_idx];
+
+                let diff = (computed - asserted).abs();
+                //println!("Column value: {}, Expected value: {}, Difference: {}",
+                //         computed, asserted, diff);
+
+                if diff >= tolerance && (diff - 2. * PI).abs() > tolerance {
+                    // For angles, 360 degree difference means the same angle.
+                    solution_matches = false;
+                    break;
+                }
+            }
+
+            if solution_matches {
+                return Some(sol_idx as i32); // Return the index of the matching solution
+            }
+        }
+
+        println!("No matching solution found");
+        return None; // Explicitly indicate that no matching column was found
+    }    
 
     #[test]
     fn test_load_yaml() {
@@ -287,34 +318,6 @@ mod tests {
                 "Fully matching joints must come first. Expected Some(0), got {:?}", found_matching);
     }
 
-    fn found_joints_approx_equal(solutions: &Solutions, expected: &[f64; 6], tolerance: f64) -> Option<i32> {
-        for sol_idx in 0..solutions.len() {
-            // println!("Checking solution at index {}", sol_idx);
-
-            let mut solution_matches = true;
-            for joint_idx in 0..6 {
-                let computed = solutions[sol_idx][joint_idx];
-                let asserted = expected[joint_idx];
-
-                let diff = (computed - asserted).abs();
-                //println!("Column value: {}, Expected value: {}, Difference: {}",
-                //         computed, asserted, diff);
-
-                if diff >= tolerance && (diff - 2. * PI).abs() > tolerance {
-                    // For angles, 360 degree difference means the same angle.
-                    solution_matches = false;
-                    break;
-                }
-            }
-
-            if solution_matches {
-                return Some(sol_idx as i32); // Return the index of the matching solution
-            }
-        }
-
-        println!("No matching solution found");
-        return None; // Explicitly indicate that no matching column was found
-    }
 
     fn create_parameter_map() -> HashMap<String, Parameters> {
 // Create map to get actual parameters that are not in the yaml file (maybe should be?)
