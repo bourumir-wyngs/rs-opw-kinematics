@@ -1,20 +1,18 @@
-use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use serde_yaml;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 struct Pose {
     translation: [f64; 3],
     quaternion: [f64; 4], // Assuming [x, y, z, w] ordering here
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 struct Case {
     id: i32,
     parameters: String,
     joints: [f64; 6],
-    solutions: Vec<[f64; 6]>,
+    _solutions: Vec<[f64; 6]>,
     pose: Pose,
 }
 
@@ -29,12 +27,8 @@ impl Case {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Cases {
-    cases: Vec<Case>,
-}
-
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
+use yaml_rust2::{Yaml, YamlLoader};
 
 impl Pose {
     pub fn to_isometry(&self) -> Isometry3<f64> {
@@ -64,11 +58,89 @@ impl Pose {
     }
 }
 
-fn load_yaml(filename: &str) -> Result<Cases, serde_yaml::Error> {
-    let mut file = File::open(filename).expect("Unable to open file");
+fn load_yaml(file_path: &str) -> Result<Vec<Case>, String> {
+    let mut file = File::open(file_path).map_err(|e| e.to_string())?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents).expect("Unable to read the file");
-    serde_yaml::from_str(&contents)
+    file.read_to_string(&mut contents).map_err(|e| e.to_string())?;
+
+    let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
+    let cases_yaml = &docs[0]["cases"];
+
+    let mut cases: Vec<Case> = Vec::new();
+    if let Some(cases_vec) = cases_yaml.as_vec() {
+        for case_yaml in cases_vec {
+            let id = case_yaml["id"].as_i64().ok_or("Missing id")? as i32;
+            let parameters = case_yaml["parameters"].as_str().ok_or("Missing parameters")?.to_string();
+            let joints = parse_array::<f64, 6>(&case_yaml["joints"])?;
+            let solutions = parse_solutions(&case_yaml["solutions"])?;
+            let pose = parse_pose(&case_yaml["pose"])?;
+
+            cases.push(Case {
+                id,
+                parameters,
+                joints,
+                _solutions: solutions,
+                pose,
+            });
+        }
+    } else {
+        return Err("Expected 'cases' to be a sequence".to_string());
+    }
+
+    Ok(cases)
+}
+
+fn parse_array<T: Copy + std::str::FromStr, const N: usize>(yaml: &Yaml) -> Result<[T; N], String>
+    where
+        <T as std::str::FromStr>::Err: std::fmt::Display, // Ensure the error type of T's FromStr can be displayed
+{
+    let vec = yaml.as_vec().ok_or("Expected an array in YAML")?;
+
+    if vec.is_empty() {
+        return Err("Array in YAML is empty, cannot initialize".to_string());
+    }
+
+    // Initialize the array using the first element if it can be parsed, otherwise return an error
+    let first_value = vec.get(0)
+        .ok_or_else(|| "Array is non-empty but no first item found".to_string())
+        .and_then(|item| {
+            match item {
+                Yaml::Real(s) => s.parse::<T>().map_err(|e| format!("Failed to parse first item as real: {}, found: '{}'", e, s)),
+                Yaml::Integer(i) => i.to_string().parse::<T>().map_err(|e| format!("Failed to parse first item as integer: {}, found: '{}'", e, i)),
+                _ => Err(format!("First item is not a real or integer value, found: {:?}", item))
+            }
+        })?;
+
+    let mut array: [T; N] = [first_value; N];  // Use the first parsed value to initialize the array
+
+    // Parse each element in the vector and fill the array
+    for (i, item) in vec.iter().enumerate() {
+        array[i] = match item {
+            Yaml::Real(s) => s.parse::<T>().map_err(|e| format!("Error parsing real at index {}: {}, found: '{}'", i, e, s))?,
+            Yaml::Integer(i) => i.to_string().parse::<T>().map_err(|e| format!("Error parsing integer at index {}: {}, found: '{}'", i, e, i))?,
+            _ => return Err(format!("Expected a real or integer value at index {}, found: {:?}", i, item))
+        };
+    }
+
+    Ok(array)
+}
+
+fn parse_solutions(yaml: &Yaml) -> Result<Vec<[f64; 6]>, String> {
+    let mut solutions = Vec::new();
+    for solution_yaml in yaml.as_vec().ok_or("Expected solutions array")? {
+        solutions.push(parse_array::<f64, 6>(solution_yaml)?);
+    }
+    Ok(solutions)
+}
+
+fn parse_pose(yaml: &Yaml) -> Result<Pose, String> {
+    let translation = parse_array::<f64, 3>(&yaml["translation"])?;
+    let quaternion = parse_array::<f64, 4>(&yaml["quaternion"])?;
+
+    Ok(Pose {
+        translation,
+        quaternion,
+    })
 }
 
 fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance: f64) -> bool {
@@ -125,7 +197,7 @@ mod tests {
 
         println!("No matching solution found");
         return None; // Explicitly indicate that no matching column was found
-    }    
+    }
 
     #[test]
     fn test_load_yaml() {
@@ -138,22 +210,22 @@ mod tests {
 
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
 
-        let cases_struct = result.expect("Expected a valid Cases struct after parsing");
+        let cases = result.expect("Expected a valid Cases struct after parsing");
 
         // Example assertion: the list of cases should not be empty.
-        assert!(!cases_struct.cases.is_empty(), "No cases were loaded from the YAML file");
+        assert!(!cases.is_empty(), "No cases were loaded from the YAML file");
     }
 
     #[test]
     fn test_forward_ik() {
         let filename = "src/tests/cases.yaml";
         let result = load_yaml(filename);
-        assert!(result.is_ok(), "Failed to load or parse the YAML file");
+        assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
         let cases = result.expect("Expected a valid Cases struct after parsing");
         let all_parameters = create_parameter_map();
-        println!("Forward IK: {} test cases", cases.cases.len());
+        println!("Forward IK: {} test cases", cases.len());
 
-        for case in cases.cases.iter() {
+        for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
@@ -182,9 +254,9 @@ mod tests {
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
         let cases = result.expect("Expected a valid Cases struct after parsing");
         let all_parameters = create_parameter_map();
-        println!("Inverse IK: {} test cases", cases.cases.len());
+        println!("Inverse IK: {} test cases", cases.len());
 
-        for case in cases.cases.iter() {
+        for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
@@ -227,9 +299,9 @@ mod tests {
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
         let cases = result.expect("Expected a valid Cases struct after parsing");
         let all_parameters = create_parameter_map();
-        println!("Inverse IK: {} test cases", cases.cases.len());
+        println!("Inverse IK: {} test cases", cases.len());
 
-        for case in cases.cases.iter() {
+        for case in cases.iter() {
             if case.id != 1241 {
                 //continue;
             }
@@ -243,7 +315,7 @@ mod tests {
                 found_joints_approx_equal(&solutions, &case.joints_in_radians(),
                                           0.001_f64.to_radians());
             if !matches!(found_matching, Some(0)) {
-                println!("**** No valid solution: {:?} for case {} on {} ****", 
+                println!("**** No valid solution: {:?} for case {} on {} ****",
                          found_matching, case.id, case.parameters);
                 let joints_str = &case.joints.iter()
                     .map(|&val| format!("{:5.2}", val))
@@ -264,8 +336,8 @@ mod tests {
                 println!("---");
             }
             assert!(matches!(found_matching, Some(0)),
-                    "Fully matching joints must come first. At {}, Expected Some(0), got {:?}", 
-                    case.id,found_matching);
+                    "Fully matching joints must come first. At {}, Expected Some(0), got {:?}",
+                    case.id, found_matching);
         }
     }
 

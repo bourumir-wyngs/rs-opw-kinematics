@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
@@ -17,13 +17,8 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.32.5"
-thiserror = "1.0.59"
-serde = { version = "1.0", features = ["derive"] }
+yaml-rust2 = "0.8.0"
 
-
-# Bourumir's own branch currently without any major changes so we can use the old one as well
-#serde_yaml = { git = "https://github.com/bourumir-wyngs/serde-yaml-bw", branch = "1.0.0" }
-serde_yaml = "0.9.34"
 regex = "1.10.4"
 
 [dev-dependencies]
