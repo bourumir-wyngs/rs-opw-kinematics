@@ -83,7 +83,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.1.1, <1.2.0"
+rs-opw-kinematics = ">=1.1.1, <1.2.0" 
 ```
 
 main.rs:
