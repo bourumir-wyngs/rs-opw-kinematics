@@ -22,21 +22,27 @@ impl From<io::Error> for ParameterError {
 }
 
 impl Parameters {
-    /// Parses angles from strings in degrees format or plain floats.
-    fn parse_degrees(s: &str) -> Result<f64, ParameterError> {
-        if let Some(angle) = s.strip_prefix("deg(")
-            .and_then(|s| s.strip_suffix(")")) {
-            angle.trim().parse::<f64>()
-                .map_err(
-                    |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
-                .map(|deg| deg.to_radians())
-        } else {
-            s.parse::<f64>().map_err(
-                |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
-        }
-    }
 
-    /// Reads and parses robot configuration parameters from a YAML file.
+    ///
+    /// Read the robot configuration from YAML file. YAML file like this is supported:
+    ///
+    /// # FANUC m16ib20
+    /// opw_kinematics_geometric_parameters:
+    ///   a1: 0.15
+    ///   a2: -0.10
+    ///   b: 0.0
+    ///   c1: 0.525
+    ///   c2: 0.77
+    ///   c3: 0.74
+    ///   c4: 0.10
+    /// opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
+    /// opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
+    ///
+    /// ROS-Industrial provides many such files for FANUC robots on GitHub
+    /// (ros-industrial/fanuc, see fanuc_m10ia_support/config/opw_parameters_m10ia.yaml)
+    /// YAML extension to parse the deg(angle) function is supported.
+    ///  
+    /// See https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m16ib_support/config/opw_parameters_m16ib20.yaml
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, ParameterError> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
@@ -93,4 +99,19 @@ impl Parameters {
             sign_corrections,
         })
     }
+
+    /// Parses angles from strings in degrees format or plain floats.
+    fn parse_degrees(s: &str) -> Result<f64, ParameterError> {
+        if let Some(angle) = s.strip_prefix("deg(")
+            .and_then(|s| s.strip_suffix(")")) {
+            angle.trim().parse::<f64>()
+                .map_err(
+                    |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
+                .map(|deg| deg.to_radians())
+        } else {
+            s.parse::<f64>().map_err(
+                |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
+        }
+    }
+    
 }
