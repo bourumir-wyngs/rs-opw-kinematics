@@ -19,6 +19,9 @@ maintenance = { status = "actively-developed" }
 nalgebra = "0.32.5"
 yaml-rust2 = "0.8.0"
 
+# We test at times with saphyr also even if currently yaml-rust2 is more than enough for our functionality.
+#yaml-rust2  = { package = "saphyr", version = "0.0.1" }
+
 [dev-dependencies]
 rand = "0.8.5"
 
