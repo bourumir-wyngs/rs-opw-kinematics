@@ -1,84 +1,96 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::Path,
+};
 use yaml_rust2::{Yaml, YamlLoader};
 use crate::parameters::opw_kinematics::Parameters;
 
-/// See https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m16ib_support/config/opw_parameters_m16ib20.yaml
+/// Custom error type for YAML parsing and parameter initialization.
+#[derive(Debug)]
+pub enum ParameterError {
+    IoError(io::Error),
+    ParseError(String),
+    MissingField(String),
+    InvalidLength { expected: usize, found: usize },
+}
+
+impl From<io::Error> for ParameterError {
+    fn from(err: io::Error) -> Self {
+        ParameterError::IoError(err)
+    }
+}
 
 impl Parameters {
-    /// We support the deg(angle) function, even if it is not a standard YAML. It is
-    /// found in the files we need to parse
-    fn parse_degrees(s: &str) -> Result<f64, String> {
-        if s.starts_with("deg(") && s.ends_with(")") {
-            let len = s.len();
-            s[4..len - 1].trim().parse::<f64>()
-                .map_err(|_| format!("Failed to parse degrees from {}", s))
+    /// Parses angles from strings in degrees format or plain floats.
+    fn parse_degrees(s: &str) -> Result<f64, ParameterError> {
+        if let Some(angle) = s.strip_prefix("deg(")
+            .and_then(|s| s.strip_suffix(")")) {
+            angle.trim().parse::<f64>()
+                .map_err(
+                    |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
                 .map(|deg| deg.to_radians())
         } else {
-            s.parse::<f64>().map_err(|_| format!("Failed to parse deg(x) argument from {}", s))
+            s.parse::<f64>().map_err(
+                |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
         }
     }
 
-    ///
-    /// Read the robot configuration from YAML file. YAML file like this is supported:
-    ///
-    /// # FANUC m16ib20
-    /// opw_kinematics_geometric_parameters:
-    ///   a1: 0.15
-    ///   a2: -0.10
-    ///   b: 0.0
-    ///   c1: 0.525
-    ///   c2: 0.77
-    ///   c3: 0.74
-    ///   c4: 0.10
-    /// opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
-    /// opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
-    ///
-    /// ROS-Industrial provides many such files for FANUC robots on GitHub
-    /// (ros-industrial/fanuc, see fanuc_m10ia_support/config/opw_parameters_m10ia.yaml)
-    /// YAML extension to parse the deg(angle) function is supported.  
-    pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let mut file = File::open(path).map_err(|e| e.to_string())?;
+    /// Reads and parses robot configuration parameters from a YAML file.
+    pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, ParameterError> {
+        let mut file = File::open(path)?;
         let mut contents = String::new();
-        file.read_to_string(&mut contents).map_err(|e| e.to_string())?;
-        let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
+        file.read_to_string(&mut contents)?;
+
+        let docs = YamlLoader::load_from_str(&contents).map_err(
+            |e| ParameterError::ParseError(e.to_string()))?;
         let doc = &docs[0];
 
-        let geometric_params = &doc["opw_kinematics_geometric_parameters"];
+        let params = &doc["opw_kinematics_geometric_parameters"];
         let offsets_yaml = &doc["opw_kinematics_joint_offsets"];
         let sign_corrections_yaml = &doc["opw_kinematics_joint_sign_corrections"];
 
-        let offsets: [f64; 6] = offsets_yaml.as_vec().ok_or("Missing offsets array")?
+        let offsets: [f64; 6] = offsets_yaml.as_vec()
+            .ok_or_else(|| ParameterError::MissingField("offsets array".into()))?
             .iter()
             .map(|item| match item {
-                Yaml::String(s) if s.starts_with("deg(") => Self::parse_degrees(s),
-                Yaml::Real(s) | Yaml::String(s) => s.parse::<f64>().map_err(|_| "Failed to parse angle".to_string()),
-                _ => Err("Offset entry is not a number or deg() function".to_string()),
+                Yaml::String(s) => Self::parse_degrees(s),
+                Yaml::Real(s) => s.parse::<f64>()
+                    .map_err(|_| ParameterError::ParseError("Failed to parse angle".into())),
+                _ => Err(ParameterError::ParseError(
+                    "Offset entry is not a number or deg() function".into())),
             })
             .collect::<Result<Vec<_>, _>>()?
             .try_into()
-            .map_err(|_| "Incorrect number of offsets, must be 6".to_string())?;
+            .map_err(|_| ParameterError::InvalidLength {
+                expected: 6,
+                found: offsets_yaml.as_vec()
+                    .unwrap().len(),
+            })?;
 
-        let sign_corrections: [i8; 6] = sign_corrections_yaml.as_vec().ok_or("Missing sign corrections array")?
+        let sign_corrections: [i8; 6] = sign_corrections_yaml.as_vec()
+            .ok_or_else(|| ParameterError::MissingField("sign corrections array".into()))?
             .iter()
-            .map(|item| item.as_i64().ok_or("Sign correction not an integer".to_string()).map(|x| x as i8))
+            .map(|item| item.as_i64().ok_or(
+                ParameterError::ParseError("Sign correction not an integer".into()))
+                .map(|x| x as i8))
             .collect::<Result<Vec<_>, _>>()?
             .try_into()
-            .map_err(|_| "Incorrect number of sign corrections, must be 6".to_string())?;
+            .map_err(|_| ParameterError::InvalidLength {
+                expected: 6,
+                found: sign_corrections_yaml.as_vec().unwrap().len(),
+            })?;
 
         Ok(Parameters {
-            a1: geometric_params["a1"].as_f64().ok_or("Missing field: a1")?,
-            a2: geometric_params["a2"].as_f64().ok_or("Missing field: a2")?,
-            b: geometric_params["b"].as_f64().ok_or("Missing field: b")?,
-            c1: geometric_params["c1"].as_f64().ok_or("Missing field: c1")?,
-            c2: geometric_params["c2"].as_f64().ok_or("Missing field: c2")?,
-            c3: geometric_params["c3"].as_f64().ok_or("Missing field: c3")?,
-            c4: geometric_params["c4"].as_f64().ok_or("Missing field: c4")?,
+            a1: params["a1"].as_f64().ok_or_else(|| ParameterError::MissingField("a1".into()))?,
+            a2: params["a2"].as_f64().ok_or_else(|| ParameterError::MissingField("a2".into()))?,
+            b: params["b"].as_f64().ok_or_else(|| ParameterError::MissingField("b".into()))?,
+            c1: params["c1"].as_f64().ok_or_else(|| ParameterError::MissingField("c1".into()))?,
+            c2: params["c2"].as_f64().ok_or_else(|| ParameterError::MissingField("c2".into()))?,
+            c3: params["c3"].as_f64().ok_or_else(|| ParameterError::MissingField("c3".into()))?,
+            c4: params["c4"].as_f64().ok_or_else(|| ParameterError::MissingField("c4".into()))?,
             offsets,
             sign_corrections,
         })
     }
 }
-
