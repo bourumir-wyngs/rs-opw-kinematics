@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
@@ -18,8 +18,6 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 nalgebra = "0.32.5"
 yaml-rust2 = "0.8.0"
-
-regex = "1.10.4"
 
 [dev-dependencies]
 rand = "0.8.5"
