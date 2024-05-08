@@ -8,6 +8,19 @@ use crate::parameters::opw_kinematics::Parameters;
 /// See https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m16ib_support/config/opw_parameters_m16ib20.yaml
 
 impl Parameters {
+    /// We support the deg(angle) function, even if it is not a standard YAML. It is
+    /// found in the files we need to parse
+    fn parse_degrees(s: &str) -> Result<f64, String> {
+        if s.starts_with("deg(") && s.ends_with(")") {
+            let len = s.len();
+            s[4..len - 1].trim().parse::<f64>()
+                .map_err(|_| format!("Failed to parse degrees from {}", s))
+                .map(|deg| deg.to_radians())
+        } else {
+            s.parse::<f64>().map_err(|_| format!("Failed to parse deg(x) argument from {}", s))
+        }
+    }
+
     ///
     /// Read the robot configuration from YAML file. YAML file like this is supported:
     ///
@@ -33,19 +46,6 @@ impl Parameters {
         let docs = YamlLoader::load_from_str(&contents).map_err(|e| e.to_string())?;
         let doc = &docs[0];
 
-        /// We support the deg(angle) function, even if it is not a standard YAML. It is
-        /// found in the files we need to parse, so what?
-        fn parse_degrees(s: &str) -> Result<f64, String> {
-            if s.starts_with("deg(") && s.ends_with(")") {
-                let len = s.len();
-                s[4..len - 1].trim().parse::<f64>()
-                    .map_err(|_| format!("Failed to parse degrees from {}", s))
-                    .map(|deg| deg.to_radians())
-            } else {
-                s.parse::<f64>().map_err(|_| format!("Failed to parse deg(x) argument from {}", s))
-            }
-        }
-
         let geometric_params = &doc["opw_kinematics_geometric_parameters"];
         let offsets_yaml = &doc["opw_kinematics_joint_offsets"];
         let sign_corrections_yaml = &doc["opw_kinematics_joint_sign_corrections"];
@@ -53,7 +53,7 @@ impl Parameters {
         let offsets: [f64; 6] = offsets_yaml.as_vec().ok_or("Missing offsets array")?
             .iter()
             .map(|item| match item {
-                Yaml::String(s) if s.starts_with("deg(") => parse_degrees(s),
+                Yaml::String(s) if s.starts_with("deg(") => Self::parse_degrees(s),
                 Yaml::Real(s) | Yaml::String(s) => s.parse::<f64>().map_err(|_| "Failed to parse angle".to_string()),
                 _ => Err("Offset entry is not a number or deg() function".to_string()),
             })
