@@ -8,8 +8,11 @@ pub mod kinematics_impl;
 
 pub mod constraints;
 
+pub mod urdf;
+
 #[cfg(test)]
 mod tests;
+
 
 
 

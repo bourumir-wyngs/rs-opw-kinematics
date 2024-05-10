@@ -43,6 +43,18 @@ impl Constraints {
     /// 1.0 (or BY_CONSTRAINTS) gives absolute priority to the middle values of constraints.
     /// Intermediate values like 0.5 provide the weighted compromise.
     pub fn new(from: Joints, to: Joints, sorting_weight: f64) -> Self {
+        let (centers, tolerances) = Self::compute_centers(from, to);
+
+        Constraints {
+            from: from,
+            to: to,
+            centers: centers,
+            tolerances: tolerances,
+            sorting_weight: sorting_weight,
+        }
+    }
+
+    fn compute_centers(from: Joints, to: Joints) -> (Joints, Joints) {
         let mut centers: Joints = JOINTS_AT_ZERO;
         let mut tolerances: Joints = JOINTS_AT_ZERO;
 
@@ -64,14 +76,17 @@ impl Constraints {
                 tolerances[j_idx] = (b - a) / 2.0;
             }
         }
+        (centers, tolerances)
+    }
 
-        Constraints {
-            from: from,
-            to: to,
-            centers: centers,
-            tolerances: tolerances,
-            sorting_weight: sorting_weight,
-        }
+    pub fn update_range(& mut self, from: Joints, to: Joints) {
+        let (centers, tolerances) = Self::compute_centers(from, to);
+        
+        self.from = from;
+        self.to = to;
+        self.centers = centers;
+        self.tolerances = tolerances;
+        // This method does not change the sorting weight.
     }
 
     fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
