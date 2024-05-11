@@ -3,7 +3,92 @@ extern crate sxd_document;
 use std::collections::HashMap;
 use sxd_document::{parser, dom, QName};
 use std::error::Error;
+use std::fs::read_to_string;
+use std::path::Path;
 use regex::Regex;
+use crate::constraints::{BY_PREV, Constraints};
+use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
+use crate::kinematics_impl::OPWKinematics;
+use crate::parameter_error::ParameterError;
+use crate::parameters::opw_kinematics::Parameters;
+
+/// Simplified reading from URDF file. This function assumes sorting of results by closest to
+/// previous (BY_PREV) and no joint offsets (zero offsets). URDF file is expected in the input
+/// but XACRO file may also work. Robot joints must be named joint1 to joint6 in the file
+/// (as macro prefix, underscore and non-word chars is dropped, it can also be something like
+/// `${prefix}JOINT_1`). It may be more than one robot described in URDF file but they must all
+/// be identical.
+///
+/// # Parameters
+/// - `path`: the location of URDF or XACRO file to load from.
+///
+/// # Returns
+/// - Returns an instance of `OPWKinematics`, which contains the kinematic parameters
+///   extracted from the specified URDF file, including constraints as defined there.
+///
+/// # Exampls
+/// ```
+/// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+/// println!("{:?}", kinematics);
+/// ```
+///
+/// # Errors
+/// - The function might panic if the file cannot be found, is not accessible, or is incorrectly 
+///   formatted. Users should ensure the file path is correct and the file is properly formatted as 
+///   URDF or XACRO file.
+pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
+    let xml_content = read_to_string(path).expect("Failed to read xacro/urdf file");
+
+    let joint_data = process_joints(&xml_content)
+        .expect("Failed to process XML joints");
+
+    let opw_parameters = populate_opw_parameters(joint_data)
+        .expect("Failed to read OpwParameters");
+
+    opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO)
+}
+
+/// Parses URDF XML content to construct OPW kinematics parameters for a robot.
+/// This function provides detailed error handling through the `ParameterError` type.
+///
+/// # Parameters
+/// - `xml_content`: A `String` containing the XML data of the URDF file.
+/// - `offsets`: joint offsets data (array of f64 one value per joint)
+/// - `sorting_weight`: A `f64` value used for sorting joints, BY_PREV = 0 - by previous
+///                     BY_CONSTRAINTS = 1 - by center of constraints, intermediate values
+///                     possible.
+///
+/// # Returns
+/// - Returns a `Result<OPWKinematics, ParameterError>`. On success, it contains the OPW kinematics
+///   configuration for the robot. On failure, it returns a detailed error.
+///
+/// # Examples
+/// ```
+/// use std::f64::consts::PI;
+/// use rs_opw_kinematics::constraints::BY_PREV;
+/// use rs_opw_kinematics::kinematic_traits::Joints;
+/// use rs_opw_kinematics::urdf::from_urdf;
+/// // Exactly this string would fail. Working URDF fragment would be too long for this example. 
+/// let xml_data = String::from("<robot><joint ...></joint></robot>"); 
+/// let offsets = [ 0., PI, 0., 0.,0.,0.];
+/// let result = from_urdf(xml_data, &offsets, BY_PREV);
+/// match result {
+///     Ok(kinematics) => println!("{:?}", kinematics),
+///     Err(e) => println!("Error processing URDF: {}", e),
+/// }
+/// ```
+pub fn from_urdf(xml_content: String, offsets: &Joints, sorting_weight: f64) -> Result<OPWKinematics, ParameterError> {
+    let joint_data = process_joints(&xml_content)
+        .map_err(|e|
+            ParameterError::XmlProcessingError(format!("Failed to process XML joints: {}", e)))?;
+
+    let opw_parameters = populate_opw_parameters(joint_data)
+        .map_err(|e|
+            ParameterError::ParameterPopulationError(format!("Failed to interpret robot model: {}", e)))?;
+
+    Ok(opw_parameters.to_robot(sorting_weight, offsets))
+}
+
 
 #[derive(Debug, Default, PartialEq)]
 struct Vector3 {
@@ -173,9 +258,32 @@ struct OpwParameters {
     c2: f64,
     c3: f64,
     c4: f64,
-    sign_corrections: [i32; 6],
-    from: [f64; 6], // Array to store the lower limits
-    to: [f64; 6],   // Array to store the upper limits
+    sign_corrections: [i8; 6],
+    from: Joints, // Array to store the lower limits
+    to: Joints,   // Array to store the upper limits
+}
+
+impl OpwParameters {
+    fn to_robot(self, sorting_weight: f64, offsets: &Joints) -> OPWKinematics {
+        OPWKinematics::new_with_constraints(
+            Parameters {
+                a1: self.a1,
+                a2: self.a2,
+                b: self.b,
+                c1: self.c1,
+                c2: self.c2,
+                c3: self.c3,
+                c4: self.c4,
+                sign_corrections: self.sign_corrections,
+                offsets: *offsets,
+            },
+            Constraints::new(
+                self.from,
+                self.to,
+                sorting_weight,
+            ),
+        )
+    }
 }
 
 fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<OpwParameters, String> {
@@ -184,38 +292,38 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<OpwP
         match name.as_str() {
             "joint1" => {
                 opw_parameters.c1 = joint.vector.z;
-                opw_parameters.sign_corrections[0] = joint.sign_correction;
+                opw_parameters.sign_corrections[0] = joint.sign_correction as i8;
                 opw_parameters.from[0] = joint.from;
                 opw_parameters.to[0] = joint.to;
             }
             "joint2" => {
                 opw_parameters.a1 = joint.vector.x;
-                opw_parameters.sign_corrections[1] = joint.sign_correction;
+                opw_parameters.sign_corrections[1] = joint.sign_correction as i8;
                 opw_parameters.from[1] = joint.from;
                 opw_parameters.to[1] = joint.to;
             }
             "joint3" => {
                 opw_parameters.c2 = joint.vector.z;
-                opw_parameters.sign_corrections[2] = joint.sign_correction;
+                opw_parameters.sign_corrections[2] = joint.sign_correction as i8;
                 opw_parameters.from[2] = joint.from;
                 opw_parameters.to[2] = joint.to;
             }
             "joint4" => {
                 opw_parameters.a2 = -joint.vector.z;
-                opw_parameters.sign_corrections[3] = joint.sign_correction;
+                opw_parameters.sign_corrections[3] = joint.sign_correction as i8;
                 opw_parameters.from[3] = joint.from;
                 opw_parameters.to[3] = joint.to;
             }
             "joint5" => {
                 opw_parameters.c3 = joint.vector.x;
-                opw_parameters.sign_corrections[4] = joint.sign_correction;
+                opw_parameters.sign_corrections[4] = joint.sign_correction as i8;
                 opw_parameters.from[4] = joint.from;
                 opw_parameters.to[4] = joint.to;
             }
             "joint6" => {
                 opw_parameters.c4 = joint.vector.x;
                 opw_parameters.b = joint.vector.y; // this is questionable, more likely sum of all dy
-                opw_parameters.sign_corrections[5] = joint.sign_correction;
+                opw_parameters.sign_corrections[5] = joint.sign_correction as i8;
                 opw_parameters.from[5] = joint.from;
                 opw_parameters.to[5] = joint.to;
             }
@@ -318,7 +426,7 @@ mod tests {
         let expected_to: [f64; 6] = [3.14, 2.79, 4.61, 3.31, 3.31, 6.28];
 
         for (i, &val) in expected_sign_corrections.iter().enumerate() {
-            assert_eq!(opw_parameters.sign_corrections[i], val,
+            assert_eq!(opw_parameters.sign_corrections[i], val as i8,
                        "Mismatch in sign_corrections at index {}", i);
         }
 

@@ -1,25 +1,11 @@
 use std::{
     fs::File,
-    io::{self, Read},
+    io::Read,
     path::Path,
 };
 use yaml_rust2::{Yaml, YamlLoader};
+use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
-
-/// Custom error type for YAML parsing and parameter initialization.
-#[derive(Debug)]
-pub enum ParameterError {
-    IoError(io::Error),
-    ParseError(String),
-    MissingField(String),
-    InvalidLength { expected: usize, found: usize },
-}
-
-impl From<io::Error> for ParameterError {
-    fn from(err: io::Error) -> Self {
-        ParameterError::IoError(err)
-    }
-}
 
 impl Parameters {
 

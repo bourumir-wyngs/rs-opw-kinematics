@@ -12,6 +12,7 @@ pub mod urdf;
 
 #[cfg(test)]
 mod tests;
+mod parameter_error;
 
 
 
