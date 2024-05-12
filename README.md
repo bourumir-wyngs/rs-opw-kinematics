@@ -30,7 +30,7 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- Use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
+- OPW parameters can be automatically exctracted form URDF or XACRO content.
  
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
 robots tested.
@@ -170,6 +170,15 @@ function that sometimes occurs there:
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
 let robot = OPWKinematics::new(parameters);
 ```
+
+Since version 1.1.2, parameters can also be directly extracted from URDF file or XACRO fragment:
+```Rust
+let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+```
+
+Both robot parameters and constraints are extracted. This example shows the "user friendly" version. See 
+documentation for ```rs_opw_kinematics::urdf::from_urdf``` that takes URDF string rather than the file,
+provides error handling and much more control over how the solver is constructed from the extracted values.
 
 # Testing
 

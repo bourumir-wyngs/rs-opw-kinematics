@@ -26,7 +26,7 @@ use crate::parameters::opw_kinematics::Parameters;
 /// - Returns an instance of `OPWKinematics`, which contains the kinematic parameters
 ///   extracted from the specified URDF file, including constraints as defined there.
 ///
-/// # Exampls
+/// # Example
 /// ```
 /// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
 /// println!("{:?}", kinematics);
@@ -49,35 +49,42 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 }
 
 /// Parses URDF XML content to construct OPW kinematics parameters for a robot.
-/// This function provides detailed error handling through the `ParameterError` type.
+/// This function provides detailed error handling through the `ParameterError` type,
+/// and returns intermediate type from where both Parameters and Constraints can be taken
+/// and inspected or modified if so required.
 ///
 /// # Parameters
 /// - `xml_content`: A `String` containing the XML data of the URDF file.
-/// - `offsets`: joint offsets data (array of f64 one value per joint)
-/// - `sorting_weight`: A `f64` value used for sorting joints, BY_PREV = 0 - by previous
-///                     BY_CONSTRAINTS = 1 - by center of constraints, intermediate values
-///                     possible.
 ///
 /// # Returns
-/// - Returns a `Result<OPWKinematics, ParameterError>`. On success, it contains the OPW kinematics
+/// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
 ///   configuration for the robot. On failure, it returns a detailed error.
+///   Ust to_robot method to convert OpwParameters directly to the robot instance.
 ///
-/// # Examples
+/// # Example showing full control over how the inverse kinematics solver is constructed:
 /// ```
 /// use std::f64::consts::PI;
 /// use rs_opw_kinematics::constraints::BY_PREV;
-/// use rs_opw_kinematics::kinematic_traits::Joints;
+/// use rs_opw_kinematics::kinematic_traits::{Joints, JOINTS_AT_ZERO, Kinematics};
+/// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 /// use rs_opw_kinematics::urdf::from_urdf;
 /// // Exactly this string would fail. Working URDF fragment would be too long for this example. 
 /// let xml_data = String::from("<robot><joint ...></joint></robot>"); 
 /// let offsets = [ 0., PI, 0., 0.,0.,0.];
-/// let result = from_urdf(xml_data, &offsets, BY_PREV);
-/// match result {
-///     Ok(kinematics) => println!("{:?}", kinematics),
+/// let opw_params = from_urdf(xml_data);
+/// match opw_params {
+///     Ok(opw_params) => {
+///         println!("Building the IK solver {:?}", opw_params);
+///         let parameters = opw_params.parameters(&JOINTS_AT_ZERO); // Zero joint offsets
+///         let constraints =opw_params.constraints(BY_PREV); 
+///         let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+///         /// let joints = robot.inverse( ... )    
+///
+///     }
 ///     Err(e) => println!("Error processing URDF: {}", e),
 /// }
 /// ```
-pub fn from_urdf(xml_content: String, offsets: &Joints, sorting_weight: f64) -> Result<OPWKinematics, ParameterError> {
+pub fn from_urdf(xml_content: String) -> Result<URDFParameters, ParameterError> {
     let joint_data = process_joints(&xml_content)
         .map_err(|e|
             ParameterError::XmlProcessingError(format!("Failed to process XML joints: {}", e)))?;
@@ -86,7 +93,7 @@ pub fn from_urdf(xml_content: String, offsets: &Joints, sorting_weight: f64) -> 
         .map_err(|e|
             ParameterError::ParameterPopulationError(format!("Failed to interpret robot model: {}", e)))?;
 
-    Ok(opw_parameters.to_robot(sorting_weight, offsets))
+    Ok(opw_parameters)
 }
 
 
@@ -249,22 +256,26 @@ fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, 
     Ok(map)
 }
 
-#[derive(Default, Debug)]
-struct OpwParameters {
-    a1: f64,
-    a2: f64,
-    b: f64,
-    c1: f64,
-    c2: f64,
-    c3: f64,
-    c4: f64,
-    sign_corrections: [i8; 6],
-    from: Joints, // Array to store the lower limits
-    to: Joints,   // Array to store the upper limits
+/// OPW parameters as extrancted from URDF file, including constraints 
+/// (joint offsets are not directly defined in URDF). This structure
+/// can provide robot parameters, constraints and sign corrections,
+/// or alterntively can be converted to the robot directly. 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct URDFParameters {
+    pub a1: f64,
+    pub a2: f64,
+    pub b: f64,
+    pub c1: f64,
+    pub c2: f64,
+    pub c3: f64,
+    pub c4: f64,
+    pub sign_corrections: [i8; 6],
+    pub from: Joints, // Array to store the lower limits
+    pub to: Joints,   // Array to store the upper limits
 }
 
-impl OpwParameters {
-    fn to_robot(self, sorting_weight: f64, offsets: &Joints) -> OPWKinematics {
+impl URDFParameters {
+    pub fn to_robot(self, sorting_weight: f64, offsets: &Joints) -> OPWKinematics {
         OPWKinematics::new_with_constraints(
             Parameters {
                 a1: self.a1,
@@ -284,10 +295,34 @@ impl OpwParameters {
             ),
         )
     }
+
+    /// Return extracted constraints.
+    pub fn constraints(self, sorting_weight: f64) -> Constraints {
+        Constraints::new(
+            self.from,
+            self.to,
+            sorting_weight,
+        )
+    }
+
+    /// Return extracted parameters
+    pub fn parameters(self, offsets: &Joints) -> Parameters {
+        Parameters {
+            a1: self.a1,
+            a2: self.a2,
+            b: self.b,
+            c1: self.c1,
+            c2: self.c2,
+            c3: self.c3,
+            c4: self.c4,
+            sign_corrections: self.sign_corrections,
+            offsets: *offsets,
+        }
+    }
 }
 
-fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<OpwParameters, String> {
-    let mut opw_parameters = OpwParameters::default();
+fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<URDFParameters, String> {
+    let mut opw_parameters = URDFParameters::default();
     for (name, joint) in joint_map {
         match name.as_str() {
             "joint1" => {
