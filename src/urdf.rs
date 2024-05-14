@@ -151,6 +151,25 @@ fn process_joints(xml: &str) -> Result<HashMap<String, JointData>, Box<dyn Error
     convert_to_map(joints)
 }
 
+fn discard_non_digit_joint_chars(input: &str) -> String {
+    // Define the regular expression
+    let re = Regex::new(r".*joint(\D*)\d.*").unwrap();
+
+    // Find the first match of the pattern
+    if let Some(captures) = re.captures(input) {
+        // Get the part marked as \D* which is the first capture group
+        if let Some(non_digit_part) = captures.get(1) {
+            let non_digit_str = non_digit_part.as_str();
+            // Remove the non-digit part from the input string
+            let result = input.replace(non_digit_str, "");
+            return result;
+        }
+    }
+
+    // If no match is found, return the original string
+    input.to_string()
+}
+
 /// Simplify joint name: remove macro construct in the prefix, 
 /// underscores and non-word characters, set lowercase.
 fn preprocess_joint_name(joint_name: &str) -> String {
@@ -163,7 +182,8 @@ fn preprocess_joint_name(joint_name: &str) -> String {
     let re_non_alphanumeric = Regex::new(r"[^\w]|_").unwrap();
     let clean_name = re_non_alphanumeric.replace_all(&processed_name, "");
 
-    clean_name.to_lowercase()
+    let processed_name = discard_non_digit_joint_chars(&clean_name);    
+    processed_name.to_lowercase()
 }
 
 // Recursive function to collect joint data
@@ -193,9 +213,17 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>) -> Result<
                 to: 0., // 0 to 0 in our notation is 'full circle'
             };
 
-            if let Some((from, to)) = limit_element.map(get_limits).transpose()? {
-                joint_data.from = from;
-                joint_data.to = to;
+            match limit_element.map(get_limits).transpose() {
+                Ok(Some((from, to))) => {
+                    joint_data.from = from;
+                    joint_data.to = to;
+                },
+                Ok(None) => {
+                },
+                Err(e) => {
+                    println!("Joint limits defined but not not readable for {}: {}", 
+                             joint_data.name, e.to_string());
+                }
             }
 
             joints.push(joint_data);
@@ -363,9 +391,7 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<URDF
                 opw_parameters.to[1] = joint.to;
             }
             "joint3" => {
-                opw_parameters.c2 = joint.vector.z;
-                opw_parameters.b = joint.vector.x;
-
+                opw_parameters.c2 = joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[2] = joint.sign_correction as i8;
                 opw_parameters.from[2] = joint.from;
                 opw_parameters.to[2] = joint.to;

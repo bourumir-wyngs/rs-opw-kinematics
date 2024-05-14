@@ -1,5 +1,6 @@
 use std::fs::read_to_string;
 use crate::kinematic_traits::{Joints};
+use crate::parameters::opw_kinematics::Parameters;
 use crate::urdf;
 use crate::urdf::URDFParameters;
 
@@ -112,4 +113,21 @@ fn test_extraction_m6ib() {
     assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
     assert_eq!(opw_parameters.c3, 0.615, "c3 parameter mismatch");
     assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");
+}
+
+#[test]
+fn test_extraction_kr6r700sixx() {
+    let opw_parameters= 
+        //read_urdf("src/tests/kr6r700sixx_macro_simplified.xacro");
+        read_urdf("src/tests/kr6r700sixx_macro.xacro");
+    
+    let params = Parameters::kuka_kr6_r700_sixx();
+
+    assert_eq!(opw_parameters.a1, params.a1, "a1 parameter mismatch");
+    assert_eq!(opw_parameters.a2, params.a2, "a2 parameter mismatch");
+    assert_eq!(opw_parameters.b, params.b, "b parameter mismatch");
+    assert_eq!(opw_parameters.c1, params.c1, "c1 parameter mismatch");
+    assert_eq!(opw_parameters.c2, params.c2, "c2 parameter mismatch");
+    assert_eq!(opw_parameters.c3, params.c3, "c3 parameter mismatch");
+    assert_eq!(opw_parameters.c4, params.c4, "c4 parameter mismatch");
 }
