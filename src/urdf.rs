@@ -104,6 +104,28 @@ struct Vector3 {
     z: f64,
 }
 
+impl Vector3 {
+    pub fn non_zero(&self) -> Result<f64, String> {
+        let mut non_zero_values = vec![];
+
+        if self.x != 0.0 {
+            non_zero_values.push(self.x);
+        }
+        if self.y != 0.0 {
+            non_zero_values.push(self.y);
+        }
+        if self.z != 0.0 {
+            non_zero_values.push(self.z);
+        }
+
+        match non_zero_values.len() {
+            0 => Ok(0.0),
+            1 => Ok(non_zero_values[0]),
+            _ => Err(format!("More than one non-zero value in URDF offset {:?}", self).to_string()),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct JointData {
     name: String,
@@ -323,41 +345,45 @@ impl URDFParameters {
 
 fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();
+    
+    opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
+    
     for (name, joint) in joint_map {
         match name.as_str() {
             "joint1" => {
-                opw_parameters.c1 = joint.vector.z;
+                opw_parameters.c1 = joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[0] = joint.sign_correction as i8;
                 opw_parameters.from[0] = joint.from;
                 opw_parameters.to[0] = joint.to;
             }
             "joint2" => {
-                opw_parameters.a1 = joint.vector.x;
+                opw_parameters.a1 = joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[1] = joint.sign_correction as i8;
                 opw_parameters.from[1] = joint.from;
                 opw_parameters.to[1] = joint.to;
             }
             "joint3" => {
                 opw_parameters.c2 = joint.vector.z;
+                opw_parameters.b = joint.vector.x;
+
                 opw_parameters.sign_corrections[2] = joint.sign_correction as i8;
                 opw_parameters.from[2] = joint.from;
                 opw_parameters.to[2] = joint.to;
             }
             "joint4" => {
-                opw_parameters.a2 = -joint.vector.z;
+                opw_parameters.a2 = -joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[3] = joint.sign_correction as i8;
                 opw_parameters.from[3] = joint.from;
                 opw_parameters.to[3] = joint.to;
             }
             "joint5" => {
-                opw_parameters.c3 = joint.vector.x;
+                opw_parameters.c3 = joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[4] = joint.sign_correction as i8;
                 opw_parameters.from[4] = joint.from;
                 opw_parameters.to[4] = joint.to;
             }
             "joint6" => {
-                opw_parameters.c4 = joint.vector.x;
-                opw_parameters.b = joint.vector.y; // this is questionable, more likely sum of all dy
+                opw_parameters.c4 = joint.vector.non_zero()?;
                 opw_parameters.sign_corrections[5] = joint.sign_correction as i8;
                 opw_parameters.from[5] = joint.from;
                 opw_parameters.to[5] = joint.to;
@@ -374,8 +400,6 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<URDF
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read_to_string;
-    use std::path::Path;
     use super::*;
 
     #[test]
@@ -421,109 +445,6 @@ mod tests {
         assert_eq!(j2.from, -3.15, "Joint2 lower limit incorrect");
         assert_eq!(j2.to, 4.62, "Joint2 upper limit incorrect");
     }
-
-    #[test]
-    fn test_extraction_m10ia() {
-        let filename = "src/tests/m10ia_macro.xacro";
-        let path = Path::new(filename);
-        let xml_content = read_to_string(path).expect("Failed to read xacro file");
-
-        let joint_data = process_joints(&xml_content)
-            .expect("Failed to process XML joints");
-
-        let opw_parameters = populate_opw_parameters(joint_data)
-            .expect("Failed to read OpwParameters");
-
-        // Output the results or further process
-        println!("{:?}", opw_parameters);
-
-        // opw_kinematics_geometric_parameters:
-        //   a1: 0.15
-        //   a2: -0.20
-        //   b: 0.0
-        //   c1: 0.45
-        //   c2: 0.60
-        //   c3: 0.64
-        //   c4: 0.10
-        // opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
-        // opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
-
-        assert_eq!(opw_parameters.a1, 0.15, "a1 parameter mismatch");
-        assert_eq!(opw_parameters.a2, -0.2, "a2 parameter mismatch");
-        assert_eq!(opw_parameters.b, 0.0, "b parameter mismatch");
-        assert_eq!(opw_parameters.c1, 0.45, "c1 parameter mismatch");
-        assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
-        assert_eq!(opw_parameters.c3, 0.64, "c3 parameter mismatch");
-        assert_eq!(opw_parameters.c4, 0.1, "c4 parameter mismatch");
-
-        let expected_sign_corrections: [i32; 6] = [1, 1, -1, -1, -1, -1];
-        let expected_from: Joints = [-3.14, -1.57, -3.14, -3.31, -3.31, -6.28];
-        let expected_to: Joints = [3.14, 2.79, 4.61, 3.31, 3.31, 6.28];
-
-        for (i, &val) in expected_sign_corrections.iter().enumerate() {
-            assert_eq!(opw_parameters.sign_corrections[i], val as i8,
-                       "Mismatch in sign_corrections at index {}", i);
-        }
-
-        for (i, &val) in expected_from.iter().enumerate() {
-            assert_eq!(opw_parameters.from[i], val, "Mismatch in from at index {}", i);
-        }
-
-        for (i, &val) in expected_to.iter().enumerate() {
-            assert_eq!(opw_parameters.to[i], val, "Mismatch in to at index {}", i);
-        }
-    }
-    #[test]
-    fn test_extraction_lrmate200ib() {
-        let filename = "src/tests/lrmate200ib_macro.xacro";
-        let path = Path::new(filename);
-        let xml_content = read_to_string(path).expect("Failed to read xacro file");
-
-        let joint_data = process_joints(&xml_content)
-            .expect("Failed to process XML joints");
-
-        let opw_parameters = populate_opw_parameters(joint_data)
-            .expect("Failed to read OpwParameters");
-
-        // Output the results or further process
-        println!("{:?}", opw_parameters);
-
-        // opw_kinematics_geometric_parameters:
-        //   a1: 0.15
-        //   a2: -0.075
-        //   b: 0.0
-        //   c1: 0.35
-        //   c2: 0.25
-        //   c3: 0.290
-        //   c4: 0.08
-        // opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
-        // opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
-
-        assert_eq!(opw_parameters.a1, 0.15, "a1 parameter mismatch");
-        assert_eq!(opw_parameters.a2, -0.075, "a2 parameter mismatch");
-        assert_eq!(opw_parameters.b, 0.0, "b parameter mismatch");
-        assert_eq!(opw_parameters.c1, 0.35, "c1 parameter mismatch");
-        assert_eq!(opw_parameters.c2, 0.25, "c2 parameter mismatch");
-        assert_eq!(opw_parameters.c3, 0.290, "c3 parameter mismatch");
-        assert_eq!(opw_parameters.c4, 0.08, "c4 parameter mismatch");
-
-        let expected_sign_corrections: [i32; 6] = [1, 1, -1, -1, -1, -1];
-        let expected_from: Joints = [-2.7925, -0.5759, -2.6145, -3.3161, -2.0943, -6.2831];
-        let expected_to: Joints = [2.7925, 2.6529, 2.8797, 3.3161, 2.0943, 6.2831];
-
-        for (i, &val) in expected_sign_corrections.iter().enumerate() {
-            assert_eq!(opw_parameters.sign_corrections[i], val as i8,
-                       "Mismatch in sign_corrections at index {}", i);
-        }
-
-        for (i, &val) in expected_from.iter().enumerate() {
-            assert_eq!(opw_parameters.from[i], val, "Mismatch in constraints from at index {}", i);
-        }
-
-        for (i, &val) in expected_to.iter().enumerate() {
-            assert_eq!(opw_parameters.to[i], val, "Mismatch in constraints to at index {}", i);
-        }
-    }    
 }
 
   

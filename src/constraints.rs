@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Constraints {
     /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
     pub from: [f64; 6],

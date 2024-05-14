@@ -3,7 +3,7 @@ use std::{
     io::Read,
     path::Path,
 };
-use yaml_rust2::{Yaml, YamlEmitter, YamlLoader};
+use yaml_rust2::{Yaml, YamlLoader};
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
 
