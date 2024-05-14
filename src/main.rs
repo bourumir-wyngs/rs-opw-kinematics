@@ -51,4 +51,7 @@ fn main() {
     println!("With constraints, sorted by proximity to the center of constraints");
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
     dump_solutions(&solutions);
+    
+    let parameters = Parameters::irb2400_10();
+    println!("Reading:\n{}", &parameters.to_yaml());
 }

@@ -168,17 +168,20 @@ function that sometimes occurs there:
 
 ```Rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
-let robot = OPWKinematics::new(parameters);
+  println!("Reading:\n{}", &parameters.to_yaml());  
+  let robot = OPWKinematics::new(parameters);
 ```
 
 Since version 1.1.2, parameters can also be directly extracted from URDF file or XACRO fragment:
 ```Rust
-let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+  println!("Reading:\n{}", &parameters.to_yaml()); 
 ```
 
 Both robot parameters and constraints are extracted. This example shows the "user friendly" version. See 
 documentation for ```rs_opw_kinematics::urdf::from_urdf``` that takes URDF string rather than the file,
 provides error handling and much more control over how the solver is constructed from the extracted values.
+URDF reader currently will not extract information about the robot placement in the robotic cell.
 
 # Testing
 
