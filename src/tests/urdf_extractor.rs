@@ -6,7 +6,7 @@ use crate::urdf::URDFParameters;
 
 fn read_urdf(path: &str) -> URDFParameters {
     let opw_parameters = urdf::from_urdf(read_to_string(path)
-        .expect("Failed to read test data file")).expect("Faile to interpret URDF");
+        .expect("Failed to read test data file"), &None).expect("Faile to interpret URDF");
     // Output the results or further process
     println!("{:?}", opw_parameters);
     opw_parameters    

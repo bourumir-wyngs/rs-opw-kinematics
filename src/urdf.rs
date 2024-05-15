@@ -39,10 +39,10 @@ use crate::parameters::opw_kinematics::Parameters;
 pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
     let xml_content = read_to_string(path).expect("Failed to read xacro/urdf file");
 
-    let joint_data = process_joints(&xml_content)
+    let joint_data = process_joints(&xml_content, &None)
         .expect("Failed to process XML joints");
 
-    let opw_parameters = populate_opw_parameters(joint_data)
+    let opw_parameters = populate_opw_parameters(joint_data, &None)
         .expect("Failed to read OpwParameters");
 
     opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO)
@@ -55,6 +55,9 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 ///
 /// # Parameters
 /// - `xml_content`: A `String` containing the XML data of the URDF file.
+/// - `joint_names`: An optional array containing joint names. This may be required if
+///                  names do not follow typical naming convention, or there are multiple
+///                  robots defined in URDF.
 ///
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
@@ -69,9 +72,12 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 /// use rs_opw_kinematics::urdf::from_urdf;
 /// // Exactly this string would fail. Working URDF fragment would be too long for this example. 
-/// let xml_data = String::from("<robot><joint ...></joint></robot>"); 
+/// let xml_data = String::from("<robot><joint ...></joint></robot>");
+///
+/// // Let's assume the joint names have prefix and the joints are zero base numbered. 
+/// let joints = ["lf_joint_0", "lf_joint_1", "lf_joint_2", "lf_joint_3", "lf_joint_4", "lf_joint_5"];
 /// let offsets = [ 0., PI, 0., 0.,0.,0.];
-/// let opw_params = from_urdf(xml_data);
+/// let opw_params = from_urdf(xml_data, &Some(joints));
 /// match opw_params {
 ///     Ok(opw_params) => {
 ///         println!("Building the IK solver {:?}", opw_params);
@@ -84,12 +90,12 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 ///     Err(e) => println!("Error processing URDF: {}", e),
 /// }
 /// ```
-pub fn from_urdf(xml_content: String) -> Result<URDFParameters, ParameterError> {
-    let joint_data = process_joints(&xml_content)
+pub fn from_urdf(xml_content: String, joint_names: &Option<[&str; 6]>) -> Result<URDFParameters, ParameterError> {
+    let joint_data = process_joints(&xml_content, joint_names)
         .map_err(|e|
             ParameterError::XmlProcessingError(format!("Failed to process XML joints: {}", e)))?;
 
-    let opw_parameters = populate_opw_parameters(joint_data)
+    let opw_parameters = populate_opw_parameters(joint_data, joint_names)
         .map_err(|e|
             ParameterError::ParameterPopulationError(format!("Failed to interpret robot model: {}", e)))?;
 
@@ -135,7 +141,7 @@ struct JointData {
     to: f64,
 }
 
-fn process_joints(xml: &str) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
+fn process_joints(xml: &str, joint_names: &Option<[&str; 6]>) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
     let package = parser::parse(xml)?;
     let document = package.as_document();
 
@@ -146,7 +152,7 @@ fn process_joints(xml: &str) -> Result<HashMap<String, JointData>, Box<dyn Error
 
     // Collect all joint data
     let mut joints = Vec::new();
-    collect_joints(root_element, &mut joints)?;
+    collect_joints(root_element, &mut joints, joint_names)?;
 
     convert_to_map(joints)
 }
@@ -182,12 +188,12 @@ fn preprocess_joint_name(joint_name: &str) -> String {
     let re_non_alphanumeric = Regex::new(r"[^\w]|_").unwrap();
     let clean_name = re_non_alphanumeric.replace_all(&processed_name, "");
 
-    let processed_name = discard_non_digit_joint_chars(&clean_name);    
+    let processed_name = discard_non_digit_joint_chars(&clean_name);
     processed_name.to_lowercase()
 }
 
 // Recursive function to collect joint data
-fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>) -> Result<(), Box<dyn Error>> {
+fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_names: &Option<[&str; 6]>) -> Result<(), Box<dyn Error>> {
     let origin_tag = QName::new("origin");
     let joint_tag = QName::new("joint");
     let axis_tag = QName::new("axis");
@@ -195,9 +201,17 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>) -> Result<
 
     for child in element.children().into_iter().filter_map(|e| e.element()) {
         if child.name() == joint_tag {
-            let name = preprocess_joint_name(&child.attribute("name")
+            let name;
+            let urdf_name = &child.attribute("name")
                 .map(|attr| attr.value().to_string())
-                .unwrap_or_else(|| "Unnamed".to_string()));
+                .unwrap_or_else(|| "Unnamed".to_string());
+            if joint_names.is_some() {
+                // If joint names are explicitly given, they are expected to be as they are.
+                name = urdf_name.clone();
+            } else {
+                // Otherwise effort is done to "simplify" the names into joint1 to joint6
+                name = preprocess_joint_name(urdf_name);
+            }
             let axis_element = child.children().into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == axis_tag));
             let origin_element = child.children().into_iter()
@@ -217,11 +231,10 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>) -> Result<
                 Ok(Some((from, to))) => {
                     joint_data.from = from;
                     joint_data.to = to;
-                },
-                Ok(None) => {
-                },
+                }
+                Ok(None) => {}
                 Err(e) => {
-                    println!("Joint limits defined but not not readable for {}: {}", 
+                    println!("Joint limits defined but not not readable for {}: {}",
                              joint_data.name, e.to_string());
                 }
             }
@@ -229,7 +242,7 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>) -> Result<
             joints.push(joint_data);
         }
 
-        collect_joints(child, joints)?;
+        collect_joints(child, joints, joint_names)?;
     }
 
     Ok(())
@@ -296,7 +309,8 @@ fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, 
         if let Some(existing) = map.get(&joint.name) {
             // Check if the existing entry is different from the new one
             if existing != &joint {
-                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Duplicate joint name with different data found: {}", joint.name))));
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData,
+                                                        format!("Duplicate joint name with different data found: {}", joint.name))));
             }
         } else {
             map.insert(joint.name.clone(), joint);
@@ -371,51 +385,44 @@ impl URDFParameters {
     }
 }
 
-fn populate_opw_parameters(joint_map: HashMap<String, JointData>) -> Result<URDFParameters, String> {
+fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
+                           -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();
-    
+
     opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
-    
-    for (name, joint) in joint_map {
-        match name.as_str() {
-            "joint1" => {
+
+    let names = joint_names.unwrap_or_else(
+        || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
+
+    for j in 0..6 {
+        let joint = joint_map
+            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+
+        opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
+        opw_parameters.from[j] = joint.from;
+        opw_parameters.to[j] = joint.to;
+
+        match j + 1 { // Joint number 1 to 6 inclusive
+            1 => {
                 opw_parameters.c1 = joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[0] = joint.sign_correction as i8;
-                opw_parameters.from[0] = joint.from;
-                opw_parameters.to[0] = joint.to;
             }
-            "joint2" => {
+            2 => {
                 opw_parameters.a1 = joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[1] = joint.sign_correction as i8;
-                opw_parameters.from[1] = joint.from;
-                opw_parameters.to[1] = joint.to;
             }
-            "joint3" => {
+            3 => {
                 opw_parameters.c2 = joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[2] = joint.sign_correction as i8;
-                opw_parameters.from[2] = joint.from;
-                opw_parameters.to[2] = joint.to;
             }
-            "joint4" => {
+            4 => {
                 opw_parameters.a2 = -joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[3] = joint.sign_correction as i8;
-                opw_parameters.from[3] = joint.from;
-                opw_parameters.to[3] = joint.to;
             }
-            "joint5" => {
+            5 => {
                 opw_parameters.c3 = joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[4] = joint.sign_correction as i8;
-                opw_parameters.from[4] = joint.from;
-                opw_parameters.to[4] = joint.to;
             }
-            "joint6" => {
+            6 => {
                 opw_parameters.c4 = joint.vector.non_zero()?;
-                opw_parameters.sign_corrections[5] = joint.sign_correction as i8;
-                opw_parameters.from[5] = joint.from;
-                opw_parameters.to[5] = joint.to;
             }
             _ => {
-                // Other joints for now ignored
+                // Other joints not in use
             }
         }
     }
@@ -445,7 +452,7 @@ mod tests {
             </robot>
         "#;
 
-        let joint_data = process_joints(xml)
+        let joint_data = process_joints(xml, &None)
             .expect("Failed to process XML joints");
 
         assert_eq!(joint_data.len(), 2, "Should have extracted two joints");
@@ -470,6 +477,80 @@ mod tests {
         assert_eq!(j2.sign_correction, 1, "Joint2 sign correction incorrect");
         assert_eq!(j2.from, -3.15, "Joint2 lower limit incorrect");
         assert_eq!(j2.to, 4.62, "Joint2 upper limit incorrect");
+    }
+
+    #[test]
+    fn test_populate_named_joints() {
+        // Let's say they are zero-base numbered and have the side prefix in front.
+        // Also, there are joints for another robot with different prefix (multiple robots in URDF).
+        // This test shows that multiple robots are supported (if URDF defines a multi-robot cell)
+        let xml = r#"
+            <robot>
+                <joint name="right_joint_0" type="revolute"> <!-- must be ignored -->
+                  <origin xyz="0 0 0.950" rpy="0 0 0"/>
+                  <parent link="right_base_link"/>
+                  <child link="right_link_1"/>
+                  <axis xyz="0 0 1"/>
+                  <limit lower="-2.9670" upper="2.9670" effort="0" velocity="2.6179"/>
+                </joint>            
+                <joint name="left_joint_0" type="revolute"> <!-- numbered from 0 -->
+                  <origin xyz="0 0 0.450" rpy="0 0 0"/>
+                  <parent link="left_base_link"/>
+                  <child link="left_link_1"/>
+                  <axis xyz="0 0 1"/>
+                  <limit lower="-2.9670" upper="2.9670" effort="0" velocity="2.6179"/>
+                </joint>
+                <joint name="left_joint_1" type="revolute">
+                  <origin xyz="0.150 0 0" rpy="0 0 0"/>
+                  <parent link="left_link_1"/>
+                  <child link="left_link_2"/>
+                  <axis xyz="0 1 0"/>
+                  <limit lower="-1.5707" upper="2.7925" effort="0" velocity="2.7925"/>
+                </joint>
+                <joint name="left_joint_2" type="revolute">
+                  <origin xyz="0 0 0.600" rpy="0 0 0"/>
+                  <parent link="left_link_2"/>
+                  <child link="left_link_3"/>
+                  <axis xyz="0 -1 0"/>
+                  <limit lower="-2.9670" upper="2.9670" effort="0" velocity="2.9670"/>
+                </joint>
+                <joint name="left_joint_3" type="revolute">
+                  <origin xyz="0 0 0.100" rpy="0 0 0"/>
+                  <parent link="left_link_3"/>
+                  <child link="left_link_4"/>
+                  <axis xyz="-1 0 0"/>
+                  <limit lower="-3.3161" upper="3.3161" effort="0" velocity="6.9813"/>
+                </joint>
+                <joint name="left_joint_4" type="revolute">
+                  <origin xyz="0.615 0 0" rpy="0 0 0"/>
+                  <parent link="left_link_4"/>
+                  <child link="left_link_5"/>
+                  <axis xyz="0 -1 0"/>
+                  <limit lower="-2.4434" upper="2.4434" effort="0" velocity="6.9813"/>
+                </joint>
+                <joint name="left_joint_5" type="revolute">
+                  <origin xyz="0.100 0 0" rpy="0 0 0"/>
+                  <parent link="left_link_5"/>
+                  <child link="left_link_6"/>
+                  <axis xyz="-1 0 0"/>
+                  <limit lower="-6.2831" upper="6.2831" effort="0" velocity="9.0757"/>
+                </joint>                               
+            </robot>
+        "#;
+
+        let joints = ["left_joint_0", "left_joint_1", "left_joint_2",
+            "left_joint_3", "left_joint_4", "left_joint_5"];
+        
+        let opw_parameters =
+            from_urdf(xml.to_string(), &Some(joints)).expect("Failed to parse parameters");
+
+        assert_eq!(opw_parameters.a1, 0.15, "a1 parameter mismatch");
+        assert_eq!(opw_parameters.a2, -0.10, "a2 parameter mismatch");
+        assert_eq!(opw_parameters.b, 0.0, "b parameter mismatch");
+        assert_eq!(opw_parameters.c1, 0.45, "c1 parameter mismatch");
+        assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
+        assert_eq!(opw_parameters.c3, 0.615, "c3 parameter mismatch");
+        assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");        
     }
 }
 
