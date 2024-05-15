@@ -269,7 +269,7 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
 fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     // Fetch the 'xyz' attribute, assuming the element is correctly passed
     let axis_attr = axis_element.attribute("xyz").ok_or_else(|| {
-        format!("'xyz' attribute not found in element supposed to represent the axis")
+        "'xyz' attribute not found in element supposed to represent the axis"
     })?;
 
     // Parse the xyz attribute to determine the sign corrections

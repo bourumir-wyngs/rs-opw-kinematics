@@ -135,7 +135,7 @@ mod tests {
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
 
         let sols: Solutions = vec![angles];
-        assert!(limits.filter(&sols).len() == 1);
+        assert_eq!(limits.filter(&sols).len(), 1);
 
         assert!(limits.compliant(&angles));
     }
