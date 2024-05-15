@@ -30,7 +30,8 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- With some limitations (see below), OPW parameters can be automatically exctracted form URDF or XACRO content.
+- For robots where parameter b is zero (see the drawing), parameters (and constraints) can be extracted directly 
+  from the URDF file. Such robots represent a very large proportion of all robots with spherical wrists.
  
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
 robots tested.
@@ -172,25 +173,19 @@ function that sometimes occurs there:
   let robot = OPWKinematics::new(parameters);
 ```
 
-Since version 1.1.2, parameters can also be directly extracted from URDF file:
+Since version 1.1.2, parameters and constraints can also be directly extracted from URDF file:
 ```Rust
   let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
   println!("Reading:\n{}", &parameters.to_yaml());
 ```
-This function can also read xacro format if values are specified directly in the file and can be obtained 
-without calculating xacro expressions. However xacro is a complex extension that 
-can use properties, expressions, included files, so it may be better to pre-process witn 
-[xacro](https://daobook.github.io/ros2-docs/xin/Tutorials/URDF/Using-Xacro-to-Clean-Up-a-URDF-File.html)
-command line tool.
 
-Both robot parameters and constraints are extracted. This example shows the "user friendly" version. See 
-documentation for ```rs_opw_kinematics::urdf::from_urdf``` that takes URDF string rather than the file,
-provides error handling and much more control over how the solver is constructed from the extracted values.
-URDF reader currently will not extract information about the robot placement in the robotic cell.
+See also the documentation for the more advanced function ```rs_opw_kinematics::urdf::from_urdf``` that 
+takes URDF string rather than the file, provides error handling and much more control over how the solver
+is constructed from the extracted values.
 
-The URDF reader is currently also unable to extract the parameter b (as in the diagram). Unlike other parameters,
-it is not defined in URDF directly, also was zero for all robot configurations we had available for testing. 
-Hence the URDF reader assumes it is always 0 for now. We are working on this issue.
+The URDF reader is currently unable to extract the parameter b (as shown in the diagram). In all the robots 
+for which we had access to both URDF and OPW parameters, this parameter is clearly zero. Therefore, the 
+extraction of this parameter cannot be tested. 
 
 # Testing
 

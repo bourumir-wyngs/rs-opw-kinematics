@@ -14,7 +14,7 @@ fn read_urdf(path: &str) -> URDFParameters {
 
 #[test]
 fn test_extraction_m10ia() {
-    let opw_parameters= read_urdf("src/tests/m10ia_macro.xacro"); 
+    let opw_parameters= read_urdf("src/tests/data/fanuc/m10ia_macro.xacro"); 
 
     // opw_kinematics_geometric_parameters:
     //   a1: 0.15
@@ -54,7 +54,7 @@ fn test_extraction_m10ia() {
 }
 #[test]
 fn test_extraction_lrmate200ib() {
-    let opw_parameters= read_urdf("src/tests/lrmate200ib_macro.xacro");
+    let opw_parameters= read_urdf("src/tests/data/fanuc/lrmate200ib_macro.xacro");
 
     // opw_kinematics_geometric_parameters:
     //   a1: 0.15
@@ -95,7 +95,7 @@ fn test_extraction_lrmate200ib() {
 
 #[test]
 fn test_extraction_m6ib() {
-    let opw_parameters= read_urdf("src/tests/m6ib_macro.xacro");    
+    let opw_parameters= read_urdf("src/tests/data/fanuc/m6ib_macro.xacro");    
 
     // opw_kinematics_geometric_parameters:
     //  a1: 0.15
@@ -118,8 +118,7 @@ fn test_extraction_m6ib() {
 #[test]
 fn test_extraction_kr6r700sixx() {
     let opw_parameters= 
-        //read_urdf("src/tests/kr6r700sixx_macro_simplified.xacro");
-        read_urdf("src/tests/kr6r700sixx_macro.xacro");
+        read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
     
     let params = Parameters::kuka_kr6_r700_sixx();
 
@@ -131,3 +130,4 @@ fn test_extraction_kr6r700sixx() {
     assert_eq!(opw_parameters.c3, params.c3, "c3 parameter mismatch");
     assert_eq!(opw_parameters.c4, params.c4, "c4 parameter mismatch");
 }
+

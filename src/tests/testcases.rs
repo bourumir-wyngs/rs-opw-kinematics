@@ -105,8 +105,10 @@ fn parse_array<T: Copy + std::str::FromStr, const N: usize>(yaml: &Yaml) -> Resu
         .ok_or_else(|| "Array is non-empty but no first item found".to_string())
         .and_then(|item| {
             match item {
-                Yaml::Real(s) => s.parse::<T>().map_err(|e| format!("Failed to parse first item as real: {}, found: '{}'", e, s)),
-                Yaml::Integer(i) => i.to_string().parse::<T>().map_err(|e| format!("Failed to parse first item as integer: {}, found: '{}'", e, i)),
+                Yaml::Real(s) => s.parse::<T>()
+                    .map_err(|e| format!("Failed to parse first item as real: {}, found: '{}'", e, s)),
+                Yaml::Integer(i) => i.to_string().parse::<T>()
+                    .map_err(|e| format!("Failed to parse first item as integer: {}, found: '{}'", e, i)),
                 _ => Err(format!("First item is not a real or integer value, found: {:?}", item))
             }
         })?;
@@ -116,8 +118,10 @@ fn parse_array<T: Copy + std::str::FromStr, const N: usize>(yaml: &Yaml) -> Resu
     // Parse each element in the vector and fill the array
     for (i, item) in vec.iter().enumerate() {
         array[i] = match item {
-            Yaml::Real(s) => s.parse::<T>().map_err(|e| format!("Error parsing real at index {}: {}, found: '{}'", i, e, s))?,
-            Yaml::Integer(i) => i.to_string().parse::<T>().map_err(|e| format!("Error parsing integer at index {}: {}, found: '{}'", i, e, i))?,
+            Yaml::Real(s) => s.parse::<T>()
+                .map_err(|e| format!("Error parsing real at index {}: {}, found: '{}'", i, e, s))?,
+            Yaml::Integer(i) => i.to_string()
+                .parse::<T>().map_err(|e| format!("Error parsing integer at index {}: {}, found: '{}'", i, e, i))?,
             _ => return Err(format!("Expected a real or integer value at index {}, found: {:?}", i, item))
         };
     }
@@ -201,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_load_yaml() {
-        let filename = "src/tests/cases.yaml";
+        let filename = "src/tests/data/cases.yaml";
         let result = load_yaml(filename);
 
         if let Err(e) = &result {
@@ -218,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_forward_ik() {
-        let filename = "src/tests/cases.yaml";
+        let filename = "src/tests/data/cases.yaml";
         let result = load_yaml(filename);
         assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
         let cases = result.expect("Expected a valid Cases struct after parsing");
@@ -249,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_inverse_ik() {
-        let filename = "src/tests/cases.yaml";
+        let filename = "src/tests/data/cases.yaml";
         let result = load_yaml(filename);
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
         let cases = result.expect("Expected a valid Cases struct after parsing");
@@ -294,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_inverse_ik_continuing() {
-        let filename = "src/tests/cases.yaml";
+        let filename = "src/tests/data/cases.yaml";
         let result = load_yaml(filename);
         assert!(result.is_ok(), "Failed to load or parse the YAML file");
         let cases = result.expect("Expected a valid Cases struct after parsing");
@@ -433,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_parameters_from_yaml() {
-        let filename = "src/tests/fanuc_m16ib20.yaml";
+        let filename = "src/tests/data/fanuc/fanuc_m16ib20.yaml";
         let loaded =
             Parameters::from_yaml_file(filename).expect("Failed to load parameters from file");
 
