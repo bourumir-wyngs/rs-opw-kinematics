@@ -1,11 +1,11 @@
 extern crate sxd_document;
 
+use crate::simplify_joint_name::preprocess_joint_name;
 use std::collections::HashMap;
 use sxd_document::{parser, dom, QName};
 use std::error::Error;
 use std::fs::read_to_string;
 use std::path::Path;
-use regex::Regex;
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::kinematics_impl::OPWKinematics;
@@ -155,41 +155,6 @@ fn process_joints(xml: &str, joint_names: &Option<[&str; 6]>) -> Result<HashMap<
     collect_joints(root_element, &mut joints, joint_names)?;
 
     convert_to_map(joints)
-}
-
-fn discard_non_digit_joint_chars(input: &str) -> String {
-    // Define the regular expression
-    let re = Regex::new(r".*joint(\D*)\d.*").unwrap();
-
-    // Find the first match of the pattern
-    if let Some(captures) = re.captures(input) {
-        // Get the part marked as \D* which is the first capture group
-        if let Some(non_digit_part) = captures.get(1) {
-            let non_digit_str = non_digit_part.as_str();
-            // Remove the non-digit part from the input string
-            let result = input.replace(non_digit_str, "");
-            return result;
-        }
-    }
-
-    // If no match is found, return the original string
-    input.to_string()
-}
-
-/// Simplify joint name: remove macro construct in the prefix, 
-/// underscores and non-word characters, set lowercase.
-fn preprocess_joint_name(joint_name: &str) -> String {
-    // Create a regex to find the ${prefix} pattern
-    let re_prefix = Regex::new(r"\$\{[^}]+\}").unwrap();
-    // Replace the pattern with an empty string, effectively removing it
-    let processed_name = re_prefix.replace_all(joint_name, "");
-
-    // Create a regex to remove all non-alphanumeric characters, including underscores
-    let re_non_alphanumeric = Regex::new(r"[^\w]|_").unwrap();
-    let clean_name = re_non_alphanumeric.replace_all(&processed_name, "");
-
-    let processed_name = discard_non_digit_joint_chars(&clean_name);
-    processed_name.to_lowercase()
 }
 
 // Recursive function to collect joint data
@@ -416,7 +381,7 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                         opw_parameters.c2 = value;
                         opw_parameters.b = 0.0;
                     },
-                    Err(err) => {
+                    Err(_err) => {
                         pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
                             match (a, b) {
                                 (0.0, 0.0) => Ok(0.0), // assuming c2 = 0.0
@@ -450,6 +415,8 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
     Ok(opw_parameters)
 }
 
+#[allow(dead_code)]
+// This function is not in use and exists for references only (old version)
 fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
                            -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();

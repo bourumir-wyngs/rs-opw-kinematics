@@ -5,6 +5,7 @@ use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
 
+/// Usage example.
 fn main() {
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
@@ -52,6 +53,9 @@ fn main() {
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
     dump_solutions(&solutions);
     
-    let parameters = Parameters::irb2400_10();
-    println!("Reading:\n{}", &parameters.to_yaml());
+    #[cfg(feature = "allow_filesystem")] {
+        // This requires YAML library
+        let parameters = Parameters::irb2400_10();
+        println!("Reading:\n{}", &parameters.to_yaml());
+    }
 }
