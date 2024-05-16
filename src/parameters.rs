@@ -1,3 +1,5 @@
+//! Defines the OPW parameter data structure
+
 pub mod opw_kinematics {
 
     /// Parameters for the robot. See parameters_robots.rs for examples for concrete robot models.

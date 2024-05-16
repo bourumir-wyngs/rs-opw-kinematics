@@ -1,3 +1,5 @@
+//! Joint limit support
+ 
 use std::f64::consts::PI;
 use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};

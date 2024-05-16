@@ -1,3 +1,6 @@
+//! Rust implementation of inverse and forward kinematic solutions for six-axis industrial robots 
+//! with a parallel base and spherical wrist
+
 pub mod parameters;
 pub mod parameters_robots;
 

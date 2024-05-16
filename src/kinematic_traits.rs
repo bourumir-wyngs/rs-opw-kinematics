@@ -1,3 +1,5 @@
+//! Defines traits for direct and inverse kinematics.
+ 
 extern crate nalgebra as na;
 
 use std::f64::NAN;

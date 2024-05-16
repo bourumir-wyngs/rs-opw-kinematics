@@ -1,3 +1,5 @@
+//! Provides implementation of inverse and direct kinematics.
+ 
 use std::f64::{consts::PI};
 use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
 use crate::parameters::opw_kinematics::{Parameters};

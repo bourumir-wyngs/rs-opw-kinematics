@@ -1,3 +1,5 @@
+//! Supports extracting OPW parameters from URDF (optional)
+
 extern crate sxd_document;
 
 use crate::simplify_joint_name::preprocess_joint_name;

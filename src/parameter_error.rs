@@ -1,3 +1,5 @@
+//! Error handling for parameter extractors
+
 use std::io;
 
 /// Unified error to report failures during both YAML and URDF/XACRO parsing.

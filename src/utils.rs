@@ -1,3 +1,5 @@
+//! Helper functions
+
 use crate::kinematic_traits::{Joints, Solutions};
 
 /// Checks the solution for validity. This is only internally needed as all returned

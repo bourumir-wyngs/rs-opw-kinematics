@@ -1,3 +1,5 @@
+//! "User friendly" pre-processing of the joint names. 
+
 use regex::Regex;
 
 /// "User friendly" pre-processing of the joint names. If this does not work as expected,

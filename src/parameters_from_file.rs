@@ -1,3 +1,5 @@
+//! Supports extracting OPW parameters from YAML file (optional)
+
 use std::{
     fs::File,
     io::Read,
