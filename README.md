@@ -30,8 +30,7 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- For robots where parameter b is zero (see the drawing), parameters (and constraints) can be extracted directly 
-  from the URDF file. Such robots represent a very large proportion of all robots with spherical wrists.
+- Experimental support for parameter extraction from URDF.
  
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
 robots tested.
@@ -183,9 +182,10 @@ See also the documentation for the more advanced function ```rs_opw_kinematics::
 takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
-The URDF reader is currently unable to extract the parameter b (as shown in the diagram). In all the robots 
-for which we had access to both URDF and OPW parameters, this parameter is clearly zero. Therefore, the 
-extraction of this parameter cannot be tested. 
+**Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot. 
+You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
+compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
+values. In general, always test in simulator before feeding the output of any software to the physical robot.
 
 # Testing
 

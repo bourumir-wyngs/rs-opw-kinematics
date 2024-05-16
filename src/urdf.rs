@@ -389,8 +389,6 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                            -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();
 
-    opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
-
     let names = joint_names.unwrap_or_else(
         || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
 
@@ -410,7 +408,29 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                 opw_parameters.a1 = joint.vector.non_zero()?;
             }
             3 => {
-                opw_parameters.c2 = joint.vector.non_zero()?;
+                // There is more divergence here. 
+                match joint.vector.non_zero() {
+                    Ok(value) => {
+                        // If there is only one value, it is value for c2. Most of the 
+                        // modern robots we tested do follow this design.
+                        opw_parameters.c2 = value;
+                        opw_parameters.b = 0.0;
+                    },
+                    Err(err) => {
+                        pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
+                            match (a, b) {
+                                (0.0, 0.0) => Ok(0.0), // assuming c2 = 0.0
+                                (0.0, b) => Ok(b),
+                                (a, 0.0) => Ok(a),
+                                (_, _) => Err(String::from("Both potential c2 values are non-zero")),
+                            }
+                        }                        
+                        // If there are multiple values, we assume b is given here as y.
+                        // c2 is given either in z or in x, other being 0. 
+                        opw_parameters.c2 = non_zero(joint.vector.x, joint.vector.z)?;
+                        opw_parameters.b = joint.vector.y;                        
+                    },
+                }                
             }
             4 => {
                 opw_parameters.a2 = -joint.vector.non_zero()?;
@@ -420,6 +440,55 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
             }
             6 => {
                 opw_parameters.c4 = joint.vector.non_zero()?;
+            }
+            _ => {
+                // Other joints not in use
+            }
+        }
+    }
+
+    Ok(opw_parameters)
+}
+
+fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
+                           -> Result<URDFParameters, String> {
+    let mut opw_parameters = URDFParameters::default();
+
+    opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
+
+    let names = joint_names.unwrap_or_else(
+        || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
+
+    for j in 0..6 {
+        let joint = joint_map
+            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+
+        opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
+        opw_parameters.from[j] = joint.from;
+        opw_parameters.to[j] = joint.to;
+
+        match j + 1 { // Joint number 1 to 6 inclusive
+            1 => {
+                opw_parameters.c1 = joint.vector.z;
+            }
+            2 => {
+                opw_parameters.a1 = joint.vector.x;
+            }
+            3 => {
+                opw_parameters.c2 = joint.vector.z;
+                opw_parameters.b = joint.vector.y;                
+                //opw_parameters.c2 = joint.vector.x; // Kuka                
+            }
+            4 => {
+                opw_parameters.a2 = -joint.vector.z;
+            }
+            5 => {
+                opw_parameters.c3 = joint.vector.x;
+                opw_parameters.c3 = joint.vector.z; // TX40                
+            }
+            6 => {
+                opw_parameters.c4 = joint.vector.x;
+                opw_parameters.c4 = joint.vector.z; // TX40                
             }
             _ => {
                 // Other joints not in use
