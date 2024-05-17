@@ -8,6 +8,7 @@ use sxd_document::{parser, dom, QName};
 use std::error::Error;
 use std::fs::read_to_string;
 use std::path::Path;
+use regex::Regex;
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::kinematics_impl::OPWKinematics;
@@ -259,14 +260,39 @@ fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     }
 }
 
+fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
+    // Regular expression to match the ${radians(<number>)} format that is common in xacro
+    let re = Regex::new(r"^\$\{radians\((-?\d+(\.\d+)?)\)\}$")
+        .map_err(|_| ParameterError::ParseError("Invalid regex pattern".to_string()))?;
 
-fn get_limits(element: dom::Element) -> Result<(f64, f64), Box<dyn Error>> {
+    // Check if the input matches the special format
+    if let Some(caps) = re.captures(attr_value) {
+        let degrees_str = caps.get(1)
+            .ok_or(ParameterError::WrongAngle(format!("Bad representation: {}", 
+                                                      attr_value).to_string()))?.as_str();
+        let degrees: f64 = degrees_str.parse()
+            .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
+        Ok(degrees.to_radians())
+    } else {
+        // Try to parse the input as a plain number in that case it is in radians
+        let radians: f64 = attr_value.parse()
+            .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
+        Ok(radians)
+    }
+}
+
+fn get_limits(element: dom::Element) -> Result<(f64, f64), ParameterError> {
     let lower_attr = element.attribute("lower")
-        .ok_or("lower limit not found")?.value().parse::<f64>()?;
-    let upper_attr = element.attribute("upper")
-        .ok_or("upper limit not found")?.value().parse::<f64>()?;
+        .ok_or_else(|| ParameterError::MissingField("lower limit not found".into()))?
+        .value();
+    let lower_limit = parse_angle(lower_attr)?;
 
-    Ok((lower_attr, upper_attr))
+    let upper_attr = element.attribute("upper")
+        .ok_or_else(|| ParameterError::MissingField("upper limit not found".into()))?
+        .value();
+    let upper_limit = parse_angle(upper_attr)?;
+
+    Ok((lower_limit, upper_limit))
 }
 
 fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
@@ -382,7 +408,7 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                         // modern robots we tested do follow this design.
                         opw_parameters.c2 = value;
                         opw_parameters.b = 0.0;
-                    },
+                    }
                     Err(_err) => {
                         pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
                             match (a, b) {
@@ -391,13 +417,13 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                                 (a, 0.0) => Ok(a),
                                 (_, _) => Err(String::from("Both potential c2 values are non-zero")),
                             }
-                        }                        
+                        }
                         // If there are multiple values, we assume b is given here as y.
                         // c2 is given either in z or in x, other being 0. 
                         opw_parameters.c2 = non_zero(joint.vector.x, joint.vector.z)?;
-                        opw_parameters.b = joint.vector.y;                        
-                    },
-                }                
+                        opw_parameters.b = joint.vector.y;
+                    }
+                }
             }
             4 => {
                 opw_parameters.a2 = -joint.vector.non_zero()?;
@@ -420,7 +446,7 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
 #[allow(dead_code)]
 // This function is not in use and exists for references only (old version)
 fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
-                           -> Result<URDFParameters, String> {
+                                    -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();
 
     opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
@@ -445,7 +471,7 @@ fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint
             }
             3 => {
                 opw_parameters.c2 = joint.vector.z;
-                opw_parameters.b = joint.vector.y;                
+                opw_parameters.b = joint.vector.y;
                 //opw_parameters.c2 = joint.vector.x; // Kuka                
             }
             4 => {
@@ -578,7 +604,7 @@ mod tests {
 
         let joints = ["left_joint_0", "left_joint_1", "left_joint_2",
             "left_joint_3", "left_joint_4", "left_joint_5"];
-        
+
         let opw_parameters =
             from_urdf(xml.to_string(), &Some(joints)).expect("Failed to parse parameters");
 
@@ -588,7 +614,7 @@ mod tests {
         assert_eq!(opw_parameters.c1, 0.45, "c1 parameter mismatch");
         assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
         assert_eq!(opw_parameters.c3, 0.615, "c3 parameter mismatch");
-        assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");        
+        assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");
     }
 }
 

@@ -8,6 +8,7 @@ pub enum ParameterError {
     IoError(io::Error),
     ParseError(String),
     MissingField(String),
+    WrongAngle(String),
     InvalidLength { expected: usize, found: usize },
     XmlProcessingError(String),
     ParameterPopulationError(String),
@@ -21,6 +22,8 @@ impl std::fmt::Display for ParameterError {
                 write!(f, "IO Error: {}", err),
             ParameterError::ParseError(ref msg) => 
                 write!(f, "Parse Error: {}", msg),
+            ParameterError::WrongAngle(ref msg) =>
+                write!(f, "Wrong angle representation: {}", msg),            
             ParameterError::MissingField(ref field) => 
                 write!(f, "Missing Field: {}", field),
             ParameterError::InvalidLength { expected, found } => 

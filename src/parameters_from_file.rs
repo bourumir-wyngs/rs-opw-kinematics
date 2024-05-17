@@ -100,31 +100,4 @@ impl Parameters {
                 |_| ParameterError::ParseError(format!("Failed to parse degrees from {}", s)))
         }
     }
-
-    /// Convert to string yaml representation (quick viewing, etc).
-    pub fn to_yaml(&self) -> String {
-        format!(
-            "opw_kinematics_geometric_parameters:\n  \
-              a1: {}\n  \
-              a2: {}\n  \
-              b: {}\n  \
-              c1: {}\n  \
-              c2: {}\n  \
-              c3: {}\n  \
-              c4: {}\n\
-            opw_kinematics_joint_offsets: [{}]\n\
-            opw_kinematics_joint_sign_corrections: [{}]\n",
-            self.a1,
-            self.a2,
-            self.b,
-            self.c1,
-            self.c2,
-            self.c3,
-            self.c4,
-            self.offsets.iter().map(|x| x.to_string())
-                .collect::<Vec<_>>().join(","),
-            self.sign_corrections.iter().map(|x| x.to_string())
-                .collect::<Vec<_>>().join(",")
-        )
-    }
 }

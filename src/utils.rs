@@ -61,6 +61,14 @@ pub fn as_radians(degrees: [i32; 6]) -> Joints {
     std::array::from_fn(|i| (degrees[i] as f64).to_radians())
 }
 
+/// formatting for YAML output
+pub(crate) fn deg(x: &f64) -> String {
+    if *x == 0.0 {
+        return "0".to_string();
+    }
+    format!("deg({:.4})", x.to_degrees())
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;

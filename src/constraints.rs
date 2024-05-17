@@ -3,6 +3,7 @@
 use std::f64::consts::PI;
 use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
+use crate::utils::deg;
 
 #[derive(Clone, Debug)]
 pub struct Constraints {
@@ -119,6 +120,19 @@ impl Constraints {
             .filter(|angle_array| self.compliant(&angle_array))
             .cloned()
             .collect()
+    }
+
+
+    pub fn to_yaml(&self) -> String {
+        format!(
+            "constraints:\n  \
+               from: [{}]\n  \
+               to: [{}]\n",
+            self.from.iter().map(|x| deg(x))
+                .collect::<Vec<_>>().join(", "),
+            self.to.iter().map(|x| deg(x))
+                .collect::<Vec<_>>().join(", ")
+        )
     }
 }
 
