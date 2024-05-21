@@ -83,7 +83,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.1.1, <2.0.0" 
+rs-opw-kinematics = ">=1.3.0, <2.0.0" 
 ```
 
 main.rs:
@@ -191,7 +191,7 @@ values. In general, always test in simulator before feeding the output of any so
 For security and performance, some users prefer smaller libraries with less dependencies. If YAML and URDF readers
 are not in use, the filesystem access can be completely disabled in your Cargo.toml, importing the library like:
 
-rs-opw-kinematics = { version = ">=1.2.0, <2.0.0", default-features = false }
+rs-opw-kinematics = { version = ">=1.3.0, <2.0.0", default-features = false }
 
 In this case, import of URDF and YAML files will be unaccessible, and used dependencies
 will be limited to the single _nalgebra_ crate.
