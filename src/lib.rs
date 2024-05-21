@@ -16,7 +16,8 @@ pub mod constraints;
 #[cfg(feature = "allow_filesystem")]
 pub mod urdf;
 #[cfg(feature = "allow_filesystem")]
-mod parameter_error;
+pub mod parameter_error;
+
 #[cfg(feature = "allow_filesystem")]
 mod simplify_joint_name;
 
