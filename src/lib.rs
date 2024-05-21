@@ -13,6 +13,8 @@ pub mod kinematics_impl;
 
 pub mod constraints;
 
+pub mod tool;
+
 #[cfg(feature = "allow_filesystem")]
 pub mod urdf;
 #[cfg(feature = "allow_filesystem")]
@@ -24,6 +26,7 @@ mod simplify_joint_name;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
 
 
 

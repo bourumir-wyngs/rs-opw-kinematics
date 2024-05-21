@@ -10,7 +10,7 @@ use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 const DEBUG: bool = false;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
     parameters: Parameters,
