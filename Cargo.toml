@@ -29,7 +29,7 @@ default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
 # To disable filesystem:
-#rs-opw-kinematics = { version = "1.1.2", default-features = false }
+#rs-opw-kinematics = { version = "1.2.0", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"
