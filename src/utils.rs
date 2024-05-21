@@ -1,3 +1,5 @@
+//! Helper functions
+
 use crate::kinematic_traits::{Joints, Solutions};
 
 /// Checks the solution for validity. This is only internally needed as all returned
@@ -57,6 +59,14 @@ pub fn dump_joints(joints: &Joints) {
 #[allow(dead_code)]
 pub fn as_radians(degrees: [i32; 6]) -> Joints {
     std::array::from_fn(|i| (degrees[i] as f64).to_radians())
+}
+
+/// formatting for YAML output
+pub(crate) fn deg(x: &f64) -> String {
+    if *x == 0.0 {
+        return "0".to_string();
+    }
+    format!("deg({:.4})", x.to_degrees())
 }
 
 #[cfg(test)]

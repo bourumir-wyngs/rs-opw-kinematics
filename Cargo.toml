@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.1.2"
+version = "1.2.0"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
@@ -17,9 +17,20 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.32.5"
-yaml-rust2 = "0.8.0"
+
+# Others are only needed to read YAML or convert from URDF
+yaml-rust2 = { version = "0.8.0", optional = true }
+sxd-document = { version = "0.3", optional = true }
+regex = { version = "1.10.4", optional = true }
+clap = { version = "4.5.4", features = ["derive"], optional = true }
+
+[features]
+default = ["allow_filesystem"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
+
+# To disable filesystem:
+#rs-opw-kinematics = { version = "1.2.0", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"
-
 

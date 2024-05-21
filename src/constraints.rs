@@ -1,8 +1,11 @@
+//! Joint limit support
+ 
 use std::f64::consts::PI;
 use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
+use crate::utils::deg;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Constraints {
     /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
     pub from: [f64; 6],
@@ -43,6 +46,18 @@ impl Constraints {
     /// 1.0 (or BY_CONSTRAINTS) gives absolute priority to the middle values of constraints.
     /// Intermediate values like 0.5 provide the weighted compromise.
     pub fn new(from: Joints, to: Joints, sorting_weight: f64) -> Self {
+        let (centers, tolerances) = Self::compute_centers(from, to);
+
+        Constraints {
+            from: from,
+            to: to,
+            centers: centers,
+            tolerances: tolerances,
+            sorting_weight: sorting_weight,
+        }
+    }
+
+    fn compute_centers(from: Joints, to: Joints) -> (Joints, Joints) {
         let mut centers: Joints = JOINTS_AT_ZERO;
         let mut tolerances: Joints = JOINTS_AT_ZERO;
 
@@ -64,14 +79,17 @@ impl Constraints {
                 tolerances[j_idx] = (b - a) / 2.0;
             }
         }
+        (centers, tolerances)
+    }
 
-        Constraints {
-            from: from,
-            to: to,
-            centers: centers,
-            tolerances: tolerances,
-            sorting_weight: sorting_weight,
-        }
+    pub fn update_range(& mut self, from: Joints, to: Joints) {
+        let (centers, tolerances) = Self::compute_centers(from, to);
+        
+        self.from = from;
+        self.to = to;
+        self.centers = centers;
+        self.tolerances = tolerances;
+        // This method does not change the sorting weight.
     }
 
     fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
@@ -103,6 +121,19 @@ impl Constraints {
             .cloned()
             .collect()
     }
+
+
+    pub fn to_yaml(&self) -> String {
+        format!(
+            "constraints:\n  \
+               from: [{}]\n  \
+               to: [{}]\n",
+            self.from.iter().map(|x| deg(x))
+                .collect::<Vec<_>>().join(", "),
+            self.to.iter().map(|x| deg(x))
+                .collect::<Vec<_>>().join(", ")
+        )
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +151,7 @@ mod tests {
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
 
         let sols: Solutions = vec![angles];
-        assert!(limits.filter(&sols).len() == 1);
+        assert_eq!(limits.filter(&sols).len(), 1);
 
         assert!(limits.compliant(&angles));
     }

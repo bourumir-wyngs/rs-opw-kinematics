@@ -1,3 +1,5 @@
+//! Hardcoded OPW parameters for a few robots
+
 pub mod opw_kinematics {
     use std::f64::consts::PI;
     use crate::parameters::opw_kinematics::Parameters;

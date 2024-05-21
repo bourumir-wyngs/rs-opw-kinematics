@@ -20,3 +20,15 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run URDF extractor
+      run: cargo run src/tests/data/fanuc/lrmate200ib_macro.xacro
+    - name: Build without features
+      run: cargo build --no-default-features --verbose
+    - name: Run tests without features
+      run: cargo test --no-default-features --verbose
+    - name: Run URDF extractor once more
+      run: cargo run
+
+
+
+

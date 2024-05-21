@@ -30,7 +30,7 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- Use zeros to get the possible solution of singularity case with J4 and J6 close to zero rotation.
+- Experimental support for parameter extraction from URDF.
  
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
 robots tested.
@@ -168,8 +168,33 @@ function that sometimes occurs there:
 
 ```Rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
-let robot = OPWKinematics::new(parameters);
+  println!("Reading:\n{}", &parameters.to_yaml());  
+  let robot = OPWKinematics::new(parameters);
 ```
+
+Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
+```Rust
+  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+  println!("Reading:\n{}", &parameters.to_yaml());
+```
+
+There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.2.0/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+that takes URDF string rather than the file, provides error handling and much more control over how the solver
+is constructed from the extracted values.
+
+**Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot. 
+You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
+compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
+values. In general, always test in simulator before feeding the output of any software to the physical robot.
+
+# Disabling YAML and URDF readers
+For security and performance, some users prefer smaller libraries with less dependencies. If YAML and URDF readers
+are not in use, the filesystem access can be completely disabled in your Cargo.toml, importing the library like:
+
+rs-opw-kinematics = { version = ">=1.2.0, <2.0.0", default-features = false }
+
+In this case, import of URDF and YAML files will be unaccessible, and used dependencies
+will be limited to the single _nalgebra_ crate.
 
 # Testing
 
