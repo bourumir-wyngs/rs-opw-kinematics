@@ -31,7 +31,7 @@ use crate::parameters::opw_kinematics::Parameters;
 ///
 /// # Example
 /// ```
-/// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+/// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("src/tests/data/fanuc/m6ib_macro.xacro");
 /// println!("{:?}", kinematics);
 /// ```
 ///
@@ -87,7 +87,7 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 ///         let parameters = opw_params.parameters(&JOINTS_AT_ZERO); // Zero joint offsets
 ///         let constraints =opw_params.constraints(BY_PREV); 
 ///         let robot = OPWKinematics::new_with_constraints(parameters, constraints);
-///         /// let joints = robot.inverse( ... )    
+///         // let joints = robot.inverse( ... )    
 ///
 ///     }
 ///     Err(e) => println!("Error processing URDF: {}", e),
