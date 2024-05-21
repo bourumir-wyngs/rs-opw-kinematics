@@ -117,6 +117,12 @@ mod tests {
         let (tcp_without_tool, tcp_with_tool) = diff(&robot_without_tool, &robot_with_tool, &joints);
         assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation, 
                     [catet, catet, 0.], 1E-6);
+
+        // Rotate base joint 45 degrees, must divide between X and Y, and also raise 45 deg up
+        let joints = [PI/4.0, 0.0, 0.0, 0.0, PI / 4.0, 0.0];
+        let (tcp_without_tool, tcp_with_tool) = diff(&robot_without_tool, &robot_with_tool, &joints);
+        assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation,
+                    [0.5, 0.5, 2.0_f64.sqrt() / 2.0], 1E-6);        
     }
 }
 
