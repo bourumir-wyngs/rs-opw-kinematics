@@ -1,14 +1,25 @@
 extern crate nalgebra as na;
 
+use std::f64::consts::PI;
 use na::{Isometry3, Vector3, UnitQuaternion};
+use nalgebra::Translation3;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 
 
 struct Tool {
-    robot: Box<dyn Kinematics>,  // Using Box<dyn Kinematics> to handle trait objects.
-    tool: Isometry3<f64>,        // Transformation from the robot's tip joint to the tool's TCP.
+    robot: Box<dyn Kinematics>,  // The robot
+
+    /// Transformation from the robot's tip joint to the tool's TCP.    
+    pub tool: Isometry3<f64>,
+}
+
+struct Base {
+    robot: Box<dyn Kinematics>,  // The robot
+
+    /// Transformation from the world origin to the robots base.
+    pub base: Isometry3<f64>,
 }
 
 impl Kinematics for Tool {
@@ -34,6 +45,27 @@ impl Kinematics for Tool {
     }
 }
 
+impl Kinematics for Base {
+    fn inverse(&self, tcp: &Pose) -> Solutions {
+        let robot_transform = self.base.inverse() * tcp;
+        self.robot.inverse(&robot_transform)
+    }
+
+    fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+        let robot_transform = self.base.inverse() * tcp;
+        self.robot.inverse(&robot_transform)
+    }
+
+    fn forward(&self, joints: &Joints) -> Pose {
+        self.base * self.robot.forward(joints)
+    }
+
+    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
+        self.robot.kinematic_singularity(qs)
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;
@@ -41,7 +73,7 @@ mod tests {
     use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 
     /// Asserts that two `Translation3<f64>` instances are approximately equal within a given tolerance.
-    fn assert_diff(a: &Translation3<f64>, b: &Translation3<f64>, expected_diff: [f64; 3], epsilon: f64) {
+    pub(crate) fn assert_diff(a: &Translation3<f64>, b: &Translation3<f64>, expected_diff: [f64; 3], epsilon: f64) {
         let actual_diff = a.vector - b.vector;
 
         assert!(
@@ -61,8 +93,14 @@ mod tests {
         );
     }
 
+    pub(crate) fn diff(robot_without: &dyn Kinematics, robot_with: &dyn Kinematics, joints: &[f64; 6]) -> (Pose, Pose) {
+        let tcp_without_tool = robot_without.forward(&joints);
+        let tcp_with_tool = robot_with.forward(&joints);
+        (tcp_without_tool, tcp_with_tool)
+    }
+
     #[test]
-    fn test_robot_with_and_without_tool_extension() {
+    fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
         let robot_without_tool = OPWKinematics::new(Parameters::staubli_tx2());
 
@@ -71,12 +109,6 @@ mod tests {
             Translation3::new(0.0, 0.0, 1.0).into(),
             UnitQuaternion::identity(),
         );
-
-        fn diff(robot_without_tool: &dyn Kinematics, robot_with_tool: &dyn Kinematics, joints: &[f64; 6]) -> (Pose, Pose) {
-            let tcp_without_tool = robot_without_tool.forward(&joints);
-            let tcp_with_tool = robot_with_tool.forward(&joints);
-            (tcp_without_tool, tcp_with_tool)
-        }        
 
         // Create the Tool instance with the transformation
         let robot_with_tool = Tool {
@@ -107,25 +139,53 @@ mod tests {
         assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation, [-1.0, 0.0, 0.], 1E-6);
 
         // Rotate base joint 90 degrees, must become Y
-        let joints = [PI/2.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let joints = [PI / 2.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
         let (tcp_without_tool, tcp_with_tool) = diff(&robot_without_tool, &robot_with_tool, &joints);
         assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation, [0.0, 1.0, 0.], 1E-6);
 
         // Rotate base joint 45 degrees, must divide between X and Y
-        let joints = [PI/4.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let joints = [PI / 4.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
         let catet = 45.0_f64.to_radians().sin();
         let (tcp_without_tool, tcp_with_tool) = diff(&robot_without_tool, &robot_with_tool, &joints);
-        assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation, 
+        assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation,
                     [catet, catet, 0.], 1E-6);
 
         // Rotate base joint 45 degrees, must divide between X and Y, and also raise 45 deg up
-        let joints = [PI/4.0, 0.0, 0.0, 0.0, PI / 4.0, 0.0];
+        let joints = [PI / 4.0, 0.0, 0.0, 0.0, PI / 4.0, 0.0];
         let (tcp_without_tool, tcp_with_tool) = diff(&robot_without_tool, &robot_with_tool, &joints);
         assert_diff(&tcp_with_tool.translation, &tcp_without_tool.translation,
-                    [0.5, 0.5, 2.0_f64.sqrt() / 2.0], 1E-6);        
+                    [0.5, 0.5, 2.0_f64.sqrt() / 2.0], 1E-6);
+    }
+
+    #[test]
+    fn test_base() {
+        // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+
+        // Tool extends 1 meter in the Z direction
+        let base_translation = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, 1.0).into(),
+            UnitQuaternion::identity(),
+        );
+
+        // Create the Tool instance with the transformation
+        let robot_with_base = Base {
+            robot: Box::new(robot_without_base.clone()),
+            base: base_translation,
+        };
+
+        // Joints are all at zero position
+        let joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+        let (tcp_without_base, tcp_with_base) = diff(&robot_without_base, &robot_with_base, &joints);
+        assert_diff(&tcp_with_base.translation, &tcp_without_base.translation, [0., 0., 1.], 1E-6);
+
+        // Rotate base joint around, sign must not change.
+        let joints = [PI / 3.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let (tcp_without_base, tcp_with_base) = diff(&robot_without_base, &robot_with_base, &joints);
+        assert_diff(&tcp_with_base.translation, &tcp_without_base.translation, [0.0, 0.0, 1.0], 1E-6);
     }
 }
-
 
 fn main() {
     // Example usage:
