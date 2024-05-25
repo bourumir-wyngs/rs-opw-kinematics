@@ -50,7 +50,7 @@ pub const CONSTRAINT_CENTERED: Joints = [NAN, 0.0, 0.0, 0.0, 0.0, 0.0];
 pub type Solutions = Vec<Joints>;
 
 /// Defines agreed functionality of direct and inverse kinematics and singularity detection.
-pub trait Kinematics {
+pub trait Kinematics: Send + Sync {
     /// Find inverse kinematics (joint position) for this pose
     /// This function is faster but does not handle the singularity J5 = 0 well.
     /// All returned solutions are cross-checked with forward kinematics and

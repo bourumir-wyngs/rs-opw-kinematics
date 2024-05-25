@@ -1,5 +1,6 @@
 extern crate nalgebra as na;
 
+use std::sync::Arc;
 use na::{Isometry3};
 use nalgebra::Translation3;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
@@ -7,15 +8,17 @@ use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 
 
+#[derive(Clone)]
 struct Tool {
-    robot: Box<dyn Kinematics>,  // The robot
+    robot: Arc<dyn Kinematics>,  // The robot
 
     /// Transformation from the robot's tip joint to the tool's TCP.    
     pub tool: Isometry3<f64>,
 }
 
+#[derive(Clone)]
 struct Base {
-    robot: Box<dyn Kinematics>,  // The robot
+    robot: Arc<dyn Kinematics>,  // The robot
 
     /// Transformation from the world origin to the robots base.
     pub base: Isometry3<f64>,
@@ -67,17 +70,23 @@ impl Kinematics for Base {
 // Define the Cart (linear axis, prismatic joint) structure that can hold the robot. 
 // The cart is moving in parallel to Cartesian axis (x, y, z) and provides the forward kinematics.
 // Same as joint positions for the robot, cart prismatic joints are not stored
-// in this structure.
+// in this structure. The linear axis can be itself placed on the base.
+#[derive(Clone)]
 pub struct LinearAxis {
-    robot: Box<dyn Kinematics>,
+    robot: Arc<dyn Kinematics>,
     axis: u32,
+    /// The base of the axis (not the robot on the axis)
+    pub base: Isometry3<f64>,
 }
 
 /// A platform for a robot that can ride in x, y and z directions. This way it is less
 /// restricted than LinearAxis but tasks focusing with moving in one dimension only
 /// may prefer abstracting which dimension it is.
+#[derive(Clone)]
 pub struct Gantry {
-    robot: Box<dyn Kinematics>,
+    robot: Arc<dyn Kinematics>,
+    /// The base of the gantry crane (not the robot on the gantry crane)
+    pub base: Isometry3<f64>,
 }
 
 
@@ -91,7 +100,7 @@ impl LinearAxis {
             _ => panic!("Invalid axis index; must be 0 (x), 1 (y), or 2 (z)"),
         };
         let robot_pose = self.robot.forward(joint_angles);
-        cart_translation * robot_pose
+        self.base * cart_translation * robot_pose
     }
 }
 
@@ -99,7 +108,7 @@ impl Gantry {
     // Compute the forward transformation including the cart's offset and the robot's kinematics
     pub fn forward(&self, translation: &Translation3<f64>, joint_angles: &[f64; 6]) -> Isometry3<f64> {
         let robot_pose = self.robot.forward(joint_angles);
-        translation * robot_pose
+        self.base * translation * robot_pose
     }
 }
 
@@ -131,12 +140,12 @@ mod tests {
         );
     }
 
-    pub(crate) fn diff(robot_without: &dyn Kinematics, robot_with: &dyn Kinematics, joints: &[f64; 6]) -> (Pose, Pose) {
+    fn diff(robot_without: &dyn Kinematics, robot_with: &dyn Kinematics, joints: &[f64; 6]) -> (Pose, Pose) {
         let tcp_without_tool = robot_without.forward(&joints);
         let tcp_with_tool = robot_with.forward(&joints);
         (tcp_without_tool, tcp_with_tool)
-    }
-
+    }    
+    
     #[test]
     fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
@@ -150,7 +159,7 @@ mod tests {
 
         // Create the Tool instance with the transformation
         let robot_with_tool = Tool {
-            robot: Box::new(robot_without_tool.clone()),
+            robot: Arc::new(robot_without_tool),
             tool: tool_translation,
         };
 
@@ -200,15 +209,14 @@ mod tests {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
         let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
 
-        // Tool extends 1 meter in the Z direction
+        // 1 meter high pedestal
         let base_translation = Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 1.0).into(),
             UnitQuaternion::identity(),
         );
 
-        // Create the Tool instance with the transformation
         let robot_with_base = Base {
-            robot: Box::new(robot_without_base.clone()),
+            robot: Arc::new(robot_without_base),
             base: base_translation,
         };
 
@@ -227,35 +235,155 @@ mod tests {
     #[test]
     fn test_linear_axis_forward() {
         let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let base_translation = Isometry3::from_parts(
+            Translation3::new(0.1, 0.2, 0.3).into(),
+            UnitQuaternion::identity(),
+        );
+
         let cart = LinearAxis {
-            robot: Box::new(robot_without_base.clone()),
+            robot: Arc::new(robot_without_base),
             axis: 1,
+            base: base_translation,
         };
 
         let joint_angles = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let result = cart.forward(7.0, &joint_angles);
 
         assert_eq!(result.translation.vector.y,
-                   robot_without_base.forward(&joint_angles).translation.vector.y + 7.0);
+                   robot_without_base.forward(&joint_angles).translation.vector.y + 7.0 + 0.2);
     }
 
     #[test]
     fn test_gantry_forward() {
         let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+
+        let base_translation = Isometry3::from_parts(
+            Translation3::new(0.1, 0.2, 0.3).into(),
+            UnitQuaternion::identity(),
+        );
+
         let gantry = Gantry {
-            robot: Box::new(robot_without_base.clone()),
+            robot: Arc::new(robot_without_base),
+            base: base_translation,
         };
 
         let joint_angles = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let r = gantry.forward(
             &Translation3::new(7.0, 8.0, 9.0),
             &joint_angles).translation;
-        
+
         let alone = robot_without_base.forward(&joint_angles).translation;
 
-        assert_eq!(r.x, alone.x + 7.0);
-        assert_eq!(r.y, alone.y + 8.0);
-        assert_eq!(r.z, alone.z + 9.0);
+        // Gantry riding plus gantry base.
+        assert_eq!(r.x, alone.x + 7.1);
+        assert_eq!(r.y, alone.y + 8.2);
+        assert_eq!(r.z, alone.z + 9.3);
+    }
+
+    /// Complete test that includes robot on linear axis, standing on the base and equipped
+    /// witht he tool.
+    #[test]
+    fn test_complete_robot() {
+        fn diff(alone: &dyn Kinematics, riding: &LinearAxis, axis: f64, joints: &[f64; 6]) -> (Pose, Pose) {
+            let tcp_alone = alone.forward(&joints);
+            let tcp = riding.forward(axis, &joints);
+            (tcp_alone, tcp)
+        }
+
+        let robot_alone = OPWKinematics::new(Parameters::staubli_tx2());
+
+        // 1 meter high pedestal
+        let pedestal = 0.5;
+        let base_translation = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, pedestal).into(),
+            UnitQuaternion::identity(),
+        );
+
+        let robot_with_base = Base {
+            robot: Arc::new(robot_alone),
+            base: base_translation,
+        };
+
+        // Tool extends 1 meter in the Z direction, envisioning something like sword
+        let sword = 1.0;
+        let tool_translation = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, sword).into(),
+            UnitQuaternion::identity(),
+        );
+
+        // Create the Tool instance with the transformation
+        let robot_complete = Tool {
+            robot: Arc::new(robot_with_base),
+            tool: tool_translation,
+        };
+
+
+        // Gantry is based with 0.75 horizontal offset along y
+        let gantry_base = 0.75;
+        let gantry_translation = Isometry3::from_parts(
+            Translation3::new(0.0, gantry_base, 0.0).into(),
+            UnitQuaternion::identity(),
+        );
+
+        let riding_robot = LinearAxis {
+            robot: Arc::new(robot_complete),
+            axis: 0,
+            base: gantry_translation,
+        };
+
+        // Joints are all at zero position
+        let joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let axis = 0.0;
+
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation, 
+                    [0., gantry_base, pedestal + sword], 1E-6);
+
+        // Rotating J6 by any angle should not change anything.
+        // Joints are all at zero position
+        let joints = [0.0, 0.0, 0.0, 0.0, 0.0, PI / 6.0];
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation,
+                    [0., gantry_base, pedestal + sword], 1E-6);
+
+        // Rotating J5 by 90 degrees result in offset horizontally for the sword.
+        let joints = [0.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation, 
+                    [sword, gantry_base, pedestal], 1E-6);
+
+        // Rotate base joint around, sign for the sword must change.
+        let joints = [PI, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation,
+                    [-sword, gantry_base, pedestal], 1E-6);
+
+        // Rotate base joint 90 degrees, swords contributes to Y now
+        let joints = [PI / 2.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation,
+                    [0.0, gantry_base + sword, pedestal], 1E-6);
+
+        // Rotate base joint 45 degrees, the effect of sword must divide between X and Y
+        let joints = [PI / 4.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
+        let catet = 45.0_f64.to_radians().sin();
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation,
+                    [catet, catet + gantry_base, pedestal], 1E-6);
+
+        // Rotate base joint 45 degrees, must divide between X and Y, and also raise 45 deg up
+        let joints = [PI / 4.0, 0.0, 0.0, 0.0, PI / 4.0, 0.0];
+        let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
+        assert_diff(&tcp.translation, &tcp_alone.translation,
+                    [sword * 0.5, sword * 0.5 + gantry_base, sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);
+
+
+        // Ride the gantry 10 meters along x.
+        let ride = 10.0;
+        let tcp_translation = riding_robot.forward(ride, &joints).translation;
+        assert_diff(&tcp_translation, &tcp_alone.translation,
+                    [sword * 0.5 + ride, sword * 0.5 + gantry_base, 
+                        sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);       
     }
 }
 
