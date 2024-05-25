@@ -1,7 +1,6 @@
 extern crate nalgebra as na;
 
-use std::f64::consts::PI;
-use na::{Isometry3, Vector3, UnitQuaternion};
+use na::{Isometry3};
 use nalgebra::Translation3;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 use crate::kinematics_impl::OPWKinematics;
@@ -53,7 +52,7 @@ impl Kinematics for Base {
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let robot_transform = self.base.inverse() * tcp;
-        self.robot.inverse(&robot_transform)
+        self.robot.inverse_continuing(&robot_transform, &previous)
     }
 
     fn forward(&self, joints: &Joints) -> Pose {
@@ -62,6 +61,45 @@ impl Kinematics for Base {
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
+    }
+}
+
+// Define the Cart (linear axis, prismatic joint) structure that can hold the robot. 
+// The cart is moving in parallel to Cartesian axis (x, y, z) and provides the forward kinematics.
+// Same as joint positions for the robot, cart prismatic joints are not stored
+// in this structure.
+pub struct LinearAxis {
+    robot: Box<dyn Kinematics>,
+    axis: u32,
+}
+
+/// A platform for a robot that can ride in x, y and z directions. This way it is less
+/// restricted than LinearAxis but tasks focusing with moving in one dimension only
+/// may prefer abstracting which dimension it is.
+pub struct Gantry {
+    robot: Box<dyn Kinematics>,
+}
+
+
+impl LinearAxis {
+    // Compute the forward transformation including the cart's offset and the robot's kinematics
+    pub fn forward(&self, distance: f64, joint_angles: &[f64; 6]) -> Isometry3<f64> {
+        let cart_translation = match self.axis {
+            0 => Translation3::new(distance, 0.0, 0.0),
+            1 => Translation3::new(0.0, distance, 0.0),
+            2 => Translation3::new(0.0, 0.0, distance),
+            _ => panic!("Invalid axis index; must be 0 (x), 1 (y), or 2 (z)"),
+        };
+        let robot_pose = self.robot.forward(joint_angles);
+        cart_translation * robot_pose
+    }
+}
+
+impl Gantry {
+    // Compute the forward transformation including the cart's offset and the robot's kinematics
+    pub fn forward(&self, translation: &Translation3<f64>, joint_angles: &[f64; 6]) -> Isometry3<f64> {
+        let robot_pose = self.robot.forward(joint_angles);
+        translation * robot_pose
     }
 }
 
@@ -185,20 +223,39 @@ mod tests {
         let (tcp_without_base, tcp_with_base) = diff(&robot_without_base, &robot_with_base, &joints);
         assert_diff(&tcp_with_base.translation, &tcp_without_base.translation, [0.0, 0.0, 1.0], 1E-6);
     }
+
+    #[test]
+    fn test_linear_axis_forward() {
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let cart = LinearAxis {
+            robot: Box::new(robot_without_base.clone()),
+            axis: 1,
+        };
+
+        let joint_angles = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let result = cart.forward(7.0, &joint_angles);
+
+        assert_eq!(result.translation.vector.y,
+                   robot_without_base.forward(&joint_angles).translation.vector.y + 7.0);
+    }
+
+    #[test]
+    fn test_gantry_forward() {
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let gantry = Gantry {
+            robot: Box::new(robot_without_base.clone()),
+        };
+
+        let joint_angles = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let r = gantry.forward(
+            &Translation3::new(7.0, 8.0, 9.0),
+            &joint_angles).translation;
+        
+        let alone = robot_without_base.forward(&joint_angles).translation;
+
+        assert_eq!(r.x, alone.x + 7.0);
+        assert_eq!(r.y, alone.y + 8.0);
+        assert_eq!(r.z, alone.z + 9.0);
+    }
 }
 
-fn main() {
-    // Example usage:
-    let robot = Box::new(OPWKinematics::new(Parameters::staubli_tx40()));
-    let tool_translation = Isometry3::from_parts(
-        Vector3::new(0.0, 0.0, 0.5).into(), UnitQuaternion::identity());
-    let tool = Tool {
-        robot,
-        tool: tool_translation,
-    };
-
-    let joints = Joints::from([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
-    let tool_pose = tool.forward(&joints);
-
-    println!("Tool TCP Pose: {:?}", tool_pose);
-}
