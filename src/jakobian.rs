@@ -1,21 +1,22 @@
 //! This package contains support for Jakobian matrix.
-//! 
+//!
 //! Jakobian matrix, as understood here, represents the relationship between the joint velocities 
 //! and the end-effector velocities:
-//! 
+//!
 //! | ∂vx/∂θ1  ∂vx/∂θ2  ∂vx/∂θ3  ∂vx/∂θ4  ∂vx/∂θ5  ∂vx/∂θ6 |
 //! | ∂vy/∂θ1  ∂vy/∂θ2  ∂vy/∂θ3  ∂vy/∂θ4  ∂vy/∂θ5  ∂vy/∂θ6 |
 //! | ∂vz/∂θ1  ∂vz/∂θ2  ∂vz/∂θ3  ∂vz/∂θ4  ∂vz/∂θ5  ∂vz/∂θ6 |
 //! | ∂ωx/∂θ1  ∂ωx/∂θ2  ∂ωx/∂θ3  ∂ωx/∂θ4  ∂ωx/∂θ5  ∂ωx/∂θ6 |
 //! | ∂ωy/∂θ1  ∂ωy/∂θ2  ∂ωy/∂θ3  ∂ωy/∂θ4  ∂ωy/∂θ5  ∂ωy/∂θ6 |
 //! | ∂ωz/∂θ1  ∂ωz/∂θ2  ∂ωz/∂θ3  ∂ωz/∂θ4  ∂ωz/∂θ5  ∂ωz/∂θ6 |
-//! 
+//!
 //! The first three rows to the linear velocities: vx, vy, vz.
 //! The last three rows correspond to the angular velocities: roll wx, pitch wy, yaw wz).
 //! θ1, θ2, θ3, θ4, θ5, θ6 are the joint angles
 //! ∂ means partial derivative. 
 
 extern crate nalgebra as na;
+
 use na::{Matrix6, Vector6, Isometry3, Translation3, UnitQuaternion, Vector3};
 use na::linalg::SVD;
 use rayon::prelude::*;
@@ -30,7 +31,7 @@ pub struct Jacobian {
     /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
     /// of the end-effector (linear and angular velocities).    
     matrix: Matrix6<f64>,
-    
+
     /// The disturbance value used for computing the Jakobian
     epsilon: f64,
 }
@@ -75,6 +76,29 @@ impl Jacobian {
         let desired_velocity = Vector6::new(
             linear_velocity.x, linear_velocity.y, linear_velocity.z,
             angular_velocity.x, angular_velocity.y, angular_velocity.z,
+        );
+
+        // Compute the joint velocities from the 6D vector
+        self.velocities_from_vector(&desired_velocity)
+    }
+
+    /// Computes the joint velocities required to achieve a desired end-effector velocity
+    ///
+    /// # Arguments
+    ///
+    /// * `vx, vy, vz` - x, y and z components of end effector velocity (linear). This method 
+    ///     assumes that we want to keep the rotational components of effector velocity 0 (stationary) 
+    ///
+    /// # Returns
+    ///
+    /// `Result<Joints, &'static str>` - Joint positions, with values representing joint velocities rather than angles,
+    /// or an error message if the computation fails.
+    pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
+
+        // Combine into a single 6D vector
+        let desired_velocity = Vector6::new(
+            vx, vy, vz,
+            0.0, 0.0, 0.0,
         );
 
         // Compute the joint velocities from the 6D vector
@@ -136,8 +160,8 @@ impl Jacobian {
         let desired_force_torgue_vector = Vector6::new(
             linear_force.x, linear_force.y, linear_force.z,
             angular_torgue.x, angular_torgue.y, angular_torgue.z,
-        );        
-        
+        );
+
         let joint_torques = self.matrix.transpose() * desired_force_torgue_vector;
         vector6_to_joints(joint_torques)
     }
@@ -155,7 +179,7 @@ impl Jacobian {
     pub fn torques_from_vector(&self, desired_force_torque: &Vector6<f64>) -> Joints {
         let joint_torques = self.matrix.transpose() * desired_force_torque;
         vector6_to_joints(joint_torques)
-    }    
+    }
 }
 
 /// Function to compute the Jacobian matrix for a given robot and joint configuration
@@ -303,7 +327,7 @@ mod tests {
         println!("Computed joint velocities: {:?}", joint_velocities);
 
         // Add assertions to verify the expected values
-        assert!( (joint_velocities[0] - 1.0).abs() < EPSILON);
+        assert!((joint_velocities[0] - 1.0).abs() < EPSILON);
         assert_eq!(joint_velocities[1], 0.0);
         assert_eq!(joint_velocities[2], 0.0);
         assert_eq!(joint_velocities[3], 0.0);
@@ -320,7 +344,7 @@ mod tests {
         // For a single joint robot, that we want on the torgue is what we need to put
         let desired_force_torque =
             Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
-                           Vector3::new(0.0, 0.0, 1.234));            
+                           Vector3::new(0.0, 0.0, 1.234));
 
         let joint_torques = jacobian.torques(&desired_force_torque);
         println!("Computed joint torques: {:?}", joint_torques);
