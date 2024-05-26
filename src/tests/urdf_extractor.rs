@@ -117,18 +117,19 @@ fn test_extraction_m6ib() {
 
 #[test]
 fn test_extraction_kr6r700sixx() {
-    let urdf = 
+    let opw_parameters= 
         read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
     
-    let yaml = Parameters::kuka_kr6_r700_sixx();
+    let params = Parameters::kuka_kr6_r700_sixx();
 
-    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch");
-    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch");
-    assert_eq!(urdf.b, yaml.b, "b parameter mismatch");
-    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch");
-    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch");
-    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch");
-    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch");
+fn assert_parameter_extraction(yaml: Parameters, urdf: URDFParameters, robot: &str) {
+    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch for {}", robot);
+    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch for {}", robot);
+    assert_eq!(urdf.b, yaml.b, "b parameter mismatch for {}", robot);
+    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch for {}", robot);
+    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch for {}", robot);
+    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch for {}", robot);
+    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch for {}", robot);
 }
 
 #[test]
@@ -138,13 +139,17 @@ fn test_extraction_kr150() {
         .expect("Failed to read or parse URDF");
     let urdf = read_urdf("src/tests/data/kuka/kr150r3100_2_macro.xacro");
 
-    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch");
-    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch");
-    assert_eq!(urdf.b, yaml.b, "b parameter mismatch");
-    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch");
-    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch");
-    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch");
-    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch");
+    assert_parameter_extraction(yaml, urdf, "kr150r3100_2");
+}
+
+#[test]
+fn test_extraction_kr10r1420() {
+    let yaml = Parameters::from_yaml_file("\
+    src/tests/data/kuka/opw_parameters_kr10r1420.yaml")
+        .expect("Failed to read or parse URDF");
+    let urdf = read_urdf("src/tests/data/kuka/kr10r1420_macro.xacro");
+
+    assert_parameter_extraction(yaml, urdf, "kr10r1420");
 }
 
 

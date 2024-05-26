@@ -178,7 +178,7 @@ Since version 1.2.0, parameters and constraints can also be directly extracted f
   println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
-There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.2.0/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.2.1/rs_opw_kinematics/urdf/fn.from_urdf.html) 
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
