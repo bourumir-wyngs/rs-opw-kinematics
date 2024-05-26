@@ -428,7 +428,7 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
             4 => {
                 match joint.vector.non_zero() {
                     Ok(value) => {
-                        opw_parameters.a2 = -joint.vector.non_zero()?;
+                        opw_parameters.a2 = -value;
                     }
                     Err(_err) => {
                         pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
