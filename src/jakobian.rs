@@ -1,3 +1,20 @@
+//! This package contains support for Jakobian matrix.
+//! 
+//! Jakobian matrix, as understood here, represents the relationship between the joint velocities 
+//! and the end-effector velocities:
+//! 
+//! | ∂vx/∂θ1  ∂vx/∂θ2  ∂vx/∂θ3  ∂vx/∂θ4  ∂vx/∂θ5  ∂vx/∂θ6 |
+//! | ∂vy/∂θ1  ∂vy/∂θ2  ∂vy/∂θ3  ∂vy/∂θ4  ∂vy/∂θ5  ∂vy/∂θ6 |
+//! | ∂vz/∂θ1  ∂vz/∂θ2  ∂vz/∂θ3  ∂vz/∂θ4  ∂vz/∂θ5  ∂vz/∂θ6 |
+//! | ∂ωx/∂θ1  ∂ωx/∂θ2  ∂ωx/∂θ3  ∂ωx/∂θ4  ∂ωx/∂θ5  ∂ωx/∂θ6 |
+//! | ∂ωy/∂θ1  ∂ωy/∂θ2  ∂ωy/∂θ3  ∂ωy/∂θ4  ∂ωy/∂θ5  ∂ωy/∂θ6 |
+//! | ∂ωz/∂θ1  ∂ωz/∂θ2  ∂ωz/∂θ3  ∂ωz/∂θ4  ∂ωz/∂θ5  ∂ωz/∂θ6 |
+//! 
+//! The first three rows to the linear velocities: vx, vy, vz.
+//! The last three rows correspond to the angular velocities: roll wx, pitch wy, yaw wz).
+//! θ1, θ2, θ3, θ4, θ5, θ6 are the joint angles
+//! ∂ means partial derivative. 
+
 extern crate nalgebra as na;
 use na::{Matrix6, Vector6, Isometry3, Translation3, UnitQuaternion, Vector3};
 use na::linalg::SVD;
