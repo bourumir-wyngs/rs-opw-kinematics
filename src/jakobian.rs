@@ -49,7 +49,7 @@ impl Jacobian {
     /// This method extracts the linear and angular velocities from the provided Isometry3
     /// and combines them into a single 6D vector. It then computes the joint velocities required
     /// to achieve the desired end-effector velocity using the `velocities_from_vector` method.
-    pub fn velocities_from_iso(&self, desired_end_effector_velocity: &Isometry3<f64>) -> Result<Joints, &'static str> {
+    pub fn velocities(&self, desired_end_effector_velocity: &Isometry3<f64>) -> Result<Joints, &'static str> {
         // Extract the linear velocity (translation) and angular velocity (rotation)
         let linear_velocity = desired_end_effector_velocity.translation.vector;
         let angular_velocity = desired_end_effector_velocity.rotation.scaled_axis();
@@ -102,16 +102,43 @@ impl Jacobian {
     ///
     /// # Arguments
     ///
+    /// * `desired_force_torque` - isometry structure representing forces and torgues
+    ///                            rather than dimensions and angles.
+    ///
+    /// # Returns
+    ///
+    /// Joint positions, with values representing joint torques,
+    /// or an error message if the computation fails.
+    pub fn torques(&self, desired_force_torque: &Isometry3<f64>) -> Joints {
+
+        // Extract the linear velocity (translation) and angular velocity (rotation)
+        let linear_force = desired_force_torque.translation.vector;
+        let angular_torgue = desired_force_torque.rotation.scaled_axis();
+
+        // Combine into a single 6D vector
+        let desired_force_torgue_vector = Vector6::new(
+            linear_force.x, linear_force.y, linear_force.z,
+            angular_torgue.x, angular_torgue.y, angular_torgue.z,
+        );        
+        
+        let joint_torques = self.matrix.transpose() * desired_force_torgue_vector;
+        vector6_to_joints(joint_torques)
+    }
+
+    /// Computes the joint torques required to achieve a desired end-effector force/torque
+    ///
+    /// # Arguments
+    ///
     /// * `desired_force_torque` - A 6D vector representing the desired force and torque at the end-effector
     ///
     /// # Returns
     ///
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
-    pub fn torques(&self, desired_force_torque: &Vector6<f64>) -> Joints {
+    pub fn torques_from_vector(&self, desired_force_torque: &Vector6<f64>) -> Joints {
         let joint_torques = self.matrix.transpose() * desired_force_torque;
         vector6_to_joints(joint_torques)
-    }
+    }    
 }
 
 /// Function to compute the Jacobian matrix for a given robot and joint configuration
@@ -129,15 +156,15 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub fn compute_jacobian(robot: &impl Kinematics, qs: &Joints, epsilon: f64) -> Matrix6<f64> {
+pub fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
     let mut jacobian = Matrix6::zeros();
-    let current_pose = robot.forward(qs);
+    let current_pose = robot.forward(joints);
     let current_position = current_pose.translation.vector;
     let current_orientation = current_pose.rotation;
 
     // Parallelize the loop using rayon
     let jacobian_columns: Vec<_> = (0..6).into_par_iter().map(|i| {
-        let mut perturbed_qs = *qs;
+        let mut perturbed_qs = *joints;
         perturbed_qs[i] += epsilon;
         let perturbed_pose = robot.forward(&perturbed_qs);
         let perturbed_position = perturbed_pose.translation.vector;
@@ -252,7 +279,7 @@ mod tests {
         let desired_velocity_isometry =
             Isometry3::new(Vector3::new(0.0, 1.0, 0.0),
                            Vector3::new(0.0, 0.0, 1.0));
-        let result = jacobian.velocities_from_iso(&desired_velocity_isometry);
+        let result = jacobian.velocities(&desired_velocity_isometry);
 
         assert!(result.is_ok());
         let joint_velocities = result.unwrap();
@@ -275,7 +302,8 @@ mod tests {
 
         // For a single joint robot, that we want on the torgue is what we need to put
         let desired_force_torque =
-            Vector6::new(0.0, 0.0, 0.0, 0.0, 0.0, 1.234);
+            Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
+                           Vector3::new(0.0, 0.0, 1.234));            
 
         let joint_torques = jacobian.torques(&desired_force_torque);
         println!("Computed joint torques: {:?}", joint_torques);
