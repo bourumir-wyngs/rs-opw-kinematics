@@ -17,10 +17,10 @@
 
 extern crate nalgebra as na;
 
-use na::{Matrix6, Vector6, Isometry3, Translation3, UnitQuaternion, Vector3};
+use na::{Matrix6, Vector6, Isometry3};
 use na::linalg::SVD;
 use rayon::prelude::*;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics};
 use crate::utils::vector6_to_joints;
 
 /// Struct representing the Jacobian matrix
@@ -227,6 +227,8 @@ pub fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) 
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::{Translation3, UnitQuaternion, Vector3};
+    use crate::kinematic_traits::{Pose, Singularity, Solutions};
     use super::*;
 
     const EPSILON: f64 = 1e-6;

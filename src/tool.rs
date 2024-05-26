@@ -4,8 +4,6 @@ use std::sync::Arc;
 use na::{Isometry3};
 use nalgebra::Translation3;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
-use crate::kinematics_impl::OPWKinematics;
-use crate::parameters::opw_kinematics::Parameters;
 
 
 #[derive(Clone)]
@@ -118,6 +116,8 @@ mod tests {
     use std::f64::consts::PI;
     use super::*;
     use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
 
     /// Asserts that two `Translation3<f64>` instances are approximately equal within a given tolerance.
     pub(crate) fn assert_diff(a: &Translation3<f64>, b: &Translation3<f64>, expected_diff: [f64; 3], epsilon: f64) {
