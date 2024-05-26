@@ -165,3 +165,12 @@ fn test_extraction_kr5_arc() {
     assert_parameter_extraction(yaml, urdf, "kr6r900_2");
 }
 
+#[test]
+fn test_extraction_m20ia() {
+    let yaml = Parameters::from_yaml_file("\
+    src/tests/data/fanuc/opw_parameters_m20ia.yaml")
+        .expect("Failed to read or parse URDF");
+    let urdf = read_urdf("src/tests/data/fanuc/m20ia_macro.xacro");
+
+    assert_parameter_extraction(yaml, urdf, "m20ia");
+}
