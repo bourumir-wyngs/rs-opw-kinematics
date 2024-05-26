@@ -117,18 +117,34 @@ fn test_extraction_m6ib() {
 
 #[test]
 fn test_extraction_kr6r700sixx() {
-    let opw_parameters= 
+    let urdf = 
         read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
     
-    let params = Parameters::kuka_kr6_r700_sixx();
+    let yaml = Parameters::kuka_kr6_r700_sixx();
 
-    assert_eq!(opw_parameters.a1, params.a1, "a1 parameter mismatch");
-    assert_eq!(opw_parameters.a2, params.a2, "a2 parameter mismatch");
-    assert_eq!(opw_parameters.b, params.b, "b parameter mismatch");
-    assert_eq!(opw_parameters.c1, params.c1, "c1 parameter mismatch");
-    assert_eq!(opw_parameters.c2, params.c2, "c2 parameter mismatch");
-    assert_eq!(opw_parameters.c3, params.c3, "c3 parameter mismatch");
-    assert_eq!(opw_parameters.c4, params.c4, "c4 parameter mismatch");
+    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch");
+    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch");
+    assert_eq!(urdf.b, yaml.b, "b parameter mismatch");
+    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch");
+    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch");
+    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch");
+    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch");
+}
+
+#[test]
+fn test_extraction_kr150() {
+    let yaml = Parameters::from_yaml_file("\
+    src/tests/data/kuka/opw_parameters_kr150r3100_2.yaml")
+        .expect("Failed to read or parse URDF");
+    let urdf = read_urdf("src/tests/data/kuka/kr150r3100_2_macro.xacro");
+
+    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch");
+    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch");
+    assert_eq!(urdf.b, yaml.b, "b parameter mismatch");
+    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch");
+    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch");
+    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch");
+    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch");
 }
 
 

@@ -268,7 +268,7 @@ fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
     // Check if the input matches the special format
     if let Some(caps) = re.captures(attr_value) {
         let degrees_str = caps.get(1)
-            .ok_or(ParameterError::WrongAngle(format!("Bad representation: {}", 
+            .ok_or(ParameterError::WrongAngle(format!("Bad representation: {}",
                                                       attr_value).to_string()))?.as_str();
         let degrees: f64 = degrees_str.parse()
             .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
@@ -426,10 +426,38 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                 }
             }
             4 => {
-                opw_parameters.a2 = -joint.vector.non_zero()?;
+                match joint.vector.non_zero() {
+                    Ok(value) => {
+                        opw_parameters.a2 = -joint.vector.non_zero()?;
+                    }
+                    Err(_err) => {
+                        pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
+                            match (a, b) {
+                                (0.0, 0.0) => Ok(0.0), // assuming c2 = 0.0
+                                (0.0, b) => Ok(b),
+                                (a, 0.0) => Ok(a),
+                                (_, _) => Err(String::from("Both potential c2 values are non-zero")),
+                            }
+                        }
+                        // If there are multiple values, we assume a2 is given here as z.
+                        // c3 is given either in y or in x, other being 0.
+                        opw_parameters.a2 = -joint.vector.z;
+                        if opw_parameters.c3 != 0.0 {
+                            return Err(String::from("C3 seems defined twice (J4)"));
+                        }
+                        opw_parameters.c3 = non_zero(joint.vector.x, joint.vector.y)?;
+                    }
+                }
             }
             5 => {
-                opw_parameters.c3 = joint.vector.non_zero()?;
+                let candidate = joint.vector.non_zero()?;
+                if candidate != 0.0 {
+                    if opw_parameters.c3 != 0.0 {
+                        return Err(String::from("C3 seems defined twice (J5)"));
+                    } else {
+                        opw_parameters.c3 = candidate;
+                    }
+                }
             }
             6 => {
                 opw_parameters.c4 = joint.vector.non_zero()?;
