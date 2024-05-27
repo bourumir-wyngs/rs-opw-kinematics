@@ -56,14 +56,14 @@ impl Jacobian {
     /// Computes the joint velocities required to achieve a desired end-effector velocity:
     ///
     /// Q' = J⁻¹ x'
-    /// 
+    ///
     /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
     /// of velocities of the tool center point. First 3 components are velocities along x,y and z
     /// axis, the other 3 are angular rotation velocities around x (roll), y (pitch) and z (yaw) axis
-    /// 
+    ///
     /// # Arguments
     ///
-    /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and 
+    /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and
     ///         angular velocity of the end-effector. The x' vector is extracted from the isometry.
     ///
     /// # Returns
@@ -103,7 +103,7 @@ impl Jacobian {
     ///
     /// # Returns
     ///
-    /// `Result<Joints, &'static str>` - Joint positions, with values representing 
+    /// `Result<Joints, &'static str>` - Joint positions, with values representing
     /// joint velocities rather than angles or an error message if the computation fails.
     pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
 
@@ -127,7 +127,7 @@ impl Jacobian {
     ///
     /// # Arguments
     ///
-    /// * `X'` - A 6D vector representing the desired linear and angular velocity of the 
+    /// * `X'` - A 6D vector representing the desired linear and angular velocity of the
     ///     end-effector as defined above.
     ///
     /// # Returns
@@ -137,7 +137,7 @@ impl Jacobian {
     ///
     /// This method tries to compute the joint velocities using the inverse of the Jacobian matrix.
     /// If the Jacobian matrix is not invertible, it falls back to using the pseudoinverse.
-    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name 
+    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name
     pub fn velocities_from_vector(&self, X: &Vector6<f64>) -> Result<Joints, &'static str> {
         // Try to calculate the joint velocities using the inverse of the Jacobian matrix
         let joint_velocities: Vector6<f64>;
@@ -161,9 +161,9 @@ impl Jacobian {
 
     /// Computes the joint torques required to achieve a desired end-effector force/torque
     /// This function computes
-    /// 
+    ///
     /// t = JᵀF
-    /// 
+    ///
     /// where Jᵀ is transposed Jakobian as defined above and f is the desired force vector that
     /// is extracted from the passed Isometry3.
     ///
@@ -197,7 +197,7 @@ impl Jacobian {
     ///
     /// t = JᵀF
     ///
-    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force and torgue 
+    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force and torgue
     /// vector. The first 3 components are forces along x, y and z in Newtons, the other 3
     /// components are rotations around x (roll), y (pitch) and z (yaw) axis in Newton meters.
     ///
@@ -210,7 +210,7 @@ impl Jacobian {
     ///
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
-    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name 
+    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name
     pub fn torques_from_vector(&self, F: &Vector6<f64>) -> Joints {
         let joint_torques = self.matrix.transpose() * F;
         vector6_to_joints(joint_torques)
@@ -232,7 +232,7 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
+pub (crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
     let mut jacobian = Matrix6::zeros();
     let current_pose = robot.forward(joints);
     let current_position = current_pose.translation.vector;
