@@ -30,6 +30,9 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
+- Jakobian, torgues and velocities
+- The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
+  of the tool center point (TCP) rather than any part of the robot.
 - Experimental support for parameter extraction from URDF.
  
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
@@ -77,6 +80,28 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
+# Jakobian, torgues and velocities
+Since 1.3.0, it is possible to obtain the Jakobian that represents the relationship between the joint velocities
+and the end-effector velocities. The computed Jakobian object provides:
+- Joint velocities required to achieve a desired end-effector velocity.
+- Joint torques required to achieve a desired end-effector force/torque.
+
+The same Joints structure is reused, the six values now representing either angular velocities in radians per second
+or torgues in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
+both defining velocities in m/s or rotations in N m. 
+
+These values are useful when path planning for a robot that needs to move very swiftly, to prevent 
+overspeed or overtorgue of individual joints.
+
+# The tool and the base
+Since 1.3.0, robot can be equipped with the tool, defined as Isometry3. The tool isometry defines both
+additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
+now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
+on a base, further supporting the conditions much closer to the real industrial environment.
+
+"Robot with the tool" and "Robot on the base" can be constructed around any Kinematics trait, and implement the
+Kinematics trait themselves. It is possible to cascade them.
+
 # Example
 
 Cargo.toml:
@@ -90,7 +115,9 @@ main.rs:
 
 ```Rust
 use std::f64::consts::PI;
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, 
+use std::sync::Arc;
+use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose,
                                           JOINTS_AT_ZERO, CONSTRAINT_CENTERED};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
@@ -98,57 +125,108 @@ use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
 use rs_opw_kinematics::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 fn main() {
-  let robot = OPWKinematics::new(Parameters::irb2400_10());
-  let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
-  println!("Initial joints with singularity J5 = 0: ");
-  dump_joints(&joints);
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
+    println!("Initial joints with singularity J5 = 0: ");
+    dump_joints(&joints);
 
-  println!("Solutions (original angle set is lacking due singularity there: ");
-  let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
+    println!("Solutions (original angle set is lacking due singularity there: ");
+    let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
 
-  let solutions = robot.inverse(&pose); // Solutions is alias of Vec<Joints>
-  dump_solutions(&solutions);
+    let solutions = robot.inverse(&pose); // Solutions is alias of Vec<Joints>
+    dump_solutions(&solutions);
 
-  println!("Solutions assuming we continue from somewhere close. The 'lost solution' returns");
-  let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
-  dump_solutions(&solutions);
+    println!("Solutions assuming we continue from somewhere close. The 'lost solution' returns");
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    dump_solutions(&solutions);
 
-  println!("Same pose, all J4+J6 rotation assumed to be previously concentrated on J4 only");
-  let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-  dump_solutions(&solutions);
+    println!("Same pose, all J4+J6 rotation assumed to be previously concentrated on J4 only");
+    let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+    dump_solutions(&solutions);
 
-  println!("If we do not have the previous position, we can assume we want J4, J6 close to 0.0 \
+    println!("If we do not have the previous position, we can assume we want J4, J6 close to 0.0 \
     The solution appears and the needed rotation is now equally distributed between J4 and J6.");
-  let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
-  dump_solutions(&solutions);
+    let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
+    dump_solutions(&solutions);
 
-  let robot = OPWKinematics::new_with_constraints(
-    Parameters::irb2400_10(), Constraints::new(
-      [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
-      [ PI, PI, 2.0*PI, PI, PI, PI],
-      BY_PREV,
-    ));
+    let robot = OPWKinematics::new_with_constraints(
+        Parameters::irb2400_10(), Constraints::new(
+            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+            [PI, PI, 2.0 * PI, PI, PI, PI],
+            BY_PREV,
+        ));
 
-  println!("If we do not have the previous pose yet, we can now ask to prefer the pose \
+    println!("If we do not have the previous pose yet, we can now ask to prever the pose \
     closer to the center of constraints.");
-  let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
-  dump_solutions(&solutions);
+    let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
+    dump_solutions(&solutions);
 
-  println!("With constraints, sorted by proximity to the previous pose");
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-  dump_solutions(&solutions);
 
-  let robot = OPWKinematics::new_with_constraints(
-    Parameters::irb2400_10(), Constraints::new(
-      [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
-      [ PI, PI, 2.0*PI, PI, PI, PI],
-      BY_CONSTRAINS,
-    ));
-  println!("With constraints, sorted by proximity to the center of constraints");
-  let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-  dump_solutions(&solutions);
+    println!("With constraints, sorted by proximity to the previous pose");
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+    dump_solutions(&solutions);
+
+    let robot = OPWKinematics::new_with_constraints(
+        Parameters::irb2400_10(), Constraints::new(
+            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
+            [PI, PI, 2.0 * PI, PI, PI, PI],
+            BY_CONSTRAINS,
+        ));
+    println!("With constraints, sorted by proximity to the center of constraints");
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
+    dump_solutions(&solutions);
+
+    // This requires YAML library
+    let parameters = Parameters::irb2400_10();
+    println!("Reading:\n{}", &parameters.to_yaml());
+
+    // Jakobian, velocities and forces:
+    let jakobian = rs_opw_kinematics::jakobian::Jacobian::new(&robot, &joints, 1E-6);
+    let desired_velocity_isometry =
+        Isometry3::new(Vector3::new(0.0, 1.0, 0.0),
+                       Vector3::new(0.0, 0.0, 1.0));
+    let joint_velocities = jakobian.velocities(&desired_velocity_isometry);
+    println!("Computed joint velocities: {:?}", joint_velocities.unwrap());
+
+    let desired_force_torque =
+        Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
+                       Vector3::new(0.0, 0.0, 1.234));
+
+    let joint_torques = jakobian.torques(&desired_force_torque);
+    println!("Computed joint torques: {:?}", joint_torques);
+
+    // Robot with the tool, standing on a base:
+    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2());
+
+    // 1 meter high pedestal
+    let pedestal = 0.5;
+    let base_translation = Isometry3::from_parts(
+        Translation3::new(0.0, 0.0, pedestal).into(),
+        UnitQuaternion::identity(),
+    );
+
+    let robot_with_base = rs_opw_kinematics::tool::Base {
+        robot: Arc::new(robot_alone),
+        base: base_translation,
+    };
+
+    // Tool extends 1 meter in the Z direction, envisioning something like sword
+    let sword = 1.0;
+    let tool_translation = Isometry3::from_parts(
+        Translation3::new(0.0, 0.0, sword).into(),
+        UnitQuaternion::identity(),
+    );
+
+    // Create the Tool instance with the transformation
+    let robot_complete = rs_opw_kinematics::tool::Tool {
+        robot: Arc::new(robot_with_base),
+        tool: tool_translation,
+    };
+
+    let tcp_pose: Pose = robot_complete.forward(&joints);
+    println!("The sword tip is at: {:?}", tcp_pose);
 }
 ```
 
