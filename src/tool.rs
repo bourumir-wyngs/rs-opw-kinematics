@@ -7,7 +7,7 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
 #[derive(Clone)]
-struct Tool {
+pub struct Tool {
     robot: Arc<dyn Kinematics>,  // The robot
 
     /// Transformation from the robot's tip joint to the tool's TCP.    
@@ -15,7 +15,7 @@ struct Tool {
 }
 
 #[derive(Clone)]
-struct Base {
+pub struct Base {
     robot: Arc<dyn Kinematics>,  // The robot
 
     /// Transformation from the world origin to the robots base.
