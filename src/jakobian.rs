@@ -53,11 +53,18 @@ impl Jacobian {
         Self { matrix, epsilon }
     }
 
-    /// Computes the joint velocities required to achieve a desired end-effector velocity
+    /// Computes the joint velocities required to achieve a desired end-effector velocity:
     ///
+    /// Q' = J⁻¹ x'
+    /// 
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// of velocities of the tool center point. First 3 components are velocities along x,y and z
+    /// axis, the other 3 are angular rotation velocities around x (roll), y (pitch) and z (yaw) axis
+    /// 
     /// # Arguments
     ///
-    /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and angular velocity of the end-effector
+    /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and 
+    ///         angular velocity of the end-effector. The x' vector is extracted from the isometry.
     ///
     /// # Returns
     ///
@@ -82,17 +89,22 @@ impl Jacobian {
         self.velocities_from_vector(&desired_velocity)
     }
 
-    /// Computes the joint velocities required to achieve a desired end-effector velocity
+    /// Computes the joint velocities required to achieve a desired end-effector velocity:
+    ///
+    /// Q' = J⁻¹ x'
+    ///
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// of velocities of the tool center point. First 3 components are velocities along x,y and z
+    /// axis. The remaining 3 are angular rotation velocities are assumed to be zero.
     ///
     /// # Arguments
     ///
-    /// * `vx, vy, vz` - x, y and z components of end effector velocity (linear). This method 
-    ///     assumes that we want to keep the rotational components of effector velocity 0 (stationary) 
+    /// * `vx, vy, vz` - x, y and z components of end effector velocity (linear).
     ///
     /// # Returns
     ///
-    /// `Result<Joints, &'static str>` - Joint positions, with values representing joint velocities rather than angles,
-    /// or an error message if the computation fails.
+    /// `Result<Joints, &'static str>` - Joint positions, with values representing 
+    /// joint velocities rather than angles or an error message if the computation fails.
     pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
 
         // Combine into a single 6D vector
@@ -105,11 +117,18 @@ impl Jacobian {
         self.velocities_from_vector(&desired_velocity)
     }
 
-    /// Computes the joint velocities required to achieve a desired end-effector velocity
+    /// Computes the joint velocities required to achieve a desired end-effector velocity:
+    ///
+    /// Q' = J⁻¹ X'
+    ///
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// of velocities of the tool center point. First 3 components are velocities along x,y and z
+    /// axis, the other 3 are angular rotation velocities around x (roll), y (pitch) and z (yaw) axis
     ///
     /// # Arguments
     ///
-    /// * `desired_end_effector_velocity` - A 6D vector representing the desired linear and angular velocity of the end-effector
+    /// * `X'` - A 6D vector representing the desired linear and angular velocity of the 
+    ///     end-effector as defined above.
     ///
     /// # Returns
     ///
@@ -118,17 +137,18 @@ impl Jacobian {
     ///
     /// This method tries to compute the joint velocities using the inverse of the Jacobian matrix.
     /// If the Jacobian matrix is not invertible, it falls back to using the pseudoinverse.
-    pub fn velocities_from_vector(&self, desired_end_effector_velocity: &Vector6<f64>) -> Result<Joints, &'static str> {
+    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name 
+    pub fn velocities_from_vector(&self, X: &Vector6<f64>) -> Result<Joints, &'static str> {
         // Try to calculate the joint velocities using the inverse of the Jacobian matrix
         let joint_velocities: Vector6<f64>;
         if let Some(jacobian_inverse) = self.matrix.try_inverse() {
-            joint_velocities = jacobian_inverse * desired_end_effector_velocity;
+            joint_velocities = jacobian_inverse * X;
         } else {
             // If the inverse does not exist, use the pseudoinverse
             let svd = SVD::new(self.matrix.clone(), true, true);
             match svd.pseudo_inverse(self.epsilon) {
                 Ok(jacobian_pseudoinverse) => {
-                    joint_velocities = jacobian_pseudoinverse * desired_end_effector_velocity;
+                    joint_velocities = jacobian_pseudoinverse * X;
                 }
                 Err(_) => {
                     return Err("Unable to compute the pseudoinverse of the Jacobian matrix");
@@ -140,21 +160,27 @@ impl Jacobian {
     }
 
     /// Computes the joint torques required to achieve a desired end-effector force/torque
+    /// This function computes
+    /// 
+    /// t = JᵀF
+    /// 
+    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force vector that
+    /// is extracted from the passed Isometry3.
     ///
     /// # Arguments
     ///
-    /// * `desired_force_torque` - isometry structure representing forces and torgues
-    ///                            rather than dimensions and angles.
+    /// * `desired_force_torque` - isometry structure representing forces (in Newtons, N) and torgues
+    ///                            (in Newton - meters, Nm) rather than dimensions and angles.
     ///
     /// # Returns
     ///
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
-    pub fn torques(&self, desired_force_torque: &Isometry3<f64>) -> Joints {
+    pub fn torques(&self, desired_force_isometry: &Isometry3<f64>) -> Joints {
 
         // Extract the linear velocity (translation) and angular velocity (rotation)
-        let linear_force = desired_force_torque.translation.vector;
-        let angular_torgue = desired_force_torque.rotation.scaled_axis();
+        let linear_force = desired_force_isometry.translation.vector;
+        let angular_torgue = desired_force_isometry.rotation.scaled_axis();
 
         // Combine into a single 6D vector
         let desired_force_torgue_vector = Vector6::new(
@@ -167,17 +193,26 @@ impl Jacobian {
     }
 
     /// Computes the joint torques required to achieve a desired end-effector force/torque
+    /// This function computes
+    ///
+    /// t = JᵀF
+    ///
+    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force and torgue 
+    /// vector. The first 3 components are forces along x, y and z in Newtons, the other 3
+    /// components are rotations around x (roll), y (pitch) and z (yaw) axis in Newton meters.
     ///
     /// # Arguments
     ///
-    /// * `desired_force_torque` - A 6D vector representing the desired force and torque at the end-effector
+    /// * `F` - A 6D vector representing the desired force and torque at the end-effector
+    ///     as explained above.
     ///
     /// # Returns
     ///
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
-    pub fn torques_from_vector(&self, desired_force_torque: &Vector6<f64>) -> Joints {
-        let joint_torques = self.matrix.transpose() * desired_force_torque;
+    #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name 
+    pub fn torques_from_vector(&self, F: &Vector6<f64>) -> Joints {
+        let joint_torques = self.matrix.transpose() * F;
         vector6_to_joints(joint_torques)
     }
 }
