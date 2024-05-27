@@ -107,7 +107,7 @@ impl Jacobian {
     /// joint velocities rather than angles or an error message if the computation fails.
     pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
 
-        // Combine into a single 6D vector
+        // Combine into a single 6D vector with 0 rotational part
         let desired_velocity = Vector6::new(
             vx, vy, vz,
             0.0, 0.0, 0.0,
