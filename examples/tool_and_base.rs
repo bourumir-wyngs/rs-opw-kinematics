@@ -10,7 +10,7 @@ fn main() {
     dump_joints(&joints);
 
     // Robot with the tool, standing on a base:
-    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2());
+    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
     // 1 meter high pedestal
     let pedestal = 0.5;
@@ -32,16 +32,16 @@ fn main() {
     );
 
     // Create the Tool instance with the transformation
-    let robot_complete = rs_opw_kinematics::tool::Tool {
+    let robot_on_base_with_tool = rs_opw_kinematics::tool::Tool {
         robot: Arc::new(robot_with_base),
         tool: tool_translation,
     };
 
-    let tcp_pose: Pose = robot_complete.forward(&joints);
+    let tcp_pose: Pose = robot_on_base_with_tool.forward(&joints);
     println!("The sword tip is at: {:?}", tcp_pose);
 
     // robot_complete implements Kinematics so have the usual inverse kinematics methods available.    
-    let inverse = robot_complete.inverse_continuing(&tcp_pose, &joints);
+    let inverse = robot_on_base_with_tool.inverse_continuing(&tcp_pose, &joints);
     dump_solutions(&inverse);
 
 }

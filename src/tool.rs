@@ -22,15 +22,26 @@ pub struct Base {
     pub base: Isometry3<f64>,
 }
 
+impl Tool {
+    pub(crate) fn reverse(&self, tcp: &Pose) -> Pose {
+        tcp * self.tool.inverse()
+    }
+}
+
+impl Base {
+    pub(crate) fn reverse(&self, tcp: &Pose) -> Pose {
+        self.base.inverse() * tcp
+    }
+}
+
+
 impl Kinematics for Tool {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        let tip_joint = tcp * self.tool.inverse();
-        self.robot.inverse(&tip_joint)
+        self.robot.inverse(&self.reverse(tcp))
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        let tip_joint = tcp * self.tool.inverse();
-        self.robot.inverse_continuing(&tip_joint, previous)
+        self.robot.inverse_continuing(&self.reverse(tcp), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
@@ -47,13 +58,11 @@ impl Kinematics for Tool {
 
 impl Kinematics for Base {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        let robot_transform = self.base.inverse() * tcp;
-        self.robot.inverse(&robot_transform)
+        self.robot.inverse(&self.reverse(tcp))
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        let robot_transform = self.base.inverse() * tcp;
-        self.robot.inverse_continuing(&robot_transform, &previous)
+        self.robot.inverse_continuing(&self.reverse(tcp), &previous)
     }
 
     fn forward(&self, joints: &Joints) -> Pose {
@@ -144,12 +153,23 @@ mod tests {
         let tcp_without_tool = robot_without.forward(&joints);
         let tcp_with_tool = robot_with.forward(&joints);
         (tcp_without_tool, tcp_with_tool)
-    }    
+    }
+
+    #[test]
+    fn test_tool_reversible() {
+        todo!()
+    }
+
+    #[test]
+    fn test_base_reversible() {
+        todo!()
+    }
+    
     
     #[test]
     fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
-        let robot_without_tool = OPWKinematics::new(Parameters::staubli_tx2());
+        let robot_without_tool = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
         // Tool extends 1 meter in the Z direction
         let tool_translation = Isometry3::from_parts(
@@ -207,7 +227,7 @@ mod tests {
     #[test]
     fn test_base() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
-        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
         // 1 meter high pedestal
         let base_translation = Isometry3::from_parts(
@@ -234,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_linear_axis_forward() {
-        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2_160l());
         let base_translation = Isometry3::from_parts(
             Translation3::new(0.1, 0.2, 0.3).into(),
             UnitQuaternion::identity(),
@@ -255,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_gantry_forward() {
-        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2());
+        let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
         let base_translation = Isometry3::from_parts(
             Translation3::new(0.1, 0.2, 0.3).into(),
@@ -290,7 +310,7 @@ mod tests {
             (tcp_alone, tcp)
         }
 
-        let robot_alone = OPWKinematics::new(Parameters::staubli_tx2());
+        let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
         // 1 meter high pedestal
         let pedestal = 0.5;

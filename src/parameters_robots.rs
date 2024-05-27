@@ -6,7 +6,6 @@ pub mod opw_kinematics {
 
     #[allow(dead_code)]
     impl Parameters {
-
         // Provides default values
         pub fn new() -> Self {
             Parameters {
@@ -21,7 +20,7 @@ pub mod opw_kinematics {
                 sign_corrections: [1; 6],
             }
         }
-       
+
         pub fn irb2400_10() -> Self {
             Parameters {
                 a1: 0.100,
@@ -39,8 +38,8 @@ pub mod opw_kinematics {
 
         // See https://www.staubli.com/content/dam/robotics/products/robots/tx2/TX2-140-160-datasheet-EN.pdf.
         // These three Staubli robots have spherical wrist and mostly identical plan, with only
-        // two parameters being different.
-        pub fn staubli_tx2() -> Self {
+        // two parameters being different. This function does not create usable parameters alone.
+        fn staubli_tx2() -> Self {
             Parameters {
                 a1: 0.150,
                 a2: 0.000,

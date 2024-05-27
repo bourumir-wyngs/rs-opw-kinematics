@@ -198,7 +198,7 @@ fn main() {
     println!("Computed joint torques: {:?}", joint_torques);
 
     // Robot with the tool, standing on a base:
-    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2());
+    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
     // 1 meter high pedestal
     let pedestal = 0.5;
