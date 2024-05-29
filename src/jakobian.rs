@@ -19,7 +19,6 @@ extern crate nalgebra as na;
 
 use na::{Matrix6, Vector6, Isometry3};
 use na::linalg::SVD;
-use rayon::prelude::*;
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::utils::vector6_to_joints;
 
@@ -232,14 +231,14 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub (crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
+pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
     let mut jacobian = Matrix6::zeros();
     let current_pose = robot.forward(joints);
     let current_position = current_pose.translation.vector;
     let current_orientation = current_pose.rotation;
 
     // Parallelize the loop using rayon
-    let jacobian_columns: Vec<_> = (0..6).into_par_iter().map(|i| {
+    let jacobian_columns: Vec<_> = (0..6).into_iter().map(|i| {
         let mut perturbed_qs = *joints;
         perturbed_qs[i] += epsilon;
         let perturbed_pose = robot.forward(&perturbed_qs);
@@ -330,19 +329,23 @@ mod tests {
     #[test]
     fn test_compute_jacobian() {
         let robot = SingleRotaryJointRobot;
-        let joints: Joints = [0.0; 6];
-        let jacobian = compute_jacobian(&robot, &joints, EPSILON);
-        let mut expected_jacobian = Matrix6::zeros();
 
-        expected_jacobian[(0, 0)] = 0.0; // No effect on X position
-        expected_jacobian[(1, 0)] = 1.0; // Y position is affected by the first joint
-        expected_jacobian[(2, 0)] = 0.0; // No effect on Z position
+        // This loop was used to profile rayon performance. No improvement was found so not used.
+        for _e in 0..2 {
+            let joints: Joints = [0.0; 6];
+            let jacobian = compute_jacobian(&robot, &joints, EPSILON);
+            let mut expected_jacobian = Matrix6::zeros();
 
-        expected_jacobian[(3, 0)] = 0.0; // No effect on X orientation
-        expected_jacobian[(4, 0)] = 0.0; // No effect on Y orientation
-        expected_jacobian[(5, 0)] = 1.0; // Z orientation is affected by the first joint
+            expected_jacobian[(0, 0)] = 0.0; // No effect on X position
+            expected_jacobian[(1, 0)] = 1.0; // Y position is affected by the first joint
+            expected_jacobian[(2, 0)] = 0.0; // No effect on Z position
 
-        assert_matrix_approx_eq(&jacobian, &expected_jacobian, EPSILON);
+            expected_jacobian[(3, 0)] = 0.0; // No effect on X orientation
+            expected_jacobian[(4, 0)] = 0.0; // No effect on Y orientation
+            expected_jacobian[(5, 0)] = 1.0; // Z orientation is affected by the first joint
+
+            assert_matrix_approx_eq(&jacobian, &expected_jacobian, EPSILON);
+        }
     }
 
     #[test]
