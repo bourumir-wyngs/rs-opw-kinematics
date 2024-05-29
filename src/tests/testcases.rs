@@ -167,9 +167,12 @@ fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance
 mod tests {
     use std::collections::HashMap;
     use std::f64::consts::PI;
+    use std::sync::Arc;
     use crate::kinematic_traits::{Joints, Kinematics, Singularity, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
+    use crate::tool::{Base, Tool};
+    use crate::utils::{dump_joints, dump_solutions_degrees};
     use super::*;
 
     /// Check if 'expected' exists in the given vector of solutions. This function is also
@@ -464,4 +467,63 @@ mod tests {
         assert_eq!(expected.offsets, loaded.offsets);
         assert_eq!(expected.sign_corrections, loaded.sign_corrections);
     }
+
+
+    #[test]
+    fn test_complex_robot_reversible() {
+        let filename = "src/tests/data/cases.yaml";
+        let result = load_yaml(filename);
+        assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
+        let cases = result.expect("Expected a valid Cases struct after parsing");
+        let all_parameters = create_parameter_map();
+        println!("Forward IK: {} test cases", cases.len());
+
+        for case in cases.iter() {
+            let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
+                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+            });
+            let robot_alone = OPWKinematics::new(parameters.clone());
+
+            // 1 meter high pedestal
+            let pedestal = 0.5;
+            let base_translation = Isometry3::from_parts(
+                Translation3::new(0.0, 0.0, pedestal).into(),
+                UnitQuaternion::identity(),
+            );
+
+            let robot_with_base = Base {
+                robot: Arc::new(robot_alone),
+                base: base_translation,
+            };
+
+            // Tool extends 1 meter in the Z direction, envisioning something like sword
+            let sword = 1.0;
+            let tool_translation = Isometry3::from_parts(
+                Translation3::new(0.0, 0.0, sword).into(),
+                UnitQuaternion::identity(),
+            );
+
+            // Create the Tool instance with the transformation
+            let kinematics = Tool {
+                robot: Arc::new(robot_with_base),
+                tool: tool_translation,
+            };
+            
+
+            // Try forward on the initial data set first.
+            let joints = case.joints_in_radians();
+            let pose = kinematics.forward(&joints);
+            let solutions = kinematics.inverse_continuing(&pose, &joints);
+            
+            // It must be the matching solution, it must be the first in solutions.
+            if !matches!(found_joints_approx_equal(&solutions, &joints, 
+                0.001_f64.to_radians()), Some(0)) {
+                println!("Not found or not first:");
+                dump_joints(&joints);
+                dump_solutions_degrees(&solutions);
+                panic!();
+            }
+        }
+    }    
+    
 }
