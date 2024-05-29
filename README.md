@@ -30,7 +30,7 @@ This documentation also incorporates the robot diagram from that project.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- Jakobian, torgues and velocities
+- Jacobian, torgues and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - Experimental support for parameter extraction from URDF.
@@ -80,9 +80,9 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
-# Jakobian, torgues and velocities
-Since 1.3.0, it is possible to obtain the Jakobian that represents the relationship between the joint velocities
-and the end-effector velocities. The computed Jakobian object provides:
+# Jacobian: torgues and velocities
+Since 1.3.0, it is possible to obtain the Jacobian that represents the relationship between the joint velocities
+and the end-effector velocities. The computed Jacobian object provides:
 - Joint velocities required to achieve a desired end-effector velocity.
 - Joint torques required to achieve a desired end-effector force/torque.
 
@@ -182,7 +182,7 @@ fn main() {
     let parameters = Parameters::irb2400_10();
     println!("Reading:\n{}", &parameters.to_yaml());
 
-    // Jakobian, velocities and forces:
+    // Jacobian, velocities and forces:
     let jakobian = rs_opw_kinematics::jakobian::Jacobian::new(&robot, &joints, 1E-6);
     let desired_velocity_isometry =
         Isometry3::new(Vector3::new(0.0, 1.0, 0.0),

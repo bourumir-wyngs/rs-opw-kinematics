@@ -15,7 +15,7 @@ fn main() {
         ));
 
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
-    let jakobian = rs_opw_kinematics::jakobian::Jacobian::new(&robot, &joints, 1E-6);
+    let jakobian = rs_opw_kinematics::jacobian::Jacobian::new(&robot, &joints, 1E-6);
     let desired_velocity_isometry =
         Isometry3::new(Vector3::new(0.0, 1.0, 0.0),
                        Vector3::new(0.0, 0.0, 1.0));

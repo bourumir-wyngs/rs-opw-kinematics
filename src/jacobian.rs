@@ -1,6 +1,6 @@
-//! This package contains support for Jakobian matrix.
+//! This package contains support for Jacobian matrix.
 //!
-//! Jakobian matrix, as understood here, represents the relationship between the joint velocities 
+//! Jacobian matrix, as understood here, represents the relationship between the joint velocities
 //! and the end-effector velocities:
 //!
 //! | ∂vx/∂θ1  ∂vx/∂θ2  ∂vx/∂θ3  ∂vx/∂θ4  ∂vx/∂θ5  ∂vx/∂θ6 |
@@ -31,7 +31,7 @@ pub struct Jacobian {
     /// of the end-effector (linear and angular velocities).    
     matrix: Matrix6<f64>,
 
-    /// The disturbance value used for computing the Jakobian
+    /// The disturbance value used for computing the Jacobian
     epsilon: f64,
 }
 
@@ -56,7 +56,7 @@ impl Jacobian {
     ///
     /// Q' = J⁻¹ x'
     ///
-    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jacobian matrix and x' is the vector
     /// of velocities of the tool center point. First 3 components are velocities along x,y and z
     /// axis, the other 3 are angular rotation velocities around x (roll), y (pitch) and z (yaw) axis
     ///
@@ -92,7 +92,7 @@ impl Jacobian {
     ///
     /// Q' = J⁻¹ x'
     ///
-    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jacobian matrix and x' is the vector
     /// of velocities of the tool center point. First 3 components are velocities along x,y and z
     /// axis. The remaining 3 are angular rotation velocities are assumed to be zero.
     ///
@@ -120,7 +120,7 @@ impl Jacobian {
     ///
     /// Q' = J⁻¹ X'
     ///
-    /// where Q' are joint velocities, J⁻¹ is the inverted Jakobian matrix and x' is the vector
+    /// where Q' are joint velocities, J⁻¹ is the inverted Jacobian matrix and x' is the vector
     /// of velocities of the tool center point. First 3 components are velocities along x,y and z
     /// axis, the other 3 are angular rotation velocities around x (roll), y (pitch) and z (yaw) axis
     ///
@@ -163,7 +163,7 @@ impl Jacobian {
     ///
     /// t = JᵀF
     ///
-    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force vector that
+    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force vector that
     /// is extracted from the passed Isometry3.
     ///
     /// # Arguments
@@ -196,7 +196,7 @@ impl Jacobian {
     ///
     /// t = JᵀF
     ///
-    /// where Jᵀ is transposed Jakobian as defined above and f is the desired force and torgue
+    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force and torgue
     /// vector. The first 3 components are forces along x, y and z in Newtons, the other 3
     /// components are rotations around x (roll), y (pitch) and z (yaw) axis in Newton meters.
     ///

@@ -15,7 +15,7 @@ pub mod constraints;
 
 pub mod tool;
 
-pub mod jakobian;
+pub mod jacobian;
 
 #[cfg(feature = "allow_filesystem")]
 pub mod urdf;
