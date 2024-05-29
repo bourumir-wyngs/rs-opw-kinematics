@@ -22,26 +22,13 @@ pub struct Base {
     pub base: Isometry3<f64>,
 }
 
-impl Tool {
-    pub(crate) fn reverse(&self, tcp: &Pose) -> Pose {
-        tcp * self.tool.inverse()
-    }
-}
-
-impl Base {
-    pub(crate) fn reverse(&self, tcp: &Pose) -> Pose {
-        self.base.inverse() * tcp
-    }
-}
-
-
 impl Kinematics for Tool {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        self.robot.inverse(&self.reverse(tcp))
+        self.robot.inverse(&(tcp * self.tool.inverse()))
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing(&self.reverse(tcp), previous)
+        self.robot.inverse_continuing(&(tcp * self.tool.inverse()), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
@@ -58,11 +45,11 @@ impl Kinematics for Tool {
 
 impl Kinematics for Base {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        self.robot.inverse(&self.reverse(tcp))
+        self.robot.inverse(&(self.base.inverse() * tcp))
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing(&self.reverse(tcp), &previous)
+        self.robot.inverse_continuing(&(self.base.inverse() * tcp), &previous)
     }
 
     fn forward(&self, joints: &Joints) -> Pose {
@@ -154,18 +141,7 @@ mod tests {
         let tcp_with_tool = robot_with.forward(&joints);
         (tcp_without_tool, tcp_with_tool)
     }
-
-    #[test]
-    fn test_tool_reversible() {
-        todo!()
-    }
-
-    #[test]
-    fn test_base_reversible() {
-        todo!()
-    }
-    
-    
+   
     #[test]
     fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
