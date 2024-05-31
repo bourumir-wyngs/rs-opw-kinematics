@@ -10,7 +10,7 @@ use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 const DEBUG: bool = false;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
     parameters: Parameters,
@@ -182,19 +182,13 @@ impl Kinematics for OPWKinematics {
         let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
         let cz0 = cz1 + p.c1;
 
-        let s1 = f64::sin(q1);
-        let s2 = f64::sin(q2);
-        let s3 = f64::sin(q3);
-        let s4 = f64::sin(q4);
-        let s5 = f64::sin(q5);
-        let s6 = f64::sin(q6);
-
-        let c1 = f64::cos(q1);
-        let c2 = f64::cos(q2);
-        let c3 = f64::cos(q3);
-        let c4 = f64::cos(q4);
-        let c5 = f64::cos(q5);
-        let c6 = f64::cos(q6);
+        // Precompute sines and cosines
+        let (s1, c1) = (q1.sin(), q1.cos());
+        let (s2, c2) = (q2.sin(), q2.cos());
+        let (s3, c3) = (q3.sin(), q3.cos());
+        let (s4, c4) = (q4.sin(), q4.cos());
+        let (s5, c5) = (q5.sin(), q5.cos());
+        let (s6, c6) = (q6.sin(), q6.cos());
 
         let r_0c = Matrix3::new(
             c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,

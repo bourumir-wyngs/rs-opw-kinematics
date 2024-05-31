@@ -5,7 +5,7 @@ use std::f64::INFINITY;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::utils::deg;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct Constraints {
     /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
     pub from: [f64; 6],

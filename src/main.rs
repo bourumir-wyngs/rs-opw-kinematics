@@ -1,4 +1,4 @@
-const VERSION: &str = "1.2.1";
+const VERSION: &str = "1.3.0";
 
 #[cfg(feature = "allow_filesystem")]
 fn main() {
@@ -17,8 +17,11 @@ fn main() {
               \nWhile both parameters and constraints are printed out, constraints are not \
               \npart of the OPW parameters. \
               \n\nThis tool is Free software under BSD 3, hosted in repository \
-              \nhttps://github.com/bourumir-wyngs/rs-opw-kinematics\n");
-        println!("Usage: rs-opw-kinematics urdf_file.urdf");
+              \nhttps://github.com/bourumir-wyngs/rs-opw-kinematics \
+              \nData from ROS industrial (https://github.com/ros-industrial) were used for testing,\
+              \nlicense files in tests/data contain exact origins\n");
+        
+              println!("\nUsage: rs-opw-kinematics urdf_file.urdf");
     }    
 
     fn read_file(file_name: &str) -> io::Result<String> {

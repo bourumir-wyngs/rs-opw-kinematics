@@ -6,15 +6,15 @@ use crate::urdf::URDFParameters;
 
 fn read_urdf(path: &str) -> URDFParameters {
     let opw_parameters = urdf::from_urdf(read_to_string(path)
-        .expect("Failed to read test data file"), &None).expect("Faile to interpret URDF");
+                                             .expect("Failed to read test data file"), &None).expect("Faile to interpret URDF");
     // Output the results or further process
     println!("{:?}", opw_parameters);
-    opw_parameters    
+    opw_parameters
 }
 
 #[test]
 fn test_extraction_m10ia() {
-    let opw_parameters= read_urdf("src/tests/data/fanuc/m10ia_macro.xacro"); 
+    let opw_parameters = read_urdf("src/tests/data/fanuc/m10ia_macro.xacro");
 
     // opw_kinematics_geometric_parameters:
     //   a1: 0.15
@@ -52,9 +52,10 @@ fn test_extraction_m10ia() {
         assert_eq!(opw_parameters.to[i], val, "Mismatch in to at index {}", i);
     }
 }
+
 #[test]
 fn test_extraction_lrmate200ib() {
-    let opw_parameters= read_urdf("src/tests/data/fanuc/lrmate200ib_macro.xacro");
+    let opw_parameters = read_urdf("src/tests/data/fanuc/lrmate200ib_macro.xacro");
 
     // opw_kinematics_geometric_parameters:
     //   a1: 0.15
@@ -95,7 +96,7 @@ fn test_extraction_lrmate200ib() {
 
 #[test]
 fn test_extraction_m6ib() {
-    let opw_parameters= read_urdf("src/tests/data/fanuc/m6ib_macro.xacro");    
+    let opw_parameters = read_urdf("src/tests/data/fanuc/m6ib_macro.xacro");
 
     // opw_kinematics_geometric_parameters:
     //  a1: 0.15
@@ -115,22 +116,6 @@ fn test_extraction_m6ib() {
     assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");
 }
 
-#[test]
-fn test_extraction_kr6r700sixx() {
-    let urdf = 
-        read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
-    
-    let yaml = Parameters::kuka_kr6_r700_sixx();
-
-    assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch");
-    assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch");
-    assert_eq!(urdf.b, yaml.b, "b parameter mismatch");
-    assert_eq!(urdf.c1, yaml.c1, "c1 parameter mismatch");
-    assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch");
-    assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch");
-    assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch");
-}
-
 fn assert_parameter_extraction(yaml: Parameters, urdf: URDFParameters, robot: &str) {
     assert_eq!(urdf.a1, yaml.a1, "a1 parameter mismatch for {}", robot);
     assert_eq!(urdf.a2, yaml.a2, "a2 parameter mismatch for {}", robot);
@@ -139,6 +124,15 @@ fn assert_parameter_extraction(yaml: Parameters, urdf: URDFParameters, robot: &s
     assert_eq!(urdf.c2, yaml.c2, "c2 parameter mismatch for {}", robot);
     assert_eq!(urdf.c3, yaml.c3, "c3 parameter mismatch for {}", robot);
     assert_eq!(urdf.c4, yaml.c4, "c4 parameter mismatch for {}", robot);
+}
+
+#[test]
+fn test_extraction_kr6r700sixx() {
+    let urdf =
+        read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
+
+    let params = Parameters::kuka_kr6_r700_sixx();
+    assert_parameter_extraction(params, urdf, "_kr6r700sixx");
 }
 
 #[test]
@@ -161,4 +155,22 @@ fn test_extraction_kr10r1420() {
     assert_parameter_extraction(yaml, urdf, "kr10r1420");
 }
 
+#[test]
+fn test_extraction_kr5_arc() {
+    let yaml = Parameters::from_yaml_file("\
+    src/tests/data/kuka/opw_parameters_kr6r900_2.yaml")
+        .expect("Failed to read or parse URDF");
+    let urdf = read_urdf("src/tests/data/kuka/kr6r900_2_macro.xacro");
 
+    assert_parameter_extraction(yaml, urdf, "kr6r900_2");
+}
+
+#[test]
+fn test_extraction_m20ia() {
+    let yaml = Parameters::from_yaml_file("\
+    src/tests/data/fanuc/opw_parameters_m20ia.yaml")
+        .expect("Failed to read or parse URDF");
+    let urdf = read_urdf("src/tests/data/fanuc/m20ia_macro.xacro");
+
+    assert_parameter_extraction(yaml, urdf, "m20ia");
+}

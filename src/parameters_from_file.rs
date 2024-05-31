@@ -50,6 +50,7 @@ impl Parameters {
                 Yaml::String(s) => Self::parse_degrees(s),
                 Yaml::Real(s) => s.parse::<f64>()
                     .map_err(|_| ParameterError::ParseError("Failed to parse angle".into())),
+                Yaml::Integer(s) => Ok(*s as f64),
                 _ => Err(ParameterError::ParseError(
                     "Offset entry is not a number or deg() function".into())),
             })

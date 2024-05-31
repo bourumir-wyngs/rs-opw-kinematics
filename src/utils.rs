@@ -1,5 +1,6 @@
 //! Helper functions
 
+use nalgebra::Vector6;
 use crate::kinematic_traits::{Joints, Solutions};
 
 /// Checks the solution for validity. This is only internally needed as all returned
@@ -67,6 +68,16 @@ pub(crate) fn deg(x: &f64) -> String {
         return "0".to_string();
     }
     format!("deg({:.4})", x.to_degrees())
+}
+
+/// Converts nalgebra::Vector6<f64> to Joints ([f64; 6])
+pub fn vector6_to_joints(v: Vector6<f64>) -> Joints {
+    [v[0], v[1], v[2], v[3], v[4], v[5]]
+}
+
+/// Converts Joints ([f64; 6]) to a Vector6<f64>
+pub fn joints_to_vector6(j: Joints) -> nalgebra::Vector6<f64> {
+    Vector6::new(j[0], j[1], j[2], j[3], j[4], j[5])
 }
 
 #[cfg(test)]
