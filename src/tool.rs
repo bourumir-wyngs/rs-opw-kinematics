@@ -6,11 +6,12 @@
 //! ```
 //! use std::sync::Arc;
 //! use nalgebra::{Isometry3, Translation3, UnitQuaternion};
-//! use rs_opw_kinematics::kinematic_traits::{Kinematics, Pose};
+//! use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose};
 //! use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 //! use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 //! let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
-//! // 1 meter high pedestal
+//! 
+//! // Half meter high pedestal
 //! let pedestal = 0.5;
 //! let base_translation = Isometry3::from_parts(
 //!   Translation3::new(0.0, 0.0, pedestal).into(),
@@ -35,6 +36,7 @@
 //!   tool: tool_translation,
 //! };
 //!
+//! let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
 //! let tcp_pose: Pose = robot_complete.forward(&joints);
 //! println!("The sword tip is at: {:?}", tcp_pose);
 //! ```
@@ -341,7 +343,7 @@ mod tests {
 
         let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
-        // 1 meter high pedestal
+        // Half meter high pedestal
         let pedestal = 0.5;
         let base_translation = Isometry3::from_parts(
             Translation3::new(0.0, 0.0, pedestal).into(),
