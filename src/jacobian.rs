@@ -24,7 +24,7 @@ use na::linalg::SVD;
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::utils::vector6_to_joints;
 
-/*!
+/**
  * This structure holds Jacobian matrix and provides methods to
  * extract velocity and torgue information from it.
  *
