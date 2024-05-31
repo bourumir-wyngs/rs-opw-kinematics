@@ -12,7 +12,7 @@ use crate::parameters::opw_kinematics::Parameters;
 impl Parameters {
     ///
     /// Read the robot configuration from YAML file. YAML file like this is supported:
-    ///
+    /// ```yaml
     /// # FANUC m16ib20
     /// opw_kinematics_geometric_parameters:
     ///   a1: 0.15
@@ -24,12 +24,12 @@ impl Parameters {
     ///   c4: 0.10
     /// opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
     /// opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
-    ///
+    /// ```
     /// ROS-Industrial provides many such files for FANUC robots on GitHub
     /// (ros-industrial/fanuc, see fanuc_m10ia_support/config/opw_parameters_m10ia.yaml)
     /// YAML extension to parse the deg(angle) function is supported.
     ///  
-    /// See https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m16ib_support/config/opw_parameters_m16ib20.yaml
+    /// See [fanuc_m16ib_support in ROS Industrial](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m16ib_support/config/opw_parameters_m16ib20.yaml).
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, ParameterError> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
