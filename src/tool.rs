@@ -1,3 +1,44 @@
+//! Provides tool and base for the robot. 
+//! Both Tool and Base take arbitrary implementation of Kinematics and are such
+//! implementations themselves. Hence, they can be cascaded, like base, having the robot,
+//! that robot having a tool:
+//! // Robot with the tool, standing on a base:
+//! ```
+//! use std::sync::Arc;
+//! use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+//! use rs_opw_kinematics::kinematic_traits::{Kinematics, Pose};
+//! use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+//! use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+//! let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
+//! // 1 meter high pedestal
+//! let pedestal = 0.5;
+//! let base_translation = Isometry3::from_parts(
+//!   Translation3::new(0.0, 0.0, pedestal).into(),
+//!   UnitQuaternion::identity(),
+//! );
+//!
+//! let robot_with_base = rs_opw_kinematics::tool::Base {
+//!   robot: Arc::new(robot_alone),
+//!   base: base_translation,
+//! };
+//!
+//! // Tool extends 1 meter in the Z direction, envisioning something like sword
+//! let sword = 1.0;
+//! let tool_translation = Isometry3::from_parts(
+//!   Translation3::new(0.0, 0.0, sword).into(),
+//!   UnitQuaternion::identity(),
+//! );
+//!
+//! // Create the Tool instance with the transformation
+//! let robot_complete = rs_opw_kinematics::tool::Tool {
+//!   robot: Arc::new(robot_with_base),
+//!   tool: tool_translation,
+//! };
+//!
+//! let tcp_pose: Pose = robot_complete.forward(&joints);
+//! println!("The sword tip is at: {:?}", tcp_pose);
+//! ```
+
 extern crate nalgebra as na;
 
 use std::sync::Arc;
@@ -6,6 +47,11 @@ use nalgebra::Translation3;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
+/// Defines the fixed tool that can be attached to the last joint (joint 6) of robot.
+/// The tool moves with the robot, providing additional translation and, if needed,
+/// rotation. The tool itself fully implements the Kinematics,
+/// providing both inverse and forward kinematics for the robot with a tool (with
+/// "pose" being assumed as the position and rotation of the tip of the tool (tool center point). 
 #[derive(Clone)]
 pub struct Tool {
     pub robot: Arc<dyn Kinematics>,  // The robot
@@ -14,6 +60,11 @@ pub struct Tool {
     pub tool: Isometry3<f64>,
 }
 
+/// Defines the fixed base that can hold the robot.
+/// The base moves the robot to its installed location, providing also rotation if 
+/// required (physical robots work well and may be installed upside down, or at some 
+/// angle like 45 degrees). Base itself fully implements the Kinematics,
+/// providing both inverse and forward kinematics for the robot on a base.
 #[derive(Clone)]
 pub struct Base {
     pub robot: Arc<dyn Kinematics>,  // The robot
@@ -83,7 +134,9 @@ pub struct Gantry {
     pub base: Isometry3<f64>,
 }
 
-
+/// A platform for a robot that can ride in one of the x, y and z directions. 
+/// (a more focused version of the Gantry, intended for algorithms that focus with the single
+/// direction variable.) 
 impl LinearAxis {
     // Compute the forward transformation including the cart's offset and the robot's kinematics
     pub fn forward(&self, distance: f64, joint_angles: &[f64; 6]) -> Isometry3<f64> {
