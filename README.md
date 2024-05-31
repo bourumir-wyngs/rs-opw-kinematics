@@ -67,7 +67,7 @@ the ground at "zero."
 
 # Constraints
 
-Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
+Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
 the specified constraint range are not included into returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
 
@@ -81,10 +81,10 @@ Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat 
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
 # Jacobian: torgues and velocities
-Since 1.3.0, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
+Since 1.3.0, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
-- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
-- Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
+- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
+- Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
 or torgues in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
@@ -94,10 +94,10 @@ These values are useful when path planning for a robot that needs to move very s
 overspeed or overtorgue of individual joints.
 
 # The tool and the base
-Since 1.3.0, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
+Since 1.3.0, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 "Robot with the tool" and "Robot on the base" can be constructed around any Kinematics trait, and implement the
 Kinematics trait themselves. It is possible to cascade them.
@@ -256,7 +256,7 @@ Since version 1.2.0, parameters and constraints can also be directly extracted f
   println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
-There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.3.0-rc/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.3.0/rs_opw_kinematics/urdf/fn.from_urdf.html) 
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
