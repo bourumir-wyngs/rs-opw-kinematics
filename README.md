@@ -87,8 +87,8 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.1/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torgues in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
-both defining velocities in m/s or rotations in N m. 
+or torgues in Newton meters. For the end effector, it is possible to use either nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html) 
+or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or rotations in N m. 
 
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent 
 overspeed or overtorgue of individual joints.
