@@ -2,7 +2,7 @@
 //! Both Tool and Base take arbitrary implementation of Kinematics and are such
 //! implementations themselves. Hence, they can be cascaded, like base, having the robot,
 //! that robot having a tool:
-//! // Robot with the tool, standing on a base:
+//! 
 //! ```
 //! use std::sync::Arc;
 //! use nalgebra::{Isometry3, Translation3, UnitQuaternion};
