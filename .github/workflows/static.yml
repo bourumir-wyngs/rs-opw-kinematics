@@ -50,6 +50,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Identify location
+        run: pwd    
+      - name: Identify location 2
+        run: ls -l    
+        
+        
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Pages
@@ -58,7 +64,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload generated documentation
-          path: /home/runner/work/rs-opw-kinematics/rs-opw-kinematics/target/doc/rs_opw_kinematics
+          path: /home/runner/work/rs-opw-kinematics/rs-opw-kinematics/target/doc
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
