@@ -22,10 +22,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      
   deploy:
     environment:
       name: github-pages
@@ -46,6 +42,8 @@ jobs:
 
       - name: Identify location
         run: pwd
+      - name: Identify content
+        run: ls -l        
         
       - name: Checkout
         uses: actions/checkout@v4
