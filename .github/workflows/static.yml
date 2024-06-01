@@ -43,10 +43,10 @@ jobs:
       - name: Identify location
         run: pwd
       - name: Identify content
-        run: ls -l        
+        run: ls -l
+      - name: Identify content
+        run: ls -l target/doc
         
-      - name: Checkout
-        uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
