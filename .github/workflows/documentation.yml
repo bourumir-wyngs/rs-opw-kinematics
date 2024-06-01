@@ -31,7 +31,8 @@ jobs:
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git clone --branch gh-pages https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git gh-pages
+        
+        git clone --branch gh-pages https://x-access-token:${{ secrets.GH_PAT }}@github.com/bourumir-wyngs/rs-opw-kinematics-doc.git gh-pages
         rsync -av --delete target/doc/ gh-pages/
         cd gh-pages
         git add .
