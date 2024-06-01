@@ -46,6 +46,9 @@ jobs:
       - name: Copy image
         run:  cp documentation/opw.gif target/doc/documentation
 
+      - name: Copy index.hmtl
+        run:  cp documentation/index.html target/doc
+
       - name: Identify location
         run: pwd
       - name: Identify content
