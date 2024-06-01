@@ -46,8 +46,6 @@ jobs:
       - name: Copy image
         run:  cp documentation/opw.gif target/doc/documentation
 
-documentation/        
-
       - name: Identify location
         run: pwd
       - name: Identify content
