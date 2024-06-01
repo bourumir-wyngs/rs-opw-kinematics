@@ -31,6 +31,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -38,7 +64,7 @@ jobs:
           override: true
 
       - name: Build documentation
-        run: cargo doc --no-deps
+        run: cargo doc
 
       - name: Make documentation folder
         run:  mkdir -p target/doc/documentation
@@ -46,22 +72,15 @@ jobs:
       - name: Copy image
         run:  cp documentation/opw.gif target/doc/documentation
 
-      - name: Copy index.hmtl
+      - name: Copy index.html
         run:  cp documentation/index.html target/doc
 
-      - name: Identify location
-        run: pwd
-      - name: Identify content
-        run: ls -l
-      - name: Identify content
-        run: ls -l target/doc
-        
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload generated documentation. This is viewable at https://bourumir-wyngs.github.io/rs-opw-kinematics/rs_opw_kinematics/
+          # Upload generated documentation.
           path: target/doc
       - name: Deploy to GitHub Pages
         id: deployment
