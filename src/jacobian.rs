@@ -1,19 +1,19 @@
 //!
 //!  This package provides support for the Jacobian matrix.
-//! 
+//!
 //!  The Jacobian matrix, as described here, represents the relationship between the joint velocities
 //!  and the end-effector velocities:
 //! ```text
-//!  | ∂vx/∂θ1  ∂vx/∂θ2  ∂vx/∂θ3  ∂vx/∂θ4  ∂vx/∂θ5  ∂vx/∂θ6 |
-//!  | ∂vy/∂θ1  ∂vy/∂θ2  ∂vy/∂θ3  ∂vy/∂θ4  ∂vy/∂θ5  ∂vy/∂θ6 |
-//!  | ∂vz/∂θ1  ∂vz/∂θ2  ∂vz/∂θ3  ∂vz/∂θ4  ∂vz/∂θ5  ∂vz/∂θ6 |
-//!  | ∂ωx/∂θ1  ∂ωx/∂θ2  ∂ωx/∂θ3  ∂ωx/∂θ4  ∂ωx/∂θ5  ∂ωx/∂θ6 |
-//!  | ∂ωy/∂θ1  ∂ωy/∂θ2  ∂ωy/∂θ3  ∂ωy/∂θ4  ∂ωy/∂θ5  ∂ωy/∂θ6 |
-//!  | ∂ωz/∂θ1  ∂ωz/∂θ2  ∂ωz/∂θ3  ∂ωz/∂θ4  ∂ωz/∂θ5  ∂ωz/∂θ6 |
+//!  | ∂vx/∂θ₁  ∂vx/∂θ₂  ∂vx/∂θ₃  ∂vx/∂θ₄  ∂vx/∂θ₅  ∂vx/∂θ₆ |
+//!  | ∂vy/∂θ₁  ∂vy/∂θ₂  ∂vy/∂θ₃  ∂vy/∂θ₄  ∂vy/∂θ₅  ∂vy/∂θ₆ |
+//!  | ∂vz/∂θ₁  ∂vz/∂θ₂  ∂vz/∂θ₃  ∂vz/∂θ₄  ∂vz/∂θ₅  ∂vz/∂θ₆ |
+//!  | ∂ωx/∂θ₁  ∂ωx/∂θ₂  ∂ωx/∂θ₃  ∂ωx/∂θ₄  ∂ωx/∂θ₅  ∂ωx/∂θ₆ |
+//!  | ∂ωy/∂θ₁  ∂ωy/∂θ₂  ∂ωy/∂θ₃  ∂ωy/∂θ₄  ∂ωy/∂θ₅  ∂ωy/∂θ₆ |
+//!  | ∂ωz/∂θ₁  ∂ωz/∂θ₂  ∂ωz/∂θ₃  ∂ωz/∂θ₄  ∂ωz/∂θ₅  ∂ωz/∂θ₆ |
 //! ```
 //!  The first three rows correspond to the linear velocities: vx, vy, vz.
 //!  The last three rows correspond to the angular velocities: roll (ωx), pitch (ωy), and yaw (ωz).
-//!  θ1, θ2, θ3, θ4, θ5, θ6 are the joint angles.
+//!  θ₁, θ₂, θ₃, θ₄, θ₅, θ₆ are the joint angles.
 //!  ∂ denotes a partial derivative.
 
 extern crate nalgebra as na;
@@ -26,20 +26,23 @@ use crate::utils::vector6_to_joints;
 /// This structure holds Jacobian matrix and provides methods to
 /// extract velocity and torgue information from it.
 ///
-/// The Jacobian matrix, as described here, represents the relationship between the joint velocities
-/// and the end-effector velocities:
-///```text
-/// | ∂vx/∂θ1  ∂vx/∂θ2  ∂vx/∂θ3  ∂vx/∂θ4  ∂vx/∂θ5  ∂vx/∂θ6 |
-/// | ∂vy/∂θ1  ∂vy/∂θ2  ∂vy/∂θ3  ∂vy/∂θ4  ∂vy/∂θ5  ∂vy/∂θ6 |
-/// | ∂vz/∂θ1  ∂vz/∂θ2  ∂vz/∂θ3  ∂vz/∂θ4  ∂vz/∂θ5  ∂vz/∂θ6 |
-/// | ∂ωx/∂θ1  ∂ωx/∂θ2  ∂ωx/∂θ3  ∂ωx/∂θ4  ∂ωx/∂θ5  ∂ωx/∂θ6 |
-/// | ∂ωy/∂θ1  ∂ωy/∂θ2  ∂ωy/∂θ3  ∂ωy/∂θ4  ∂ωy/∂θ5  ∂ωy/∂θ6 |
-/// | ∂ωz/∂θ1  ∂ωz/∂θ2  ∂ωz/∂θ3  ∂ωz/∂θ4  ∂ωz/∂θ5  ∂ωz/∂θ6 | 
-///```
-/// The first three rows correspond to the linear velocities: vx, vy, vz.
-/// The last three rows correspond to the angular velocities: roll (ωx), pitch (ωy), and yaw (ωz).
-/// θ1, θ2, θ3, θ4, θ5, θ6 are the joint angles.
-/// ∂ denotes a partial derivative.
+///
+///  This package provides support for the Jacobian matrix.
+///
+///  The Jacobian matrix, as described here, represents the relationship between the joint velocities
+///  and the end-effector velocities:
+/// ```text
+///  | ∂vx/∂θ₁  ∂vx/∂θ₂  ∂vx/∂θ₃  ∂vx/∂θ₄  ∂vx/∂θ₅  ∂vx/∂θ₆ |
+///  | ∂vy/∂θ₁  ∂vy/∂θ₂  ∂vy/∂θ₃  ∂vy/∂θ₄  ∂vy/∂θ₅  ∂vy/∂θ₆ |
+///  | ∂vz/∂θ₁  ∂vz/∂θ₂  ∂vz/∂θ₃  ∂vz/∂θ₄  ∂vz/∂θ₅  ∂vz/∂θ₆ |
+///  | ∂ωx/∂θ₁  ∂ωx/∂θ₂  ∂ωx/∂θ₃  ∂ωx/∂θ₄  ∂ωx/∂θ₅  ∂ωx/∂θ₆ |
+///  | ∂ωy/∂θ₁  ∂ωy/∂θ₂  ∂ωy/∂θ₃  ∂ωy/∂θ₄  ∂ωy/∂θ₅  ∂ωy/∂θ₆ |
+///  | ∂ωz/∂θ₁  ∂ωz/∂θ₂  ∂ωz/∂θ₃  ∂ωz/∂θ₄  ∂ωz/∂θ₅  ∂ωz/∂θ₆ |
+/// ```
+///  The first three rows correspond to the linear velocities: vx, vy, vz.
+///  The last three rows correspond to the angular velocities: roll (ωx), pitch (ωy), and yaw (ωz).
+///  θ₁, θ₂, θ₃, θ₄, θ₅, θ₆ are the joint angles.
+///  ∂ denotes a partial derivative.
 pub struct Jacobian {
     /// A 6x6 matrix representing the Jacobian
     ///
