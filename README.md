@@ -99,8 +99,9 @@ additional translation and additional rotation. The "pose" as defined in forward
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
 on a [base](https://docs.rs/rs-opw-kinematics/1.3.2/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
-"Robot with the tool" and "Robot on the base" can be constructed around any Kinematics trait, and implement the
-Kinematics trait themselves. It is possible to cascade them.
+"Robot with the tool" and "Robot on the base" can be constructed around any [Kinematics](https://docs.rs/rs-opw-kinematics/1.3.2/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, and implement
+this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or 
+two tools if the first is a receptacle of the tool changer).
 
 # Example
 
