@@ -40,6 +40,9 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
 
+      - name: Copy image
+        run:  cp documentation/opw.gif target/doc
+
       - name: Identify location
         run: pwd
       - name: Identify content
@@ -52,7 +55,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload generated documentation
+          # Upload generated documentation. This is viewable at https://bourumir-wyngs.github.io/rs-opw-kinematics/rs_opw_kinematics/
           path: target/doc
       - name: Deploy to GitHub Pages
         id: deployment
