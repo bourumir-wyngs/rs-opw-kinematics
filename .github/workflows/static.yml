@@ -40,8 +40,13 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
 
+      - name: Make documentation folder
+        run:  mkdir -p target/doc/documentation
+
       - name: Copy image
-        run:  cp documentation/opw.gif target/doc
+        run:  cp documentation/opw.gif target/doc/documentation
+
+documentation/        
 
       - name: Identify location
         run: pwd
