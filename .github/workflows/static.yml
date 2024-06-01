@@ -40,6 +40,9 @@ jobs:
 
     - name: Build documentation
       run: cargo doc --no-deps
+
+    - name: Identify location
+      run: pwd
       
   deploy:
     environment:
@@ -55,7 +58,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload generated documentation
-          path: target/doc/rs_opw_kinematics
+          path: /home/runner/work/rs-opw-kinematics/rs-opw-kinematics/target/doc/rs_opw_kinematics
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
