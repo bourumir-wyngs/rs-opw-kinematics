@@ -24,25 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-
-#    - name: Install mdbook (optional, if you use mdbook)
-#      run: cargo install mdbook        
-
-    - name: Build documentation
-      run: cargo doc --no-deps
-
-    - name: Identify location
-      run: pwd
       
   deploy:
     environment:
@@ -50,11 +32,20 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build documentation
+        run: cargo doc --no-deps
+
       - name: Identify location
-        run: pwd    
-      - name: Identify location 2
-        run: ls -l    
-        
+        run: pwd
         
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,7 +55,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload generated documentation
-          path: /home/runner/work/rs-opw-kinematics/rs-opw-kinematics/target/doc
+          path: target/doc
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
