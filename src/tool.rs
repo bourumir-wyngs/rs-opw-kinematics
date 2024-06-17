@@ -148,6 +148,15 @@ impl Frame {
 
         Ok(Isometry3::from_parts(translation.into(), rotation))
     }
+
+    /// Find Frame that does not include rotation, only shift (translation)
+    /// Shift alone can be computed from the single pair of points.
+    pub fn shifted(
+        p: &Point3<f64>,
+        q: &Point3<f64>,
+    ) -> Isometry3<f64> {
+        todo!();
+    }    
 }
 
 impl Kinematics for Tool {
