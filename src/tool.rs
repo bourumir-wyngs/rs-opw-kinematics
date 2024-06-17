@@ -2,7 +2,7 @@
 //! Both Tool and Base take arbitrary implementation of Kinematics and are such
 //! implementations themselves. Hence, they can be cascaded, like base, having the robot,
 //! that robot having a tool:
-//! 
+//!
 //! ```
 //! use std::sync::Arc;
 //! use nalgebra::{Isometry3, Translation3, UnitQuaternion};
@@ -10,7 +10,7 @@
 //! use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 //! use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 //! let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
-//! 
+//!
 //! // Half meter high pedestal
 //! let pedestal = 0.5;
 //! let base_translation = Isometry3::from_parts(
@@ -43,9 +43,11 @@
 
 extern crate nalgebra as na;
 
+use std::error::Error;
+use std::fmt;
 use std::sync::Arc;
 use na::{Isometry3};
-use nalgebra::Translation3;
+use nalgebra::{Point3, Rotation3, Translation3, UnitQuaternion};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
@@ -73,6 +75,79 @@ pub struct Base {
 
     /// Transformation from the world origin to the robots base.
     pub base: Isometry3<f64>,
+}
+
+/// Defines the frame that transforms the robot working area, moving and rotating it
+/// (not stretching). The frame can be created from 3 pairs of points, one defining 
+/// the points before transforming and another after. The example would be robot picking
+/// boxes from multiple pallets: multiple boxes can be multiple frames, with the same
+/// movement code reusable to pick individual boxes.
+pub struct Frame {
+    pub robot: Arc<dyn Kinematics>,  // The robot
+
+    /// Transformation from the world origin to the robots base.
+    pub frame: Isometry3<f64>,
+}
+
+#[derive(Debug)]
+struct CollinearPointsError;
+
+impl fmt::Display for CollinearPointsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Collinear points when defining the Frame transform")
+    }
+}
+
+impl Error for CollinearPointsError {}
+
+impl Frame {
+    /// Find the transform Isometry3 from 3 points. The obtained transform can then
+    /// be used together with tool.  
+    pub fn from_points(
+        p1: &Point3<f64>,
+        p2: &Point3<f64>,
+        p3: &Point3<f64>,
+        q1: &Point3<f64>,
+        q2: &Point3<f64>,
+        q3: &Point3<f64>,
+    ) -> Result<Isometry3<f64>, Box<dyn Error>> {
+        // Vectors between points
+        let v1 = p2 - p1;
+        let v2 = p3 - p1;
+
+        if v1.cross(&v2).norm() == 0.0 {
+            return Err(Box::new(CollinearPointsError));
+        }
+
+        // Destination vectors
+        let w1 = q2 - q1;
+        let w2 = q3 - q1;
+
+        if w1.cross(&w2).norm() == 0.0 {
+            return Err(Box::new(CollinearPointsError));
+        }
+
+        // Create orthonormal bases
+        let b1 = v1.normalize();
+        let b2 = v1.cross(&v2).normalize();
+        let b3 = b1.cross(&b2);
+
+        let d1 = w1.normalize();
+        let d2 = w1.cross(&w2).normalize();
+        let d3 = d1.cross(&d2);
+
+        let rotation_matrix = nalgebra::Matrix3::from_columns(&[
+            d1, d2, d3,
+        ]) * nalgebra::Matrix3::from_columns(&[
+            b1, b2, b3,
+        ]).transpose();
+        
+        let rotation_matrix= Rotation3::from_matrix_unchecked(rotation_matrix);
+        let rotation = UnitQuaternion::from_rotation_matrix(&rotation_matrix);
+        let translation = q1 - rotation.transform_point(&p1);
+
+        Ok(Isometry3::from_parts(translation.into(), rotation))
+    }
 }
 
 impl Kinematics for Tool {
@@ -196,7 +271,7 @@ mod tests {
         let tcp_with_tool = robot_with.forward(&joints);
         (tcp_without_tool, tcp_with_tool)
     }
-   
+
     #[test]
     fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
@@ -387,7 +462,7 @@ mod tests {
         let axis = 0.0;
 
         let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
-        assert_diff(&tcp.translation, &tcp_alone.translation, 
+        assert_diff(&tcp.translation, &tcp_alone.translation,
                     [0., gantry_base, pedestal + sword], 1E-6);
 
         // Rotating J6 by any angle should not change anything.
@@ -400,7 +475,7 @@ mod tests {
         // Rotating J5 by 90 degrees result in offset horizontally for the sword.
         let joints = [0.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
         let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
-        assert_diff(&tcp.translation, &tcp_alone.translation, 
+        assert_diff(&tcp.translation, &tcp_alone.translation,
                     [sword, gantry_base, pedestal], 1E-6);
 
         // Rotate base joint around, sign for the sword must change.
@@ -433,8 +508,8 @@ mod tests {
         let ride = 10.0;
         let tcp_translation = riding_robot.forward(ride, &joints).translation;
         assert_diff(&tcp_translation, &tcp_alone.translation,
-                    [sword * 0.5 + ride, sword * 0.5 + gantry_base, 
-                        sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);       
+                    [sword * 0.5 + ride, sword * 0.5 + gantry_base,
+                        sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);
     }
 }
 
