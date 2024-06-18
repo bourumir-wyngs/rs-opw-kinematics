@@ -1,12 +1,12 @@
 //! Supports concept of the frame that is common in robotics.
 //! Transform frame allows to compute or prepare by hand joint positions of the robot once,
 //! for some "standard" location. If the target the robot needs to work with moves somewhere
-//! else, it is possible to define a "Frame", specifying this target displacement 
+//! else, it is possible to define a "Frame", specifying this target displacement
 //! (most often specifying 3 points both before and after displacement). The common example
 //! is robot picking boxes from the transportation pallets: the same box picking program
 //! can be used for picking from different pallets by specifying a new transport frame
 //! each time.
-//! 
+//!
 //! The main functionality of the Frame is to use the "standard" joint positions for finding
 //! the new joint position, as they would be required after applying the frame. The Frame in
 //! this package also implements the Kinematics trait if such would be required.
@@ -19,7 +19,7 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
 /// Defines the frame that transforms the robot working area, moving and rotating it
-/// (not stretching). The frame can be created from 3 pairs of points, one defining 
+/// (not stretching). The frame can be created from 3 pairs of points, one defining
 /// the points before transforming and another after, or alternatively 1 pair is enough
 /// if we assume there is no rotation.
 pub struct Frame {
@@ -30,7 +30,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Compute the frame transform that may include only shift (but not rotation)    
+    /// Compute the frame transform that may include only shift (but not rotation)
     pub fn translation(p: Point3<f64>, q: Point3<f64>) -> Isometry3<f64> {
         let translation = q - p;
         Isometry3::from_parts(Translation3::from(translation), nalgebra::UnitQuaternion::identity())
@@ -92,7 +92,7 @@ impl Frame {
     ///
     /// # Arguments
     ///
-    /// * `qs` - A reference to the `Joints` structure representing the initial joint positions 
+    /// * `qs` - A reference to the `Joints` structure representing the initial joint positions
     ///   before the transformation.
     /// * `previous` - A reference to the `Joints` structure representing the previous joint positions.
     ///
