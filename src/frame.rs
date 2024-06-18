@@ -130,7 +130,8 @@ impl Frame {
         // Apply the frame transformation to the tool center point (TCP)
         let tcp = tip_joint * self.frame;
 
-        // Compute the transformed joint values based on the transformed TCP pose and previous joint positions
+        // Compute the transformed joint values based on the transformed TCP pose and 
+        // previous joint positions
         let transformed_joints = self.robot.inverse_continuing(&tcp, previous);
 
         // Return the possible joint solutions and the transformed TCP pose
@@ -216,13 +217,15 @@ mod tests {
         let q6 = Point3::new(-1.0, 3.0, 0.0); // p6 rotated 90 degrees and translated
 
         // Find the isometry using our function
-        let result = Frame::frame(p1, p2, p3, q1, q2, q3).expect("These points are not colinear");
+        let result = Frame::frame(p1, p2, p3, q1, q2, q3)
+            .expect("These points are not colinear and must be ok");
 
         // Expected translation
         let expected_translation = Translation3::new(1.0, 2.0, 0.0);
 
         // Expected rotation (90 degrees around the Z axis)
-        let expected_rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
+        let expected_rotation = 
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
 
         // Compare the result with the expected translation and rotation
         assert!((result.translation.vector - expected_translation.vector).norm() < 1e-6);
