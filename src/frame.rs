@@ -125,17 +125,17 @@ impl Frame {
     /// ```
     pub fn forward_transformed(&self, qs: &Joints, previous: &Joints) -> (Solutions, Pose) {
         // Calculate the pose of the tip joint using the robot's kinematics
-        let tip_joint = self.robot.forward(qs);
+        let tcp_no_frame = self.robot.forward(qs);
 
         // Apply the frame transformation to the tool center point (TCP)
-        let tcp = tip_joint * self.frame;
+        let tcp_frame =  self.frame * tcp_no_frame;
 
         // Compute the transformed joint values based on the transformed TCP pose and 
         // previous joint positions
-        let transformed_joints = self.robot.inverse_continuing(&tcp, previous);
+        let transformed_joints = self.robot.inverse_continuing(&tcp_frame, previous);
 
         // Return the possible joint solutions and the transformed TCP pose
-        (transformed_joints, tcp)
+        (transformed_joints, tcp_frame)
     }
 }
 
@@ -193,6 +193,9 @@ impl Error for ColinearPoints {}
 mod tests {
     use super::*;
     use nalgebra::{Translation3, Vector3};
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
+    use crate::utils::{dump_joints, dump_solutions};
 
     #[test]
     fn test_find_isometry3_rotation_translation() {
@@ -261,5 +264,49 @@ mod tests {
         let identity_rotation = UnitQuaternion::identity();
         assert!((isometry.rotation.quaternion() - identity_rotation.quaternion()).norm() < 1e-6);
     }
+    
+    #[test]
+    fn test_restore_pose() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        
+        // The frame is shifted by these offsets. Putting joints as reported
+        // by the computed frame should result these values again.
+        let dx = 0.011;
+        let dy = 0.022;
+        let dz = 0.033;
+        
+        // Shift not too much to have values close to previous
+        let frame_transform = Frame::translation(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(dx, dy, dz));
+
+        let framed = Frame {
+            robot: Arc::new(robot),
+            frame: frame_transform,
+        };
+        let joints_no_frame: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; // without frame
+
+        println!("No frame transform:");
+        dump_joints(&joints_no_frame);
+
+        println!("Possible joint values after the frame transform:");
+        let (solutions, _transformed_pose) = framed.forward_transformed(
+            &joints_no_frame, &joints_no_frame);
+        dump_solutions(&solutions);
+
+        let framed = robot.forward(&solutions[0]).translation;
+        let unframed = robot.forward(&joints_no_frame).translation;
+
+        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3}",
+                 framed.x - unframed.x, framed.y - unframed.y, framed.z - unframed.z);
+
+        let actual_dx = framed.x - unframed.x;
+        let actual_dy = framed.y - unframed.y;
+        let actual_dz = framed.z - unframed.z;        
+
+        assert!((actual_dx - dx).abs() < 1e-6, "dx should be approximately {:.6}", dx);
+        assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
+        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);        
+    }       
 }
 
