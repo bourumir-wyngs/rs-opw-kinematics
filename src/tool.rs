@@ -43,11 +43,9 @@
 
 extern crate nalgebra as na;
 
-use std::error::Error;
-use std::fmt;
 use std::sync::Arc;
 use na::{Isometry3};
-use nalgebra::{Point3, Rotation3, Translation3, UnitQuaternion};
+use nalgebra::{Translation3};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
@@ -77,87 +75,6 @@ pub struct Base {
     pub base: Isometry3<f64>,
 }
 
-/// Defines the frame that transforms the robot working area, moving and rotating it
-/// (not stretching). The frame can be created from 3 pairs of points, one defining 
-/// the points before transforming and another after. The example would be robot picking
-/// boxes from multiple pallets: multiple boxes can be multiple frames, with the same
-/// movement code reusable to pick individual boxes.
-pub struct Frame {
-    pub robot: Arc<dyn Kinematics>,  // The robot
-
-    /// Transformation from the world origin to the robots base.
-    pub frame: Isometry3<f64>,
-}
-
-#[derive(Debug)]
-struct CollinearPointsError;
-
-impl fmt::Display for CollinearPointsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Collinear points when defining the Frame transform")
-    }
-}
-
-impl Error for CollinearPointsError {}
-
-impl Frame {
-    /// Find the transform Isometry3 from 3 points. The obtained transform can then
-    /// be used together with tool.  
-    pub fn from_points(
-        p1: &Point3<f64>,
-        p2: &Point3<f64>,
-        p3: &Point3<f64>,
-        q1: &Point3<f64>,
-        q2: &Point3<f64>,
-        q3: &Point3<f64>,
-    ) -> Result<Isometry3<f64>, Box<dyn Error>> {
-        // Vectors between points
-        let v1 = p2 - p1;
-        let v2 = p3 - p1;
-
-        if v1.cross(&v2).norm() == 0.0 {
-            return Err(Box::new(CollinearPointsError));
-        }
-
-        // Destination vectors
-        let w1 = q2 - q1;
-        let w2 = q3 - q1;
-
-        if w1.cross(&w2).norm() == 0.0 {
-            return Err(Box::new(CollinearPointsError));
-        }
-
-        // Create orthonormal bases
-        let b1 = v1.normalize();
-        let b2 = v1.cross(&v2).normalize();
-        let b3 = b1.cross(&b2);
-
-        let d1 = w1.normalize();
-        let d2 = w1.cross(&w2).normalize();
-        let d3 = d1.cross(&d2);
-
-        let rotation_matrix = nalgebra::Matrix3::from_columns(&[
-            d1, d2, d3,
-        ]) * nalgebra::Matrix3::from_columns(&[
-            b1, b2, b3,
-        ]).transpose();
-        
-        let rotation_matrix= Rotation3::from_matrix_unchecked(rotation_matrix);
-        let rotation = UnitQuaternion::from_rotation_matrix(&rotation_matrix);
-        let translation = q1 - rotation.transform_point(&p1);
-
-        Ok(Isometry3::from_parts(translation.into(), rotation))
-    }
-
-    /// Find Frame that does not include rotation, only shift (translation)
-    /// Shift alone can be computed from the single pair of points.
-    pub fn shifted(
-        p: &Point3<f64>,
-        q: &Point3<f64>,
-    ) -> Isometry3<f64> {
-        todo!();
-    }    
-}
 
 impl Kinematics for Tool {
     fn inverse(&self, tcp: &Pose) -> Solutions {
