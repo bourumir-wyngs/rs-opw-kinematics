@@ -45,6 +45,11 @@ impl Frame {
         q2: Point3<f64>,
         q3: Point3<f64>,
     ) -> Result<Isometry3<f64>, Box<dyn Error>> {
+        const NON_ISOMETRY_TOLERANCE: f64 = 0.005; // Tolerance how much the isometry can be actually not
+        // an isometry (distance between points differs). 5 mm looks like a reasonable check.
+        if !is_valid_isometry(&p1, &p2, &p3, &q1, &q2, &q3, NON_ISOMETRY_TOLERANCE) {
+            return Err(Box::new(NotIsometry::new(p1, p2, p3, q1, q2, q3)));
+        }
         // Vectors between points
         let v1 = p2 - p1;
         let v2 = p3 - p1;
@@ -128,7 +133,7 @@ impl Frame {
         let tcp_no_frame = self.robot.forward(qs);
 
         // Apply the frame transformation to the tool center point (TCP)
-        let tcp_frame =  self.frame * tcp_no_frame;
+        let tcp_frame = self.frame * tcp_no_frame;
 
         // Compute the transformed joint values based on the transformed TCP pose and 
         // previous joint positions
@@ -172,6 +177,32 @@ pub struct ColinearPoints {
     pub source: bool,
 }
 
+/// Struct to hold six points and represent a potential non-isometry.
+#[derive(Debug)]
+pub struct NotIsometry {
+    pub a1: Point3<f64>,
+    pub a2: Point3<f64>,
+    pub a3: Point3<f64>,
+    pub b1: Point3<f64>,
+    pub b2: Point3<f64>,
+    pub b3: Point3<f64>,
+}
+
+impl NotIsometry {
+    /// Creates a new NotIsometry instance.
+    pub fn new(a1: Point3<f64>, a2: Point3<f64>, a3: Point3<f64>,
+               b1: Point3<f64>, b2: Point3<f64>, b3: Point3<f64>) -> Self {
+        NotIsometry { a1, a2, a3, b1, b2, b3 }
+    }
+}
+
+impl fmt::Display for NotIsometry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Not isometry: (  a1: {:?},  a2: {:?},  a3: {:?},  b1: {:?},  b2: {:?},  b3: {:?})",
+               self.a1, self.a2, self.a3, self.b1, self.b2, self.b3)
+    }
+}
+
 impl ColinearPoints {
     pub fn new(p1: Point3<f64>, p2: Point3<f64>, p3: Point3<f64>, source: bool) -> Self {
         Self { p1, p2, p3, source }
@@ -188,6 +219,31 @@ impl fmt::Display for ColinearPoints {
 }
 
 impl Error for ColinearPoints {}
+
+impl Error for NotIsometry {}
+
+fn distances_match(a1: &Point3<f64>, a2: &Point3<f64>, a3: &Point3<f64>,
+                   b1: &Point3<f64>, b2: &Point3<f64>, b3: &Point3<f64>,
+                   tolerance: f64) -> bool {
+    let dist_a1_a2 = (a1 - a2).norm();
+    let dist_a1_a3 = (a1 - a3).norm();
+    let dist_a2_a3 = (a2 - a3).norm();
+
+    let dist_b1_b2 = (b1 - b2).norm();
+    let dist_b1_b3 = (b1 - b3).norm();
+    let dist_b2_b3 = (b2 - b3).norm();
+
+    (dist_a1_a2 - dist_b1_b2).abs() < tolerance &&
+        (dist_a1_a3 - dist_b1_b3).abs() < tolerance &&
+        (dist_a2_a3 - dist_b2_b3).abs() < tolerance
+}
+
+/// Function to check if 3 pairs of points define a valid isometry.
+pub fn is_valid_isometry(a1: &Point3<f64>, a2: &Point3<f64>, a3: &Point3<f64>,
+                         b1: &Point3<f64>, b2: &Point3<f64>, b3: &Point3<f64>,
+                         tolerance: f64) -> bool {
+    distances_match(a1, a2, a3, b1, b2, b3, tolerance)
+}
 
 #[cfg(test)]
 mod tests {
@@ -227,7 +283,7 @@ mod tests {
         let expected_translation = Translation3::new(1.0, 2.0, 0.0);
 
         // Expected rotation (90 degrees around the Z axis)
-        let expected_rotation = 
+        let expected_rotation =
             UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
 
         // Compare the result with the expected translation and rotation
@@ -264,17 +320,17 @@ mod tests {
         let identity_rotation = UnitQuaternion::identity();
         assert!((isometry.rotation.quaternion() - identity_rotation.quaternion()).norm() < 1e-6);
     }
-    
+
     #[test]
     fn test_restore_pose() {
         let robot = OPWKinematics::new(Parameters::irb2400_10());
-        
+
         // The frame is shifted by these offsets. Putting joints as reported
         // by the computed frame should result these values again.
         let dx = 0.011;
         let dy = 0.022;
         let dz = 0.033;
-        
+
         // Shift not too much to have values close to previous
         let frame_transform = Frame::translation(
             Point3::new(0.0, 0.0, 0.0),
@@ -302,11 +358,11 @@ mod tests {
 
         let actual_dx = framed.x - unframed.x;
         let actual_dy = framed.y - unframed.y;
-        let actual_dz = framed.z - unframed.z;        
+        let actual_dz = framed.z - unframed.z;
 
         assert!((actual_dx - dx).abs() < 1e-6, "dx should be approximately {:.6}", dx);
         assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
-        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);        
-    }       
+        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);
+    }
 }
 
