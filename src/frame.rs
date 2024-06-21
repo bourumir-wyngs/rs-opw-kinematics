@@ -364,5 +364,108 @@ mod tests {
         assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
         assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);
     }
+
+    #[test]
+    fn test_restore_pose_isometry_shift() -> Result<(), Box<dyn Error>> {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+
+        // The frame is shifted by these offsets. Putting joints as reported
+        // by the computed frame should result these values again.
+        let dx = 0.011;
+        let dy = 0.022;
+        let dz = 0.033;
+
+        let angle = 0.0_f64.to_radians();
+        let axis = Vector3::z_axis();
+        let quaternion = UnitQuaternion::from_axis_angle(&axis, angle);
+
+        // Shift not too much to have values close to previous. Rotate 30 degrees.
+        let frame_transform = Frame::frame(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.1, 1.2),
+            Point3::new(2.0, 2.2, 2.3),
+            quaternion * Point3::new(0.0 + dx, 0.0 + dy, 0.0 + dz),
+            quaternion * Point3::new(1.0 + dx, 1.1 + dy, 1.2 + dz),
+            quaternion * Point3::new(2.0 + dx, 2.2 + dy, 2.3 + dz),
+        )?;
+
+        let framed = Frame {
+            robot: Arc::new(robot),
+            frame: frame_transform,
+        };
+        let joints_no_frame: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; // without frame
+
+        println!("No frame transform:");
+        dump_joints(&joints_no_frame);
+
+        println!("Possible joint values after the frame transform:");
+        let (solutions, _transformed_pose) = framed.forward_transformed(
+            &joints_no_frame, &joints_no_frame);
+        dump_solutions(&solutions);
+
+        let framed = robot.forward(&solutions[0]).translation;
+        let unframed = robot.forward(&joints_no_frame).translation;
+
+        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3}",
+                 framed.x - unframed.x, framed.y - unframed.y, framed.z - unframed.z);
+
+        let actual_dx = framed.x - unframed.x;
+        let actual_dy = framed.y - unframed.y;
+        let actual_dz = framed.z - unframed.z;
+
+        assert!((actual_dx - dx).abs() < 1e-6, "dx should be approximately {:.6}", dx);
+        assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
+        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_restore_pose_isometry_rotate() -> Result<(), Box<dyn Error>> {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+
+        let angle = 90_f64.to_radians(); // We will rotate 90 degrees around z axis.
+        let axis = Vector3::z_axis();
+        let quaternion = UnitQuaternion::from_axis_angle(&axis, angle);
+
+        // Shift not too much to have values close to previous. Rotate 30 degrees.
+        let p1 = Point3::new(0.0, 0.0, 0.0);
+        let p2 = Point3::new(1.0, 1.1, 1.2);
+        let p3 = Point3::new(2.0, 2.2, 2.3);
+        let frame_transform = Frame::frame(
+            p1, p2, p3,
+            quaternion * p1, quaternion * p2, quaternion * p3,
+        )?;
+
+        let framed = Frame {
+            robot: Arc::new(robot),
+            frame: frame_transform,
+        };
+        let joints_no_frame: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; // without frame
+
+        println!("No frame transform:");
+        dump_joints(&joints_no_frame);
+
+        println!("Possible joint values after the frame transform:");
+        let (solutions, _transformed_pose) = framed.forward_transformed(
+            &joints_no_frame, &joints_no_frame);
+        dump_solutions(&solutions);
+
+        let framed = robot.forward(&solutions[0]).translation;
+        let unframed = robot.forward(&joints_no_frame).translation;
+
+        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3} vs {:.3} {:.3} {:.3}",
+                 framed.x, framed.y, framed.z, unframed.x, unframed.y, unframed.z, );
+
+        let actual_dx = framed.x - -unframed.y; // x becomes -y
+        let actual_dy = framed.y - unframed.x; // y becomes x
+        let actual_dz = framed.z - unframed.z; // z does not change as we rotate around z.
+
+        assert!((actual_dx - 0.0).abs() < 1e-6, "dx should be approximately {:.6}", 0.0);
+        assert!((actual_dy - 0.0).abs() < 1e-6, "dy should be approximately {:.6}", 0.0);
+        assert!((actual_dz - 0.0).abs() < 1e-6, "dz should be approximately {:.6}", 0.0);
+
+        Ok(())
+    }
 }
 
