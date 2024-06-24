@@ -2,7 +2,7 @@
 //! Both Tool and Base take arbitrary implementation of Kinematics and are such
 //! implementations themselves. Hence, they can be cascaded, like base, having the robot,
 //! that robot having a tool:
-//! 
+//!
 //! ```
 //! use std::sync::Arc;
 //! use nalgebra::{Isometry3, Translation3, UnitQuaternion};
@@ -10,7 +10,7 @@
 //! use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 //! use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 //! let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
-//! 
+//!
 //! // Half meter high pedestal
 //! let pedestal = 0.5;
 //! let base_translation = Isometry3::from_parts(
@@ -45,7 +45,7 @@ extern crate nalgebra as na;
 
 use std::sync::Arc;
 use na::{Isometry3};
-use nalgebra::Translation3;
+use nalgebra::{Translation3};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
@@ -74,6 +74,7 @@ pub struct Base {
     /// Transformation from the world origin to the robots base.
     pub base: Isometry3<f64>,
 }
+
 
 impl Kinematics for Tool {
     fn inverse(&self, tcp: &Pose) -> Solutions {
@@ -196,7 +197,7 @@ mod tests {
         let tcp_with_tool = robot_with.forward(&joints);
         (tcp_without_tool, tcp_with_tool)
     }
-   
+
     #[test]
     fn test_tool() {
         // Parameters for Staubli TX40 robot are assumed to be correctly set in OPWKinematics::new
@@ -387,7 +388,7 @@ mod tests {
         let axis = 0.0;
 
         let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
-        assert_diff(&tcp.translation, &tcp_alone.translation, 
+        assert_diff(&tcp.translation, &tcp_alone.translation,
                     [0., gantry_base, pedestal + sword], 1E-6);
 
         // Rotating J6 by any angle should not change anything.
@@ -400,7 +401,7 @@ mod tests {
         // Rotating J5 by 90 degrees result in offset horizontally for the sword.
         let joints = [0.0, 0.0, 0.0, 0.0, PI / 2.0, 0.0];
         let (tcp_alone, tcp) = diff(&robot_alone, &riding_robot, axis, &joints);
-        assert_diff(&tcp.translation, &tcp_alone.translation, 
+        assert_diff(&tcp.translation, &tcp_alone.translation,
                     [sword, gantry_base, pedestal], 1E-6);
 
         // Rotate base joint around, sign for the sword must change.
@@ -433,8 +434,8 @@ mod tests {
         let ride = 10.0;
         let tcp_translation = riding_robot.forward(ride, &joints).translation;
         assert_diff(&tcp_translation, &tcp_alone.translation,
-                    [sword * 0.5 + ride, sword * 0.5 + gantry_base, 
-                        sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);       
+                    [sword * 0.5 + ride, sword * 0.5 + gantry_base,
+                        sword * 2.0_f64.sqrt() / 2.0 + pedestal], 1E-6);
     }
 }
 

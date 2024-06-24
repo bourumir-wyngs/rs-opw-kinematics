@@ -50,6 +50,8 @@ pub mod constraints;
 
 pub mod tool;
 
+pub mod frame;
+
 pub mod jacobian;
 
 #[cfg(feature = "allow_filesystem")]
@@ -63,6 +65,7 @@ mod simplify_joint_name;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
 
 
 
