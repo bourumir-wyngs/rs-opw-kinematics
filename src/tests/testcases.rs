@@ -91,8 +91,8 @@ fn load_yaml(file_path: &str) -> Result<Vec<Case>, String> {
 }
 
 fn parse_array<T: Copy + std::str::FromStr, const N: usize>(yaml: &Yaml) -> Result<[T; N], String>
-    where
-        <T as std::str::FromStr>::Err: std::fmt::Display, // Ensure the error type of T's FromStr can be displayed
+where
+    <T as std::str::FromStr>::Err: std::fmt::Display, // Ensure the error type of T's FromStr can be displayed
 {
     let vec = yaml.as_vec().ok_or("Expected an array in YAML")?;
 
@@ -168,6 +168,7 @@ mod tests {
     use std::collections::HashMap;
     use std::f64::consts::PI;
     use std::sync::Arc;
+    use nalgebra::Vector3;
     use crate::kinematic_traits::{Joints, Kinematics, Singularity, Solutions};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
@@ -349,6 +350,41 @@ mod tests {
     }
 
     #[test]
+    fn test_inverse_positioning_continuing() {
+        let filename = "src/tests/data/cases.yaml";
+        let result = load_yaml(filename);
+        assert!(result.is_ok(), "Failed to load or parse the YAML file");
+        let cases = result.expect("Expected a valid Cases struct after parsing");
+        let all_parameters = create_parameter_map();
+        println!("Inverse Positioning IK: {} test cases", cases.len());
+
+        for case in cases.iter() {
+            let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
+                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+            });
+            let kinematics = OPWKinematics::new(parameters.clone());
+
+            // Use translation instead of full pose
+            let isometry = case.pose.to_isometry();
+            let solutions = kinematics.inverse_continuing_5dof(
+                &isometry, &case.joints_in_radians());
+            assert!(solutions.len() > 0);
+
+            for solution in solutions {
+                // Check if TCP stays in the same location
+                let reconstructed = kinematics.forward(&solution);
+                let reconstructed_translation: Vector3<f64> = reconstructed.translation.vector;
+                let expected_translation: Vector3<f64> = isometry.translation.vector;
+                let translation_diff = (reconstructed_translation - expected_translation).norm();
+                assert!(
+                    translation_diff < 1E-6,
+                    "Reconstructed translation does not match. Diff: {}", translation_diff
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_singularity_a_continuing() {
         // This robot has both A and B type singularity
         // B type singularity two angles, maestro
@@ -399,7 +435,7 @@ mod tests {
 
 
     fn create_parameter_map() -> HashMap<String, Parameters> {
-// Create map to get actual parameters that are not in the yaml file (maybe should be?)
+        // Create map to get actual parameters that are not in the yaml file (maybe should be?)
         let all_parameters: HashMap<String, Parameters> = vec![
             (String::from("Irb2400_10"), Parameters::irb2400_10()),
             (String::from("KukaKR6_R700_sixx"), Parameters::kuka_kr6_r700_sixx()),
@@ -439,6 +475,37 @@ mod tests {
     }
 
     #[test]
+    fn test_5dof() {
+        let mut parameters = Parameters::irb2400_10();
+        parameters.dof = 5; // Make it 5 DOF robot
+        let kinematics = OPWKinematics::new(parameters);
+
+        let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
+        let previous = [0.0, 0.1, 0.2, 0.3, 0.4, 0.55];
+
+        let mut pose = kinematics.forward(&joints);
+
+        // Wipe the rotation
+        pose.rotation = UnitQuaternion::identity();
+
+        // As this is 5 DOF robot now, J6 comes from "previous"
+        let solutions = kinematics.inverse_continuing(&pose, &previous);
+        assert!(solutions.len() > 0);
+        for solution in &solutions {
+            // J6 must be as we passed.
+            assert!(f64::abs(0.55 - &solution[5]) < 1E-6);
+            // Translation must match
+            let reconstructed_translation: Vector3<f64> = kinematics.forward(solution).translation.vector;
+            let expected_translation: Vector3<f64> = pose.translation.vector;
+            let translation_diff = (reconstructed_translation - expected_translation).norm();
+            assert!(
+                translation_diff < 1E-6,
+                "Reconstructed translation does not match. Diff: {}", translation_diff
+            );            
+        }
+    }
+
+    #[test]
     fn test_parameters_from_yaml() {
         let filename = "src/tests/data/fanuc/fanuc_m16ib20.yaml";
         let loaded =
@@ -454,7 +521,7 @@ mod tests {
             c4: 0.10,
             offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 0.0, 180.0_f64.to_radians()],
             sign_corrections: [1, 1, -1, -1, -1, -1],
-            dof: 6
+            dof: 6,
         };
 
 
@@ -509,13 +576,13 @@ mod tests {
                 robot: Arc::new(robot_with_base),
                 tool: tool_translation,
             };
-            
+
 
             // Try forward on the initial data set first.
             let joints = case.joints_in_radians();
             let pose = kinematics.forward(&joints);
             let solutions = kinematics.inverse_continuing(&pose, &joints);
-            
+
             // It must be the matching solution, it must be the first in solutions.
             if !matches!(found_joints_approx_equal(&solutions, &joints, 
                 0.001_f64.to_radians()), Some(0)) {
@@ -525,6 +592,5 @@ mod tests {
                 panic!();
             }
         }
-    }    
-    
+    }
 }

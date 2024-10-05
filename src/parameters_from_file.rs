@@ -37,13 +37,57 @@ impl Parameters {
 
         let docs = YamlLoader::load_from_str(&contents).map_err(
             |e| ParameterError::ParseError(e.to_string()))?;
+        
         let doc = &docs[0];
-
         let params = &doc["opw_kinematics_geometric_parameters"];
-        let offsets_yaml = &doc["opw_kinematics_joint_offsets"];
+
+        Ok(Parameters {
+            a1: params["a1"].as_f64().ok_or_else(|| ParameterError::MissingField("a1".into()))?,
+            a2: params["a2"].as_f64().ok_or_else(|| ParameterError::MissingField("a2".into()))?,
+            b: params["b"].as_f64().ok_or_else(|| ParameterError::MissingField("b".into()))?,
+            c1: params["c1"].as_f64().ok_or_else(|| ParameterError::MissingField("c1".into()))?,
+            c2: params["c2"].as_f64().ok_or_else(|| ParameterError::MissingField("c2".into()))?,
+            c3: params["c3"].as_f64().ok_or_else(|| ParameterError::MissingField("c3".into()))?,
+            c4: params["c4"].as_f64().ok_or_else(|| ParameterError::MissingField("c4".into()))?,
+            dof: params["dof"].as_i64().unwrap_or(6) as i8,
+            offsets: Self::read_offsets(&doc)?,
+            sign_corrections: Self::read_sign_corrections(&doc)?,
+        })
+    }
+
+    fn read_sign_corrections(doc: &&Yaml) -> Result<[i8; 6], ParameterError> {
         let sign_corrections_yaml = &doc["opw_kinematics_joint_sign_corrections"];
 
-        let offsets: [f64; 6] = offsets_yaml.as_vec()
+        // Safe now, we ensured it's of length 6
+
+        // Handle sign corrections: allow either 5 or 6 elements, default missing to 0
+        let mut sign_corrections: Vec<i8> = sign_corrections_yaml.as_vec()
+            .ok_or_else(|| ParameterError::MissingField("sign corrections array".into()))?
+            .iter()
+            .map(|item| item.as_i64().ok_or(
+                ParameterError::ParseError("Sign correction not an integer".into()))
+                .map(|x| x as i8))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Ensure length is either 5 or 6, and pad with 0 if necessary
+        if sign_corrections.len() == 5 {
+            sign_corrections.push(0); // Add 0 as the 6th element
+        }
+        
+        if sign_corrections.len() != 6 {
+            return Err(ParameterError::InvalidLength {
+                expected: 6,
+                found: sign_corrections.len(),
+            });
+        }
+
+        let sign_corrections: [i8; 6] = sign_corrections.try_into().unwrap(); // Safe now, we ensured it's of length 6
+        Ok(sign_corrections)
+    }
+
+    fn read_offsets(offsets_yaml: &Yaml)  -> Result<[f64; 6], ParameterError> {
+        // Handle offsets: allow either 5 or 6 elements, default missing to 0
+        let mut offsets: Vec<f64> = offsets_yaml.as_vec()
             .ok_or_else(|| ParameterError::MissingField("offsets array".into()))?
             .iter()
             .map(|item| match item {
@@ -54,39 +98,21 @@ impl Parameters {
                 _ => Err(ParameterError::ParseError(
                     "Offset entry is not a number or deg() function".into())),
             })
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| ParameterError::InvalidLength {
-                expected: 6,
-                found: offsets_yaml.as_vec()
-                    .unwrap().len(),
-            })?;
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let sign_corrections: [i8; 6] = sign_corrections_yaml.as_vec()
-            .ok_or_else(|| ParameterError::MissingField("sign corrections array".into()))?
-            .iter()
-            .map(|item| item.as_i64().ok_or(
-                ParameterError::ParseError("Sign correction not an integer".into()))
-                .map(|x| x as i8))
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| ParameterError::InvalidLength {
+        // Ensure length is either 5 or 6, and pad with 0 if necessary
+        if offsets.len() == 5 {
+            offsets.push(0.0); // Add 0 as the 6th element
+        }
+        if offsets.len() != 6 {
+            return Err(ParameterError::InvalidLength {
                 expected: 6,
-                found: sign_corrections_yaml.as_vec().unwrap().len(),
-            })?;
+                found: offsets.len(),
+            });
+        }
 
-        Ok(Parameters {
-            a1: params["a1"].as_f64().ok_or_else(|| ParameterError::MissingField("a1".into()))?,
-            a2: params["a2"].as_f64().ok_or_else(|| ParameterError::MissingField("a2".into()))?,
-            b: params["b"].as_f64().ok_or_else(|| ParameterError::MissingField("b".into()))?,
-            c1: params["c1"].as_f64().ok_or_else(|| ParameterError::MissingField("c1".into()))?,
-            c2: params["c2"].as_f64().ok_or_else(|| ParameterError::MissingField("c2".into()))?,
-            c3: params["c3"].as_f64().ok_or_else(|| ParameterError::MissingField("c3".into()))?,
-            c4: params["c4"].as_f64().ok_or_else(|| ParameterError::MissingField("c4".into()))?,
-            dof: params["dof"].as_i64().unwrap_or(6) as i8,            
-            offsets,
-            sign_corrections,
-        })
+        let offsets: [f64; 6] = offsets.try_into().unwrap(); // Safe now, we ensured it's of length 6
+        Ok(offsets)
     }
 
     /// Parses angles from strings in degrees format or plain floats.

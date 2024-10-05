@@ -482,9 +482,10 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
         
         // Set reasonable values for non-existing joint 6.
         // Constraint checker will still be checking this range.
-        opw_parameters.sign_corrections[5] = 0;
-        opw_parameters.from[5] = -f64::INFINITY;
-        opw_parameters.to[5] = f64::INFINITY;       
+        opw_parameters.sign_corrections[5] = 0; // Always suppress
+        // With from=to, constraint is suppressed.
+        opw_parameters.from[5] = 0.0; 
+        opw_parameters.to[5] = 0.0;       
     }
     
 

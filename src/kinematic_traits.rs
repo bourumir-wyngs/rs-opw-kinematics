@@ -57,9 +57,6 @@ pub trait Kinematics: Send + Sync {
     /// All returned solutions are cross-checked with forward kinematics and
     /// valid. 
     fn inverse(&self, pose: &Pose) -> Solutions;
-    fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions;
-    fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
-
 
     /// Find inverse kinematics (joint position) for this pose
     /// This function handles the singularity J5 = 0 by keeping the previous values
@@ -70,8 +67,24 @@ pub trait Kinematics: Send + Sync {
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
 
     /// Find forward kinematics (pose from joint positions).
+    /// For 5 DOF robot, the rotation of the joint 6 should normally be 0.0
     fn forward(&self, qs: &Joints) -> Pose;
 
+    /// Calculates the inverse kinematics for a robot while ignoring the rotation
+    /// around joint 6. The position of the tool center point remains precise,
+    /// but the rotation is approximate (rotation around the tool axis is ignored).
+    /// The return value for joint 6 is set according to the provided parameter.
+    /// This method is significantly faster
+    fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions;
+
+
+    /// Calculates the inverse kinematics for a robot while ignoring the rotation
+    /// around joint 6. The position of the tool center point remains precise,
+    /// but the rotation is approximate (rotation around the tool axis is ignored).
+    /// The return value for joint 6 is set based on the previous joint values.
+    /// This method is significantly faster
+    fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
+    
     /// Detect the singularity. Returns either A type singlularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;

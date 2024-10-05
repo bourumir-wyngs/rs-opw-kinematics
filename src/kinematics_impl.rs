@@ -67,12 +67,25 @@ impl Kinematics for OPWKinematics {
     
     /// Return the solution that is constraint compliant anv values are valid
     /// (no NaNs, etc) but otherwise not sorted.
+    /// If this is 5 degree of freedom robot only, the 6 joint is set to 0.0
+    /// The rotation of pose in this case is only approximate.
     fn inverse(&self, pose: &Pose) -> Solutions {
-        self.filter_constraints_compliant(self.inverse_intern(&pose))
+        if self.parameters.dof == 5 {
+            // For 5 DOF robot, we can only do 5 DOF approximate inverse. 
+            self.inverse_intern_5_dof(pose, f64::NAN)
+        } else {
+            self.filter_constraints_compliant(self.inverse_intern(&pose))            
+        }
     }
 
     // Replaces singularity with correct solution
+    // If this is 5 degree of freedom robot only, the 6 joint is set to as it was previous.
+    // The rotation of pose in this case is only approximate.    
     fn inverse_continuing(&self, pose: &Pose, prev: &Joints) -> Solutions {
+        if self.parameters.dof == 5 {
+            return self.inverse_intern_5_dof(pose, prev[5]);    
+        }
+        
         let previous;
         if prev[0].is_nan() {
             // Special value CONSTRAINT_CENTERED has been used

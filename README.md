@@ -13,9 +13,11 @@ planning.
 
 This work builds upon the 2014 paper titled _An Analytical Solution of the Inverse Kinematics Problem of Industrial
 Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist_, authored by Mathias Brandstötter, Arthur
-Angerer, and Michael Hofbaur. The paper is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf)
+Angerer, and Michael Hofbaur. The paper
+is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf)
 . Additionally, it draws inspiration from the similar C++
-project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference implementation for generating data for the test suite.
+project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference
+implementation for generating data for the test suite.
 This documentation also incorporates the robot diagram from that project.
 
 # Features
@@ -33,9 +35,10 @@ This documentation also incorporates the robot diagram from that project.
 - Jacobian, torgues and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
-- Experimental support for parameter extraction from URDF.
- 
-The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two 
+- 5 DOF inverse kinematics.
+- Experimental support for parameter extraction from URDF (for 5 DOF robot, specify the tool center point as joint 6)
+
+The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
 
 # Parameters
@@ -56,9 +59,9 @@ For example, the ABB IRB2400 has the following values:
 
 ```Rust
 let parameters = Parameters {
-  a1: 0.100, a2: - 0.135, b: 0.000, c1: 0.615, c2: 0.705, c3: 0.755, c4: 0.085,
-  offsets: [0.0, 0.0, -std::f64::consts::PI / 2.0, 0.0, 0.0, 0.0],
-  sign_corrections: [1; 6],
+a1: 0.100, a2: - 0.135, b: 0.000, c1: 0.615, c2: 0.705, c3: 0.755, c4: 0.085,
+offsets: [0.0, 0.0, -std::f64::consts::PI / 2.0, 0.0, 0.0, 0.0],
+sign_corrections: [1; 6],
 }
 ``` 
 
@@ -67,13 +70,15 @@ the ground at "zero."
 
 # Constraints
 
-Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
+Since 1.1.0, it is possible to
+set [constraints](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/constraints/index.html) for the joints.
+Robot poses where any of the joints are outside
 the specified constraint range are not included into returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
 
 Constraints are specified by providing two angles, _from_ and to, for every _joint_. If _from_ < _to_, the valid range
 spans between from and to. If _from_ > _to_, the valid range spans over the 0&deg;, wrapping around. For instance,
-if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are valid, while values like 90&deg;, and 
+if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are valid, while values like 90&deg;, and
 180&deg; are not. If _from_ = 15&deg; and _to_ = 5&deg; (the opposite), values 16&deg;, 17&deg;, 100&deg;, 180&deg;,
 359&deg;, 0&deg;, 1&deg;, 3&deg;, 4&deg; are valid, while 6&deg;, 8&deg;, and 11&deg; are not.
 
@@ -81,37 +86,73 @@ Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat 
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
 # Jacobian: torgues and velocities
-Since 1.3.2, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
+
+Since 1.3.2, it is possible to obtain
+the [Jacobian](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents
+the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
-- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
-- Joint [torques](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
+
+-
+
+Joint [velocities](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities)
+required to achieve a desired end-effector velocity.
+
+-
+
+Joint [torques](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques)
+required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torgues in Newton meters. For the end effector, it is possible to use either nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html) 
-or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or rotations in N m. 
+or torgues in Newton meters. For the end effector, it is possible to use either
+nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
+or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or
+rotations in N m.
 
-These values are useful when path planning for a robot that needs to move very swiftly, to prevent 
+These values are useful when path planning for a robot that needs to move very swiftly, to prevent
 overspeed or overtorgue of individual joints.
 
 # The tool and the base
-Since 1.3.2, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
+
+Since 1.3.2, robot can be equipped with
+the [tool](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/tool/struct.Tool.html), defined as
+nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
+both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the
+conditions much closer to the real industrial environment.
 
-"Robot with the tool" and "Robot on the base" can be constructed around any [Kinematics](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, and implement
-this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or 
+"Robot with the tool" and "Robot on the base" can be constructed around
+any [Kinematics](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
+trait, and implement
+this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or
 two tools if the first is a receptacle of the tool changer).
 
 # The frame
-Since 1.4.2 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint angles)
+
+Since 1.5.0 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
+angles)
 prepared for one location to make the same kind of movements in another location (translated and rotated).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
 Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
-and calculated joint angles for the transformed (shifted and rotated) trajector. See the 
-[frame](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/frame/index.html) documentation for details.
+and calculated joint angles for the transformed (shifted and rotated) trajector. See the
+[frame](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/frame/index.html) documentation for details.
+
+# 5 DOF inverse kinematics
+
+For tools that are not sensitive to axis rotation (such as welding torches or paint sprayers), inverse kinematics can be
+requested where the value of joint 6 (which typically controls this rotation) is either inherited from the previous
+position or explicitly specified.
+
+Support for 5 DOF robots is now included through an additional 'dof' field in the
+parameter data structure. YAML reader has been updated to support additional 'dof' field. The URDF reader has als been
+extended to support such robots, but joint names must be explicitly provided. Instead of specifying a name for joint 6,
+the name of the tool center point (TCP) must be given. Additionally, 5 DOF inverse kinematics can be requested for 6 DOF
+robots, particularly when the last joint is in constant motion (e.g., for drilling), or when maintaining precise tool
+rotation would cause the robot to exceed its constraints. This method is also faster to compute. If the robot is
+flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
 
 # Example
 
@@ -119,7 +160,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.4.2, <2.0.0" 
+rs-opw-kinematics = ">=1.5.0, <2.0.0" 
 ```
 
 main.rs:
@@ -257,30 +298,33 @@ function that sometimes occurs there:
 
 ```Rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
-  println!("Reading:\n{}", &parameters.to_yaml());  
-  let robot = OPWKinematics::new(parameters);
+println!("Reading:\n{}", &parameters.to_yaml());
+let robot = OPWKinematics::new(parameters);
 ```
 
 Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
+
 ```Rust
   let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
-  println!("Reading:\n{}", &parameters.to_yaml());
+println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
-There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.4.2/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+There is also more advanced
+function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/urdf/fn.from_urdf.html)
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
-**Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot. 
+**Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
 compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
 values. In general, always test in simulator before feeding the output of any software to the physical robot.
 
 # Disabling YAML and URDF readers
+
 For security and performance, some users prefer smaller libraries with less dependencies. If YAML and URDF readers
 are not in use, the filesystem access can be completely disabled in your Cargo.toml, importing the library like:
 
-rs-opw-kinematics = { version = ">=1.4.2, <2.0.0", default-features = false }
+rs-opw-kinematics = { version = ">=1.5.0, <2.0.0", default-features = false }
 
 In this case, import of URDF and YAML files will be unaccessible, and used dependencies
 will be limited to the single _nalgebra_ crate.
