@@ -37,10 +37,6 @@ pub mod opw_kinematics {
         /// Specifies the direction of positive rotation from the zero angle for each joint.
         /// A value of `-1` reverses the default rotation direction for that joint.
         pub sign_corrections: [i8; 6],
-
-        /// Degrees of freedom for the robot.
-        /// This can either be 5 for 5-DOF robots or 6 for 6-DOF robots.
-        pub dof: i8,
     }
 
     impl Parameters {
