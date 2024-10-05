@@ -296,7 +296,15 @@ mod tests {
 
     impl Kinematics for SingleRotaryJointRobot {
         fn inverse(&self, _pose: &Pose) -> Solutions {
-            panic!() // Should not be used
+            panic!() // Not used in this test
+        }
+
+        fn inverse_5dof(&self, _pose: &Pose, _j6: f64) -> Solutions {
+            panic!() // Not used in this test
+        }
+
+        fn inverse_continuing_5dof(&self, _pose: &Pose, _prev: &Joints) -> Solutions {
+            panic!() // Not used in this test
         }
 
         /// Simple inverse kinematics for a single rotary joint of the length 1.

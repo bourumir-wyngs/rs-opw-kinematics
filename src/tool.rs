@@ -81,8 +81,16 @@ impl Kinematics for Tool {
         self.robot.inverse(&(tcp * self.tool.inverse()))
     }
 
-    fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+    fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
+        self.robot.inverse_5dof(&(tcp * self.tool.inverse()), j6)
+    }
+
+    fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         self.robot.inverse_continuing(&(tcp * self.tool.inverse()), previous)
+    }
+
+    fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+        self.robot.inverse_continuing_5dof(&(tcp * self.tool.inverse()), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
@@ -105,6 +113,14 @@ impl Kinematics for Base {
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         self.robot.inverse_continuing(&(self.base.inverse() * tcp), &previous)
     }
+
+    fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
+        self.robot.inverse_5dof(&(self.base.inverse() * tcp), j6)
+    }
+
+    fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+        self.robot.inverse_continuing_5dof(&(self.base.inverse() * tcp), &previous)
+    }    
 
     fn forward(&self, joints: &Joints) -> Pose {
         self.base * self.robot.forward(joints)

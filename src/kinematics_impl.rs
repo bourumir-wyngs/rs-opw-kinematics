@@ -211,6 +211,32 @@ impl Kinematics for OPWKinematics {
                          UnitQuaternion::from_rotation_matrix(&rotation))
     }
 
+    fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
+        self.filter_constraints_compliant(self.inverse_intern_5_dof(&pose, j6))
+    }
+
+    fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
+        let previous;
+        if prev[0].is_nan() {
+            // Special value CONSTRAINT_CENTERED has been used
+            previous = self.constraint_centers();
+        } else {
+            previous = prev;
+        }
+
+        let mut solutions = self.inverse_intern_5_dof(pose, prev[5]);
+
+        // Before any sorting, normalize all angles to be close to
+        // 'previous'
+        for s_idx in 0..solutions.len() {
+            for joint_idx in 0..6 {
+                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
+            }
+        }
+        self.sort_by_closeness(&mut solutions, &previous);
+        self.filter_constraints_compliant(solutions)
+    }
+
     fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
         if is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR) {
             Some(Singularity::A)
@@ -432,6 +458,199 @@ impl OPWKinematics {
 
         result
     }
+
+    fn inverse_intern_5_dof(&self, pose: &Pose, j6: f64) -> Solutions {
+        let params = &self.parameters;
+
+        // Adjust to wrist center
+        let matrix = pose.rotation.to_rotation_matrix();
+        let translation_vector = &pose.translation.vector; // Get the translation vector component
+        let scaled_z_axis = params.c4 * matrix.transform_vector(&Vector3::z_axis()); // Scale and rotate the z-axis vector
+
+        let c = translation_vector - scaled_z_axis;
+
+        let nx1 = ((c.x * c.x + c.y * c.y) - params.b * params.b).sqrt() - params.a1;
+
+        let tmp1 = c.y.atan2(c.x); // Rust's method call syntax for atan2(y, x)
+        let tmp2 = params.b.atan2(nx1 + params.a1);
+
+        let theta1_i = tmp1 - tmp2;
+        let theta1_ii = tmp1 + tmp2 - PI;
+
+        let tmp3 = c.z - params.c1; // Access z directly for nalgebra's Vector3
+        let s1_2 = nx1 * nx1 + tmp3 * tmp3;
+
+        let tmp4 = nx1 + 2.0 * params.a1;
+        let s2_2 = tmp4 * tmp4 + tmp3 * tmp3;
+        let kappa_2 = params.a2 * params.a2 + params.c3 * params.c3;
+
+        let c2_2 = params.c2 * params.c2;
+
+        let tmp5 = s1_2 + c2_2 - kappa_2;
+
+        let s1 = f64::sqrt(s1_2);
+        let s2 = f64::sqrt(s2_2);
+
+        let tmp13 = f64::acos(tmp5 / (2.0 * s1 * params.c2));
+        let tmp14 = f64::atan2(nx1, c.z - params.c1);
+        let theta2_i = -tmp13 + tmp14;
+        let theta2_ii = tmp13 + tmp14;
+
+        let tmp6 = s2_2 + c2_2 - kappa_2;
+
+        let tmp15 = f64::acos(tmp6 / (2.0 * s2 * params.c2));
+        let tmp16 = f64::atan2(nx1 + 2.0 * params.a1, c.z - params.c1);
+        let theta2_iii = -tmp15 - tmp16;
+        let theta2_iv = tmp15 - tmp16;
+
+        // theta3
+        let tmp7 = s1_2 - c2_2 - kappa_2;
+        let tmp8 = s2_2 - c2_2 - kappa_2;
+        let tmp9 = 2.0 * params.c2 * f64::sqrt(kappa_2);
+        let tmp10 = f64::atan2(params.a2, params.c3);
+
+        let tmp11 = f64::acos(tmp7 / tmp9);
+        let theta3_i = tmp11 - tmp10;
+        let theta3_ii = -tmp11 - tmp10;
+
+        let tmp12 = f64::acos(tmp8 / tmp9);
+        let theta3_iii = tmp12 - tmp10;
+        let theta3_iv = -tmp12 - tmp10;
+
+        let theta1_i_sin = theta1_i.sin();
+        let theta1_i_cos = theta1_i.cos();
+        let theta1_ii_sin = theta1_ii.sin();
+        let theta1_ii_cos = theta1_ii.cos();
+
+        // orientation part
+        let sin1: [f64; 4] = [
+            theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin,
+        ];
+
+        let cos1: [f64; 4] = [
+            theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos
+        ];
+
+        let s23: [f64; 4] = [
+            (theta2_i + theta3_i).sin(),
+            (theta2_ii + theta3_ii).sin(),
+            (theta2_iii + theta3_iii).sin(),
+            (theta2_iv + theta3_iv).sin(),
+        ];
+
+        let c23: [f64; 4] = [
+            (theta2_i + theta3_i).cos(),
+            (theta2_ii + theta3_ii).cos(),
+            (theta2_iii + theta3_iii).cos(),
+            (theta2_iv + theta3_iv).cos(),
+        ];
+
+        let m: [f64; 4] = [
+            matrix[(0, 2)] * s23[0] * cos1[0] + matrix[(1, 2)] * s23[0] * sin1[0] + matrix[(2, 2)] * c23[0],
+            matrix[(0, 2)] * s23[1] * cos1[1] + matrix[(1, 2)] * s23[1] * sin1[1] + matrix[(2, 2)] * c23[1],
+            matrix[(0, 2)] * s23[2] * cos1[2] + matrix[(1, 2)] * s23[2] * sin1[2] + matrix[(2, 2)] * c23[2],
+            matrix[(0, 2)] * s23[3] * cos1[3] + matrix[(1, 2)] * s23[3] * sin1[3] + matrix[(2, 2)] * c23[3],
+        ];
+
+        let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
+        let theta5_ii = f64::atan2((1.0 - m[1] * m[1]).sqrt(), m[1]);
+        let theta5_iii = f64::atan2((1.0 - m[2] * m[2]).sqrt(), m[2]);
+        let theta5_iv = f64::atan2((1.0 - m[3] * m[3]).sqrt(), m[3]);
+
+        let theta5_v = -theta5_i;
+        let theta5_vi = -theta5_ii;
+        let theta5_vii = -theta5_iii;
+        let theta5_viii = -theta5_iv;
+
+        let theta4_i;
+
+        let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
+        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
+        theta4_i = theta4_iy.atan2(theta4_ix);
+
+        let theta4_ii;
+
+        let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
+        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
+        theta4_ii = theta4_iiy.atan2(theta4_iix);
+
+        let theta4_iii;
+
+        let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
+        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
+        theta4_iii = theta4_iiiy.atan2(theta4_iiix);
+
+        let theta4_iv;
+
+        let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
+        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
+        theta4_iv = theta4_ivy.atan2(theta4_ivx);
+
+        let theta4_v = theta4_i + PI;
+        let theta4_vi = theta4_ii + PI;
+        let theta4_vii = theta4_iii + PI;
+        let theta4_viii = theta4_iv + PI;
+
+        let theta: [[f64; 5]; 8] = [
+            [theta1_i, theta2_i, theta3_i, theta4_i, theta5_i],
+            [theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii],
+            [theta1_ii, theta2_iii, theta3_iii, theta4_iii, theta5_iii],
+            [theta1_ii, theta2_iv, theta3_iv, theta4_iv, theta5_iv],
+            [theta1_i, theta2_i, theta3_i, theta4_v, theta5_v],
+            [theta1_i, theta2_ii, theta3_ii, theta4_vi, theta5_vi],
+            [theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii],
+            [theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii],
+        ];
+
+        let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
+        for si in 0..sols.len() {
+            for ji in 0.. 5 {
+                sols[si][ji] = (theta[si][ji] + params.offsets[ji]) *
+                    params.sign_corrections[ji] as f64;
+            }
+            sols[si][5] = j6 // J6 goes directly to response and is not more adjusted
+        }
+
+        let mut result: Solutions = Vec::with_capacity(8);
+
+        // Debug check. Solution failing cross-verification is flagged
+        // as invalid. This loop also normalizes valid solutions to 0
+        for si in 0..sols.len() {
+            let mut valid = true;
+            for ji in 0..5 { // J6 is not processed in this loop
+                let mut angle = sols[si][ji];
+                if angle.is_finite() {
+                    while angle > PI {
+                        angle -= 2.0 * PI;
+                    }
+                    while angle < -PI {
+                        angle += 2.0 * PI;
+                    }
+                    sols[si][ji] = angle;
+                } else {
+                    valid = false;
+                    break;
+                }
+            };
+            if valid {
+                let check_xyz = self.forward(&sols[si]).translation;
+                if Self::compare_xyz_only(&pose.translation, &check_xyz, DISTANCE_TOLERANCE) {
+                    result.push(sols[si]);
+                } else {
+                    if DEBUG {
+                        println!("********** Pose Failure 5DOF sol {} *********", si);
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    fn compare_xyz_only(pose_translation: &Translation3<f64>, check_xyz: &Translation3<f64>, tolerance: f64) -> bool {
+        (pose_translation.vector - check_xyz.vector).norm() <= tolerance
+    }
+    
     fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
         match &self.constraints {
             Some(constraints) => constraints.filter(&solutions),

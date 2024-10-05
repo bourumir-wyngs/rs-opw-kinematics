@@ -5,6 +5,7 @@ extern crate nalgebra as na;
 use std::f64::NAN;
 use na::{Isometry3};
 
+
 /// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
 /// ```
 /// extern crate nalgebra as na;
@@ -56,6 +57,8 @@ pub trait Kinematics: Send + Sync {
     /// All returned solutions are cross-checked with forward kinematics and
     /// valid. 
     fn inverse(&self, pose: &Pose) -> Solutions;
+    fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions;
+    fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
 
 
     /// Find inverse kinematics (joint position) for this pose

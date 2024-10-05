@@ -149,6 +149,14 @@ impl Kinematics for Frame {
         self.robot.inverse(&(tcp * self.frame.inverse()))
     }
 
+    fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
+        self.robot.inverse_5dof(&(tcp * self.frame.inverse()), j6)
+    }
+
+    fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+        self.robot.inverse_continuing_5dof(&(tcp * self.frame.inverse()), previous)
+    }
+
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         self.robot.inverse_continuing(&(tcp * self.frame.inverse()), previous)
     }
