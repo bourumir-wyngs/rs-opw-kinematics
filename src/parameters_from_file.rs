@@ -83,6 +83,7 @@ impl Parameters {
             c2: params["c2"].as_f64().ok_or_else(|| ParameterError::MissingField("c2".into()))?,
             c3: params["c3"].as_f64().ok_or_else(|| ParameterError::MissingField("c3".into()))?,
             c4: params["c4"].as_f64().ok_or_else(|| ParameterError::MissingField("c4".into()))?,
+            dof: params["dof"].as_i64().unwrap_or(6) as i8,            
             offsets,
             sign_corrections,
         })

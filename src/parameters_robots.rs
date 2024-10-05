@@ -18,6 +18,7 @@ pub mod opw_kinematics {
                 c4: 0.0,
                 offsets: [0.0; 6],
                 sign_corrections: [1; 6],
+                dof: 6
             }
         }
 

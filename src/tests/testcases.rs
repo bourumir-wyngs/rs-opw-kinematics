@@ -454,6 +454,7 @@ mod tests {
             c4: 0.10,
             offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 0.0, 180.0_f64.to_radians()],
             sign_corrections: [1, 1, -1, -1, -1, -1],
+            dof: 6
         };
 
 
