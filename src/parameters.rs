@@ -3,7 +3,7 @@
 pub mod opw_kinematics {
     use crate::utils::deg;
 
-    /// Parameters for the robot. See parameters_robots.rs for examples for concrete robot models.
+    /// Parameters for the robot. See [parameters_robots.rs](parameters_robots.rs) for examples of concrete robot models.
     #[derive(Debug, Clone, Copy)]
     /// Parameters for the kinematic model of the robot.
     pub struct Parameters {
