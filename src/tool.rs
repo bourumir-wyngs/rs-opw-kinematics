@@ -90,7 +90,7 @@ impl Kinematics for Tool {
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing_5dof(&(tcp * self.tool.inverse()), previous)
+        self.robot.inverse_continuing(&(tcp * self.tool.inverse()), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
