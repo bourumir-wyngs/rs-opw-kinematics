@@ -24,7 +24,10 @@ impl Parameters {
     ///   c4: 0.10
     /// opw_kinematics_joint_offsets: [0.0, 0.0, deg(-90.0), 0.0, 0.0, deg(180.0)]
     /// opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1, -1]
+    /// dof: 6
     /// ```
+    /// offsets, sign corrections and DOF are optional
+    ///
     /// ROS-Industrial provides many such files for FANUC robots on GitHub
     /// (ros-industrial/fanuc, see fanuc_m10ia_support/config/opw_parameters_m10ia.yaml)
     /// YAML extension to parse the deg(angle) function is supported.
@@ -40,6 +43,12 @@ impl Parameters {
 
         let doc = &docs[0];
         let params = &doc["opw_kinematics_geometric_parameters"];
+        let dof = params["dof"].as_i64().unwrap_or(6) as i8;
+        let mut sign_corrections = Self::read_sign_corrections(&doc["opw_kinematics_joint_sign_corrections"])?;
+        if dof == 5 {
+            // Block J6 at 0 by default for 5DOF robot.
+            sign_corrections[5] = 0;
+        }
 
         Ok(Parameters {
             a1: params["a1"].as_f64().ok_or_else(|| ParameterError::MissingField("a1".into()))?,
@@ -49,16 +58,16 @@ impl Parameters {
             c2: params["c2"].as_f64().ok_or_else(|| ParameterError::MissingField("c2".into()))?,
             c3: params["c3"].as_f64().ok_or_else(|| ParameterError::MissingField("c3".into()))?,
             c4: params["c4"].as_f64().ok_or_else(|| ParameterError::MissingField("c4".into()))?,
-            dof: params["dof"].as_i64().unwrap_or(6) as i8,
+            dof: dof,
             offsets: Self::read_offsets(&doc["opw_kinematics_joint_offsets"])?,
-            sign_corrections: Self::read_sign_corrections(&doc["opw_kinematics_joint_sign_corrections"])?,
+            sign_corrections: sign_corrections,
         })
     }
 
 
     fn read_sign_corrections(doc: &Yaml) -> Result<[i8; 6], ParameterError> {
         // Store the temporary vector in a variable for longer lifetime
-        let default_sign_corrections = vec![Yaml::Integer(0); 6];
+        let default_sign_corrections = vec![Yaml::Integer(1); 6];
 
         // Check if the sign corrections field exists, if not default to all 0
         let sign_corrections_yaml = doc.as_vec().unwrap_or(&default_sign_corrections);
@@ -87,7 +96,7 @@ impl Parameters {
 
     fn read_offsets(offsets_yaml: &Yaml) -> Result<[f64; 6], ParameterError> {
         // Check if the offsets field exists, if not default to all 0
-        let default_offsets = &vec![Yaml::Integer(0); 6];        
+        let default_offsets = &vec![Yaml::Integer(0); 6];
         let offsets_yaml = offsets_yaml.as_vec().unwrap_or(&default_offsets);
         let mut offsets: Vec<f64> = offsets_yaml
             .iter()
