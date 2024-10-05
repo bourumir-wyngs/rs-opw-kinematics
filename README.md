@@ -147,9 +147,7 @@ requested where the value of joint 6 (which typically controls this rotation) is
 position or explicitly specified.
 
 Support for 5 DOF robots is now included through an additional 'dof' field in the
-parameter data structure. YAML reader has been updated to support additional 'dof' field. The URDF reader has als been
-extended to support such robots, but joint names must be explicitly provided. Instead of specifying a name for joint 6,
-the name of the tool center point (TCP) must be given. Additionally, 5 DOF inverse kinematics can be requested for 6 DOF
+parameter data structure. 5 DOF inverse kinematics can also be requested for 6 DOF
 robots, particularly when the last joint is in constant motion (e.g., for drilling), or when maintaining precise tool
 rotation would cause the robot to exceed its constraints. This method is also faster to compute. If the robot is
 flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
@@ -313,6 +311,11 @@ There is also more advanced
 function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/urdf/fn.from_urdf.html)
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
+
+YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation 
+not accounted for). The URDF reader has als been extended to support such robots, but joint names must aways be 
+explicitly provided. Instead of specifying a name for joint 6, the name of the tool center point (TCP) must be given.
+Both YAML and URDF readers still try to obtain the parameter c4 that is not distance from J5 axis till TCP.
 
 **Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
