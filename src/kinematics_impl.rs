@@ -226,7 +226,7 @@ impl OPWKinematics {
 
         // Adjust to wrist center
         let matrix = pose.rotation.to_rotation_matrix();
-        let translation_vector = pose.translation.vector; // Get the translation vector component
+        let translation_vector = &pose.translation.vector; // Get the translation vector component
         let scaled_z_axis = params.c4 * matrix.transform_vector(&Vector3::z_axis()); // Scale and rotate the z-axis vector
 
         let c = translation_vector - scaled_z_axis;
