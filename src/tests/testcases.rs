@@ -2,7 +2,7 @@
 mod tests {
     use std::f64::consts::PI;
     use nalgebra::{UnitQuaternion, Vector3};
-    use crate::kinematic_traits::{ Kinematics, Singularity };
+    use crate::kinematic_traits::{Kinematics, Singularity};
     use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
     use crate::tests::test_utils;
@@ -56,6 +56,38 @@ mod tests {
     }
 
     #[test]
+    fn test_forward_ik_with_joint_poses() {
+        let filename = "src/tests/data/cases.yaml";
+        let result = test_utils::load_yaml(filename);
+        assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
+        let cases = result.expect("Expected a valid Cases struct after parsing");
+        let all_parameters = test_utils::create_parameter_map();
+        println!("Forward IK: {} test cases", cases.len());
+
+        for case in cases.iter() {
+            let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
+                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+            });
+            let kinematics = OPWKinematics::new(parameters.clone());
+
+            // This test only checks the final pose so far.
+            let ik = kinematics.forward_with_joint_poses(&case.joints_in_radians())[5];
+            let pose = test_utils::Pose::from_isometry(&ik);
+
+            if !test_utils::are_isometries_approx_equal(&ik, &case.pose.to_isometry(), 0.00001) {
+                println!("Seems not equal");
+                println!("joints: {:?} ", &case.joints);
+                println!("case: {:?} ", &pose);
+                println!("IK  : {:?} ", &case.pose);
+                println!("{}", parameters.to_yaml());
+
+
+                panic!("Forward kinematics of the primary pose seems not equal");
+            }
+        }
+    }
+
+    #[test]
     fn test_inverse_ik() {
         let filename = "src/tests/data/cases.yaml";
         let result = test_utils::load_yaml(filename);
@@ -75,7 +107,7 @@ mod tests {
                 // Try forward on the initial data set first.
                 let solutions = kinematics.inverse(&case.pose.to_isometry());
                 if test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
-                                             0.001_f64.to_radians()).is_none() {
+                                                         0.001_f64.to_radians()).is_none() {
                     println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
                     let joints_str = &case.joints.iter()
                         .map(|&val| format!("{:5.2}", val))
@@ -121,7 +153,7 @@ mod tests {
                 &case.pose.to_isometry(), &case.joints_in_radians());
             let found_matching =
                 test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
-                                          0.001_f64.to_radians());
+                                                      0.001_f64.to_radians());
             if !matches!(found_matching, Some(0)) {
                 println!("**** No valid solution: {:?} for case {} on {} ****",
                          found_matching, case.id, case.parameters);
@@ -284,5 +316,4 @@ mod tests {
             );
         }
     }
-
 }

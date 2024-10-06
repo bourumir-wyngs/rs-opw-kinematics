@@ -307,6 +307,10 @@ mod tests {
             panic!() // Not used in this test
         }
 
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            panic!() // Not used in this test
+        }        
+
         /// Simple inverse kinematics for a single rotary joint of the length 1.
         fn inverse_continuing(&self, pose: &Pose, _previous: &Joints) -> Solutions {
             let angle = pose.translation.vector[1].atan2(pose.translation.vector[0]);

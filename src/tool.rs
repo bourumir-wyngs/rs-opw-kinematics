@@ -100,6 +100,16 @@ impl Kinematics for Tool {
         tcp
     }
 
+    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+        // Compute the forward kinematics for the robot itself
+        let mut poses = self.robot.forward_with_joint_poses(joints);
+
+        // Apply the tool transformation only to the last pose (TCP pose)
+        poses[5] = poses[5] * self.tool;
+
+        poses
+    }
+
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
     }
@@ -125,6 +135,18 @@ impl Kinematics for Base {
     fn forward(&self, joints: &Joints) -> Pose {
         self.base * self.robot.forward(joints)
     }
+
+    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+        // Compute the forward kinematics for the robot itself
+        let mut poses = self.robot.forward_with_joint_poses(joints);
+
+        // Apply the base transformation to each pose
+        for pose in poses.iter_mut() {
+            *pose = self.base * *pose;
+        }
+
+        poses
+    }    
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)

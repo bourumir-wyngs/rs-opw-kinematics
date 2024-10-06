@@ -90,5 +90,56 @@ pub trait Kinematics: Send + Sync {
     /// Detect the singularity. Returns either A type singlularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
+
+    /// Computes the forward kinematics for a 6-DOF robotic arm and returns an array of poses
+    /// representing the position and orientation of each joint, including the final end-effector.
+    ///
+    /// The function calculates the transformation for each joint in the robotic arm using the joint
+    /// angles (in radians) and the kinematic parameters of the robot (link lengths and offsets).
+    /// It returns an array of 6 poses: one for each joint and the end-effector.
+    ///
+    /// # Parameters
+    /// - `self`: A reference to the kinematics model containing the geometric and joint-specific parameters.
+    /// - `joints`: A reference to an array of joint angles (in radians) for the 6 joints of the robot.
+    ///
+    /// # Returns
+    /// - An array of 6 `Pose` structures:
+    ///   - Pose 1: The position and orientation of the base link.
+    ///   - Pose 2: The position and orientation of link 1 (first joint).
+    ///   - Pose 3: The position and orientation of link 2 (second joint).
+    ///   - Pose 4: The position and orientation of link 3 (third joint).
+    ///   - Pose 5: The position and orientation of link 4 (fourth joint), before applying any wrist offset.
+    ///   - Pose 6: The position and orientation of the end-effector, including the wrist offset (`c4`).
+    ///
+    /// # Example
+    /// ```
+    /// use rs_opw_kinematics::kinematic_traits::Kinematics;
+    /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+    /// use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+    /// let parameters = Parameters {
+    ///     a1: 0.150,
+    ///     a2: 0.000,
+    ///     b: 0.000,
+    ///     c1: 0.550,
+    ///     c2: 0.550,
+    ///     c3: 0.600,
+    ///     c4: 0.110,
+    ///     offsets: [0.0; 6],  // No joint offsets
+    ///     ..Parameters::new()
+    /// };
+    ///
+    /// let joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // All joints straight up
+    /// let kinematics = OPWKinematics::new(parameters);
+    ///
+    /// let poses = kinematics.forward_with_joint_poses(&joints);
+    ///
+    /// assert_eq!(poses.len(), 6);  // Should return 6 poses
+    /// ```
+    ///
+    /// # Notes
+    /// - The function applies the geometric parameters (like link lengths and joint offsets) and computes
+    ///   each joint's position and orientation relative to the base frame.
+    /// - The final pose (Pose 6) includes the `c4` offset, which accounts for the wrist length.    
+    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6];
 }
 

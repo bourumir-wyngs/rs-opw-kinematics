@@ -36,6 +36,7 @@ This documentation also incorporates the robot diagram from that project.
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
+- Individual link positions now available
 - Experimental support for parameter extraction from URDF (for 5 DOF robot, specify the tool center point as joint 6)
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
@@ -139,6 +140,10 @@ also rotation, or just a single pair is enough if only shift (but not a rotation
 Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
 and calculated joint angles for the transformed (shifted and rotated) trajector. See the
 [frame](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/frame/index.html) documentation for details.
+
+# Individual link positions
+It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
+collision avoidance and graphical rendering of the robot.
 
 # 5 DOF inverse kinematics
 

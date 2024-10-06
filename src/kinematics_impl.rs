@@ -1,5 +1,5 @@
 //! Provides implementation of inverse and direct kinematics.
- 
+
 use std::f64::{consts::PI};
 use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
 use crate::parameters::opw_kinematics::{Parameters};
@@ -41,6 +41,7 @@ impl OPWKinematics {
     }
 }
 
+
 const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
 const ANGULAR_TOLERANCE: f64 = 1E-6;
@@ -64,7 +65,6 @@ const J5: usize = 4;
 const J6: usize = 5;
 
 impl Kinematics for OPWKinematics {
-    
     /// Return the solution that is constraint compliant anv values are valid
     /// (no NaNs, etc) but otherwise not sorted.
     /// If this is 5 degree of freedom robot only, the 6 joint is set to 0.0
@@ -74,7 +74,7 @@ impl Kinematics for OPWKinematics {
             // For 5 DOF robot, we can only do 5 DOF approximate inverse. 
             self.inverse_intern_5_dof(pose, f64::NAN)
         } else {
-            self.filter_constraints_compliant(self.inverse_intern(&pose))            
+            self.filter_constraints_compliant(self.inverse_intern(&pose))
         }
     }
 
@@ -83,9 +83,9 @@ impl Kinematics for OPWKinematics {
     // The rotation of pose in this case is only approximate.    
     fn inverse_continuing(&self, pose: &Pose, prev: &Joints) -> Solutions {
         if self.parameters.dof == 5 {
-            return self.inverse_intern_5_dof(pose, prev[5]);    
+            return self.inverse_intern_5_dof(pose, prev[5]);
         }
-        
+
         let previous;
         if prev[0].is_nan() {
             // Special value CONSTRAINT_CENTERED has been used
@@ -177,6 +177,7 @@ impl Kinematics for OPWKinematics {
     fn forward(&self, joints: &Joints) -> Pose {
         let p = &self.parameters;
 
+        // Apply sign corrections and offsets
         let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
         let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
         let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
@@ -187,15 +188,20 @@ impl Kinematics for OPWKinematics {
         let psi3 = f64::atan2(p.a2, p.c3);
         let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
 
-        let cx1 = p.c2 * f64::sin(q2) + k * f64::sin(q2 + q3 + psi3) + p.a1;
+        // Precompute q23_psi3 for better readability and reuse
+        let q23_psi3 = q2 + q3 + psi3;
+        let sin_q23_psi3 = q23_psi3.sin();
+        let cos_q23_psi3 = q23_psi3.cos();
+
+        let cx1 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
         let cy1 = p.b;
-        let cz1 = p.c2 * f64::cos(q2) + k * f64::cos(q2 + q3 + psi3);
+        let cz1 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
 
         let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
         let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
         let cz0 = cz1 + p.c1;
 
-        // Precompute sines and cosines
+        // Precompute sines and cosines for efficiency
         let (s1, c1) = (q1.sin(), q1.cos());
         let (s2, c2) = (q2.sin(), q2.cos());
         let (s3, c3) = (q3.sin(), q3.cos());
@@ -203,26 +209,122 @@ impl Kinematics for OPWKinematics {
         let (s5, c5) = (q5.sin(), q5.cos());
         let (s6, c6) = (q6.sin(), q6.cos());
 
+        // Compute rotation matrix r_0c
         let r_0c = Matrix3::new(
             c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
             s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
             -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
         );
 
+        // Compute rotation matrix r_ce
         let r_ce = Matrix3::new(
             c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
             s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
             -s5 * c6, s5 * s6, c5,
         );
 
+        // Compute the final rotation matrix r_oe
         let r_oe = r_0c * r_ce;
 
+        // Calculate the final translation
         let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
+
+        // Convert the rotation matrix to a quaternion
         let rotation = Rotation3::from_matrix_unchecked(r_oe);
 
-        Pose::from_parts(Translation3::from(translation),
-                         UnitQuaternion::from_rotation_matrix(&rotation))
+        // Return the pose combining translation and rotation
+        Pose::from_parts(
+            Translation3::from(translation),
+            UnitQuaternion::from_rotation_matrix(&rotation),
+        )
     }
+
+    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+        let p = &self.parameters;
+
+        // Use joint angles directly as radians (no conversion needed)
+        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
+        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
+        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
+        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
+        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
+        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
+
+        let psi3 = f64::atan2(p.a2, p.c3);
+        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
+
+        // Precompute q23_psi3 for better readability and reuse
+        let q23_psi3 = q2 + q3 + psi3;
+        let sin_q23_psi3 = q23_psi3.sin();
+        let cos_q23_psi3 = q23_psi3.cos();
+
+        // Precompute sines and cosines for efficiency
+        let (s1, c1) = (q1.sin(), q1.cos());
+        let (s2, c2) = (q2.sin(), q2.cos());
+        let (s3, c3) = (q3.sin(), q3.cos());
+        let (s4, c4) = (q4.sin(), q4.cos());
+        let (s5, c5) = (q5.sin(), q5.cos());
+        let (s6, c6) = (q6.sin(), q6.cos());
+
+        // Pose 1: Base link position
+        let joint1_pos = Vector3::new(0.0, 0.0, p.c1); // Z-offset from the base height
+        let joint1_rot = Rotation3::identity(); // No rotation for the base frame
+        let pose1 = Pose::from_parts(Translation3::from(joint1_pos), UnitQuaternion::from_rotation_matrix(&joint1_rot));
+
+        // Pose 2: Link 1 position (translation along x = a1, rotation around q1)
+        let joint2_pos = Vector3::new(p.a1 * c1, p.a1 * s1, p.c1); // a1 affects X, base height remains Z
+        let joint2_rot = Rotation3::from_euler_angles(q1, 0.0, 0.0); // Rotation around Z-axis (q1)
+        let pose2 = Pose::from_parts(Translation3::from(joint2_pos), UnitQuaternion::from_rotation_matrix(&joint2_rot));
+
+        // Pose 3: Link 2 position
+        let cx1 = p.c2 * f64::sin(q2) + p.a1;
+        let cy1 = p.b; // Typically 0 for most robots
+        let cz1 = p.c2 * f64::cos(q2); // Move in Z by link length
+        let joint3_pos = Vector3::new(
+            cx1 * c1 - cy1 * s1,
+            cx1 * s1 + cy1 * c1,
+            cz1 + p.c1 // Add the base height
+        );
+        let joint3_rot = Rotation3::from_euler_angles(q1, q2, 0.0); // Rotation around Z and Y
+        let pose3 = Pose::from_parts(Translation3::from(joint3_pos), UnitQuaternion::from_rotation_matrix(&joint3_rot));
+
+        // Pose 4: Link 3 position (additional translation along Z)
+        let cx2 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
+        let cz2 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
+        let joint4_pos = Vector3::new(
+            cx2 * c1 - cy1 * s1,
+            cx2 * s1 + cy1 * c1,
+            cz2 + p.c1 // Continue translating along Z
+        );
+        let joint4_rot = Rotation3::from_euler_angles(q1, q2, q3); // Rotation around Z, Y, and additional Y (q3)
+        let pose4 = Pose::from_parts(Translation3::from(joint4_pos), UnitQuaternion::from_rotation_matrix(&joint4_rot));
+
+        // Pose 5: Link 4 position (No c4 applied here, just joint4_pos)
+        let joint5_pos = joint4_pos; // Do not apply c4 here
+        let joint5_rot = Rotation3::from_euler_angles(q1, q2, q3 + q4); // Adding q4 for rotation around X-axis
+        let pose5 = Pose::from_parts(Translation3::from(joint5_pos), UnitQuaternion::from_rotation_matrix(&joint5_rot));
+
+        // Pose 6: End-effector position (including c4 offset)
+        let r_0c = Matrix3::new(
+            c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
+            s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
+            -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
+        );
+        let r_ce = Matrix3::new(
+            c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
+            s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
+            -s5 * c6, s5 * s6, c5,
+        );
+        let r_oe = r_0c * r_ce;
+
+        // Apply the c4 offset for the final end-effector position
+        let end_effector_pos = joint5_pos + r_oe * (p.c4 * *self.unit_z); // Apply c4 offset here for the wrist
+        let end_effector_rot = Rotation3::from_matrix_unchecked(r_oe); // Final rotation
+        let pose6 = Pose::from_parts(Translation3::from(end_effector_pos), UnitQuaternion::from_rotation_matrix(&end_effector_rot));
+
+        // Return all 6 Poses, with Pose 6 including c4 offset
+        [pose1, pose2, pose3, pose4, pose5, pose6]
+    }    
 
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         self.filter_constraints_compliant(self.inverse_intern_5_dof(&pose, j6))
@@ -617,7 +719,7 @@ impl OPWKinematics {
 
         let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
         for si in 0..sols.len() {
-            for ji in 0.. 5 {
+            for ji in 0..5 {
                 sols[si][ji] = (theta[si][ji] + params.offsets[ji]) *
                     params.sign_corrections[ji] as f64;
             }
@@ -663,7 +765,7 @@ impl OPWKinematics {
     fn compare_xyz_only(pose_translation: &Translation3<f64>, check_xyz: &Translation3<f64>, tolerance: f64) -> bool {
         (pose_translation.vector - check_xyz.vector).norm() <= tolerance
     }
-    
+
     fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
         match &self.constraints {
             Some(constraints) => constraints.filter(&solutions),
