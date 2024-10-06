@@ -117,7 +117,7 @@ and calculated joint angles for the transformed (shifted and rotated) trajector.
 
 # Individual link positions
 It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
-collision avoidance and graphical rendering of the robot.
+collision avoidance and graphical rendering of the robot. See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.5.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses) method.
 
 # 5 DOF inverse kinematics
 
