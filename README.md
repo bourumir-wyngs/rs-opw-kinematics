@@ -40,7 +40,7 @@ This documentation also incorporates the robot diagram from that project.
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
 
-# Parameters
+## Parameters
 
 This library uses seven kinematic parameters (_a1, a2, b, c1, c2, c3_, and _c4_). This solver assumes that the arm is
 at zero when all joints stick straight up in the air, as seen in the image below. It also assumes that all
@@ -67,7 +67,7 @@ let parameters = Parameters {
 Note that the offset of the third joint is -90&deg;, bringing the joint from the upright position to parallel with
 the ground at "zero."
 
-# Constraints
+## Constraints
 
 Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
 the specified constraint range are not included into returned list of solutions. It is also possible to
@@ -82,7 +82,7 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
-# Jacobian: torgues and velocities
+## Jacobian: torgues and velocities
 Since 1.3.2, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
 - Joint [velocities](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
@@ -95,7 +95,7 @@ or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), b
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent 
 overspeed or overtorgue of individual joints.
 
-# The tool and the base
+## The tool and the base
 Since 1.3.2, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
@@ -105,7 +105,7 @@ on a [base](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struc
 this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or 
 two tools if the first is a receptacle of the tool changer).
 
-# The frame
+## The frame
 Since 1.6.0 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint angles)
 prepared for one location to make the same kind of movements in another location (translated and rotated).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
@@ -115,11 +115,11 @@ Once constructed by specifying original and transformed points, the Frame object
 and calculated joint angles for the transformed (shifted and rotated) trajector. See the
 [frame](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/frame/index.html) documentation for details.
 
-# Individual link positions
+## Individual link positions
 It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
 collision avoidance and graphical rendering of the robot. See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses) method.
 
-# 5 DOF inverse kinematics
+## 5 DOF inverse kinematics
 
 For tools that are not sensitive to axis rotation (such as welding torches or paint sprayers), inverse kinematics can be
 requested where the value of joint 6 (which typically controls this rotation) is either inherited from the previous
@@ -135,22 +135,22 @@ robots, particularly when the last joint is in constant motion (e.g., for drilli
 rotation would cause the robot to exceed its constraints. This method is also faster to compute. If the robot is
 flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
 
-# Parallelogram
+## Parallelogram
 
 The parallelogram mechanism is designed to maintain the orientation of the end-effector in certain robotic configurations.
-It introduces a geometric relationship between joints, typically joint 2 and joint 3, to ensure the end-effector remains
-stable in its orientation during motion. In forward kinematics, joint 3 is adjusted based on the value of joint 2
-to account for the parallelogram linkage:
+It introduces a geometric relationship between joints, typically J₂ and J₃, to ensure the end-effector remains
+stable in its orientation during motion. In forward kinematics, J₃ is adjusted based on the value of J₂ to account for 
+the parallelogram linkage:
 
 ```joint_3' = joint_3 - joint_2```
 
 This adjustment helps maintain the correct orientation of the end-effector as the robot moves.
-In inverse kinematics, the process is reversed, and the influence of joint 2 is added back to joint 3:
+In inverse kinematics, the process is reversed, and the influence of J₂ is added back to J₃:
 
 ```joint_3' = joint_3 + joint_2```
 
-An example demonstrates how the parallelogram mechanism allows the end-effector (TCP) to travel a considerable distance without altering its orientation. This is particularly useful for tasks where the tool must remain level or aligned during movement, such as welding or precise handling operations.
-See the detailed implementation and documentation in the [Parallelogram Struct](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
+The parallelogram mechanism allows the end-effector (TCP) to travel a considerable distance
+without altering its orientation. See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
 
 # Example
 
