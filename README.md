@@ -144,7 +144,11 @@ and calculated joint angles for the transformed (shifted and rotated) trajector.
 
 For tools that are not sensitive to axis rotation (such as welding torches or paint sprayers), inverse kinematics can be
 requested where the value of joint 6 (which typically controls this rotation) is either inherited from the previous
-position or explicitly specified.
+position or explicitly specified. 
+
+The 5 DOF robot can stil be represented with the same diagram, and has the same parameters. However, joint 6 is assumed
+to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation.
+but the rotation around the tool axis is not followed.
 
 Support for 5 DOF robots is now included through an additional 'dof' field in the
 parameter data structure. 5 DOF inverse kinematics can also be requested for 6 DOF

@@ -68,6 +68,8 @@ pub trait Kinematics: Send + Sync {
 
     /// Find forward kinematics (pose from joint positions).
     /// For 5 DOF robot, the rotation of the joint 6 should normally be 0.0
+    /// but some other value can be given, meaning the tool is mounted with
+    /// fixed rotation offset.
     fn forward(&self, qs: &Joints) -> Pose;
 
     /// Calculates the inverse kinematics for a robot while ignoring the rotation
