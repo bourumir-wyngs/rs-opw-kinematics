@@ -3,7 +3,7 @@
 pub mod opw_kinematics {
     use crate::utils::deg;
 
-    /// Parameters for the robot. See parameters_robots.rs for examples for concrete robot models.
+    /// Parameters for the robot. See [parameters_robots.rs](parameters_robots.rs) for examples of concrete robot models.
     #[derive(Debug, Clone, Copy)]
     /// Parameters for the kinematic model of the robot.
     pub struct Parameters {
@@ -37,7 +37,12 @@ pub mod opw_kinematics {
         /// Specifies the direction of positive rotation from the zero angle for each joint.
         /// A value of `-1` reverses the default rotation direction for that joint.
         pub sign_corrections: [i8; 6],
+
+        /// Degrees of freedom for the robot.
+        /// This can either be 5 for 5-DOF robots or 6 for 6-DOF robots.
+        pub dof: i8
     }
+
 
     impl Parameters {
         /// Convert to string yaml representation (quick viewing, etc).
@@ -52,7 +57,8 @@ pub mod opw_kinematics {
               c3: {}\n  \
               c4: {}\n\
             opw_kinematics_joint_offsets: [{}]\n\
-            opw_kinematics_joint_sign_corrections: [{}]\n",
+            opw_kinematics_joint_sign_corrections: [{}]\n
+            dof: [{}]\n",
                 self.a1,
                 self.a2,
                 self.b,
@@ -63,7 +69,8 @@ pub mod opw_kinematics {
                 self.offsets.iter().map(|x| deg(x))
                     .collect::<Vec<_>>().join(","),
                 self.sign_corrections.iter().map(|x| x.to_string())
-                    .collect::<Vec<_>>().join(",")
+                    .collect::<Vec<_>>().join(","),
+                self.dof
             )
         }        
     }

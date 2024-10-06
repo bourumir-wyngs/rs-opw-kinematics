@@ -149,6 +149,14 @@ impl Kinematics for Frame {
         self.robot.inverse(&(tcp * self.frame.inverse()))
     }
 
+    fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
+        self.robot.inverse_5dof(&(tcp * self.frame.inverse()), j6)
+    }
+
+    fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
+        self.robot.inverse_continuing_5dof(&(tcp * self.frame.inverse()), previous)
+    }
+
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         self.robot.inverse_continuing(&(tcp * self.frame.inverse()), previous)
     }
@@ -159,6 +167,16 @@ impl Kinematics for Frame {
         let tcp = tip_joint * self.frame;
         tcp
     }
+
+    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+        // Compute the forward kinematics for the robot itself
+        let mut poses = self.robot.forward_with_joint_poses(joints);
+
+        // Apply the tool transformation only to the last pose (TCP pose)
+        poses[5] = poses[5] * self.frame;
+
+        poses
+    }    
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
