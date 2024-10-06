@@ -36,8 +36,8 @@ This documentation also incorporates the robot diagram from that project.
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
-- Individual link positions now available
-- Experimental support for parameter extraction from URDF (for 5 DOF robot, specify the tool center point as joint 6)
+- Individual link positions now available for collision check and 3D rendering.
+- Experimental support for parameter extraction from URDF
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
