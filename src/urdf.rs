@@ -60,7 +60,8 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 /// - `xml_content`: A `String` containing the XML data of the URDF file.
 /// - `joint_names`: An optional array containing joint names. This may be required if
 ///                  names do not follow typical naming convention, or there are multiple
-///                  robots defined in URDF.
+///                  robots defined in URDF. 
+///                  For 5 DOF robots, use the name of the tool center point instead of "joint6"
 ///
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
@@ -329,6 +330,7 @@ pub struct URDFParameters {
     pub sign_corrections: [i8; 6],
     pub from: Joints, // Array to store the lower limits
     pub to: Joints,   // Array to store the upper limits
+    pub dof: i8
 }
 
 impl URDFParameters {
@@ -344,6 +346,7 @@ impl URDFParameters {
                 c4: self.c4,
                 sign_corrections: self.sign_corrections,
                 offsets: *offsets,
+                dof: self.dof
             },
             Constraints::new(
                 self.from,
@@ -374,6 +377,7 @@ impl URDFParameters {
             c4: self.c4,
             sign_corrections: self.sign_corrections,
             offsets: *offsets,
+            dof: self.dof
         }
     }
 }
@@ -384,6 +388,9 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
 
     let names = joint_names.unwrap_or_else(
         || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
+    
+    let is_six_dof = joint_map.contains_key(names[5]);
+    opw_parameters.c4 = 0.0; // joint6 would be something like "tcp" for the 5 DOF robot. Otherwise, 0 is assumed.
 
     for j in 0..6 {
         let joint = joint_map
@@ -467,6 +474,20 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
             }
         }
     }
+
+    if is_six_dof {
+        opw_parameters.dof = 6    
+    } else {
+        opw_parameters.dof = 5;
+        
+        // Set reasonable values for non-existing joint 6.
+        // Constraint checker will still be checking this range.
+        opw_parameters.sign_corrections[5] = 0; // Always suppress
+        // With from=to, constraint is suppressed.
+        opw_parameters.from[5] = 0.0; 
+        opw_parameters.to[5] = 0.0;       
+    }
+    
 
     Ok(opw_parameters)
 }
