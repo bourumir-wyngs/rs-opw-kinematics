@@ -144,7 +144,7 @@ and calculated joint angles for the transformed (shifted and rotated) trajector.
 
 For tools that are not sensitive to axis rotation (such as welding torches or paint sprayers), inverse kinematics can be
 requested where the value of joint 6 (which typically controls this rotation) is either inherited from the previous
-position or explicitly specified. 
+position or explicitly specified.
 
 The 5 DOF robot can stil be represented with the same diagram, and has the same parameters. However, joint 6 is assumed
 to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation.
@@ -316,8 +316,8 @@ function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
-YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation 
-not accounted for). The URDF reader has als been extended to support such robots, but joint names must aways be 
+YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
+not accounted for). The URDF reader has als been extended to support such robots, but joint names must aways be
 explicitly provided. Instead of specifying a name for joint 6, the name of the tool center point (TCP) must be given.
 Both YAML and URDF readers still try to obtain the parameter c4 that is now distance from J5 axis till TCP.
 
