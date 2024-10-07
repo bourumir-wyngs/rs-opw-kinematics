@@ -4,7 +4,7 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 /// Parallelogram Mechanism:
 /// The parallelogram mechanism introduces a geometric dependency between two specific joints,
 /// typically to maintain the orientation of the end-effector as the robot arm moves.
-/// This is especially useful in tasks that require a constant tool orientation, such as welding
+/// This is useful in tasks that require a constant tool orientation, such as welding
 /// or handling objects, ensuring that the tool or end-effector remains level.
 ///
 /// The mechanism links two joints, referred to as `joints[driven]` and `joints[coupled]`. The movement
