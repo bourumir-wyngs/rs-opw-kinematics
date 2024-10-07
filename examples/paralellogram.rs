@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, J2, J3};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::dump_joints;
@@ -40,6 +40,9 @@ fn main() {
     // Robot with parallelogram
     let robot_with_parallelogram = Parallelogram {
         robot: Arc::new(OPWKinematics::new(Parameters::irb2400_10())),
+        driven: J2,
+        coupled: J3,
+        scaling: 1.0
     };
 
     // Initial joint positions in degrees

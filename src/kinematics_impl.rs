@@ -2,6 +2,7 @@
 
 use std::f64::{consts::PI};
 use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
+use crate::kinematic_traits::{J4, J5, J6};
 use crate::parameters::opw_kinematics::{Parameters};
 use crate::utils::opw_kinematics::{is_valid};
 use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
@@ -48,21 +49,6 @@ const ANGULAR_TOLERANCE: f64 = 1E-6;
 
 // Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
-
-// Define indices for easier reading (numbering in array starts from 0 and this one-off is
-// contra - intuitive)
-#[allow(dead_code)]
-const J1: usize = 0;
-#[allow(dead_code)]
-const J2: usize = 1;
-#[allow(dead_code)]
-const J3: usize = 2;
-#[allow(dead_code)]
-const J4: usize = 3;
-#[allow(dead_code)]
-const J5: usize = 4;
-#[allow(dead_code)]
-const J6: usize = 5;
 
 impl Kinematics for OPWKinematics {
     /// Return the solution that is constraint compliant anv values are valid

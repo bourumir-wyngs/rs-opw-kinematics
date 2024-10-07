@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use crate::kinematic_traits::{Joints, Kinematics, Pose};
+    use crate::kinematic_traits::{Joints, Kinematics, Pose, J2, J3};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::utils::dump_joints;
@@ -35,6 +35,9 @@ mod tests {
         // Robot with parallelogram
         let robot_with_parallelogram = Parallelogram {
             robot: Arc::new(OPWKinematics::new(Parameters::irb2400_10())),
+            driven: J2,
+            coupled: J3,
+            scaling: 1.0
         };
 
         // Initial joint positions in degrees

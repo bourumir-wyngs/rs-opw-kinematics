@@ -2,56 +2,104 @@ use std::sync::Arc;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 /// Parallelogram Mechanism:
-/// The parallelogram mechanism alters how the end-effector's position depends on the joint rotations.
+/// The parallelogram mechanism introduces a geometric dependency between two specific joints,
+/// typically to maintain the orientation of the end-effector as the robot arm moves.
+/// This is especially useful in tasks that require a constant tool orientation, such as welding
+/// or handling objects, ensuring that the tool or end-effector remains level.
 ///
-/// This mechanism maintains the orientation of the end-effector as the robot arm moves.
-/// It introduces a geometric dependency between specific joints, typically joints 2 and 3,
-/// where the movement of joint 2 influences the position of joint 3 to ensure that the
-/// end-effector remains level. This is useful in tasks that require a constant tool
-/// orientation, such as welding or handling objects.
+/// The mechanism links two joints, referred to as `joints[driven]` and `joints[coupled]`. The movement
+/// of the driven joint influences the coupled joint, maintaining the orientation of the end-effector
+/// during motion. The scaling factor determines the proportional influence of the driven joint on the
+/// coupled joint.
 ///
-/// In forward kinematics, joint 3 is adjusted based on joint 2 to account for the parallelogram linkage:
-/// `joint_3' = joint_3 - joint_2`. This adjustment ensures the correct alignment of the end-effector during motion.
+/// - **Forward Kinematics**: The coupled joint (`joints[coupled]`) is adjusted based on the driven joint:
+///   `joints[coupled]' = joints[coupled] - scaling * joints[driven]`. This adjustment maintains the correct
+///   alignment of the end-effector.
+/// - **Inverse Kinematics**: The dependency is reversed, adding the influence of the driven joint to the
+///   coupled joint: `joints[coupled]' = joints[coupled] + scaling * joints[driven]`. This ensures accurate
+///   calculation of joint angles to achieve the desired pose and orientation.
 ///
-/// In inverse kinematics, the dependency is reversed, adding the influence of joint 2 back to joint 3:
-/// `joint_3' = joint_3 + joint_2`. This ensures accurate calculation of joint angles to achieve the desired pose and orientation.
+/// The `Parallelogram` structure automatically adjusts `joints[coupled]` based on `joints[driven]` using
+/// a scaling factor to account for the parallelogram mechanism.
 ///
-/// These adjustments maintain the correct relationship between joints and guarantee that the end-effector
-/// follows the intended path while maintaining its orientation.
-
-/// The Parallelogram automatically adjusts joint 3 based on joint 2
-/// to account for the parallelogram mechanism. It has no data.
+/// # Fields:
+/// - `robot`: The underlying robot's kinematics model used to compute forward and inverse kinematics.
+/// - `scaling`: The factor that determines how much influence `joints[driven]` has on `joints[coupled]`.
+/// - `driven`: The index of the driven joint in the parallelogram mechanism (typically the primary joint).
+/// - `coupled`: The index of the coupled joint in the parallelogram mechanism (the secondary joint influenced by the driven joint).
+///
+/// # Example:
+/// ```rust
+/// use std::sync::Arc;
+/// // As J1 = 0, J2 = 1 and J3 = 2, so it is more clear with J-constants:
+/// use rs_opw_kinematics::kinematic_traits::{J2, J3};
+///
+/// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+/// use rs_opw_kinematics::parallelogram::Parallelogram;
+/// use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+///
+/// // Assuming a robot that implements the Kinematics trait
+/// let robot_kinematics = Arc::new(OPWKinematics::new(Parameters::irb2400_10()));
+///
+/// // Create the Parallelogram structure with a scaling factor of 0.5,
+/// // where joints[1] is the driven joint and joints[2] is the coupled joint.
+/// let parallelogram = Parallelogram {
+///     robot: robot_kinematics,
+///     scaling: 1.0, // typically there is 1-to-1 influence between driven and coupled joints
+///     driven: J2,   // Joint 2 is most often the driven joint. 
+///     coupled: J3,  // Joint 3 is most often the coupled joint
+/// };
+/// ```
+/// As Parallelogram accepts and itself implements Kinematics, it is possible to chain multiple 
+/// parallelograms if the robot has more than one.
+/// 
 #[derive(Clone)]
 pub struct Parallelogram {
-    pub robot: Arc<dyn Kinematics>, // Underlying robot's kinematics
-}
+    /// The underlying robot's kinematics used for forward and inverse kinematics calculations.
+    pub robot: Arc<dyn Kinematics>,
 
+    /// The scaling factor that determines the proportional influence of `joints[driven]` on `joints[coupled]`.
+    pub scaling: f64,
+
+    /// The index of the driven joint in the parallelogram mechanism (`joints[driven]`).
+    pub driven: usize,
+
+    /// The index of the coupled joint in the parallelogram mechanism (`joints[coupled]`).
+    pub coupled: usize,
+}
 impl Kinematics for Parallelogram {
     fn inverse(&self, tcp: &Pose) -> Solutions {
         let mut solutions = self.robot.inverse(tcp);
-        // Adjust for the parallelogram mechanism
-        solutions.iter_mut().for_each(|x| x[2] += x[1]); // Reversing the influence of joint 2 in inverse kinematics
+
+        // Reversing the influence of joint 2 in inverse kinematics
+        solutions.iter_mut().for_each(|x| x[self.coupled] += self.scaling * x[self.driven]); 
         solutions
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
         let mut solutions = self.robot.inverse_5dof(tcp, j6);
-        // Adjust for the parallelogram mechanism
-        solutions.iter_mut().for_each(|x| x[2] += x[1]); // Reversing the influence of joint 2 in inverse kinematics
+
+        // Reversing the influence of joint 2 in inverse kinematics        
+        solutions.iter_mut().for_each(|x| x[self.coupled] += 
+            self.scaling * x[self.driven]); 
         solutions
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing_5dof(tcp, previous);
-        // Adjust for the parallelogram mechanism
-        solutions.iter_mut().for_each(|x| x[2] += x[1]); // Reversing the influence of joint 2 in inverse kinematics
+        
+        // Reversing the influence of joint 2 in inverse kinematics
+        solutions.iter_mut().for_each(|x| x[self.coupled] += 
+            self.scaling * x[self.driven]); 
         solutions
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing(tcp, previous);
-        // Adjust for the parallelogram mechanism
-        solutions.iter_mut().for_each(|x| x[2] += x[1]); // Reversing the influence of joint 2 in inverse kinematics
+        
+        // Reversing the influence of joint 2 in inverse kinematics
+        solutions.iter_mut().for_each(|x| x[self.coupled] += 
+            self.scaling * x[self.driven]); 
         solutions
     }
 

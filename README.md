@@ -136,21 +136,31 @@ rotation would cause the robot to exceed its constraints. This method is also fa
 flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
 
 ## Parallelogram
+The parallelogram mechanism maintains the orientation of the end-effector in
+some robots. It introduces a geometric relationship between two joints,
+typically referred to as the _driven joint_ (often J₂) and the _coupled joint_
+(often J₃), to ensure the end-effector remains stable in its orientation during
+motion.
 
-The parallelogram mechanism is designed to maintain the orientation of the end-effector in certain robotic configurations.
-It introduces a geometric relationship between joints, typically J₂ and J₃, to ensure the end-effector remains
-stable in its orientation during motion. In forward kinematics, J₃ is adjusted based on the value of J₂ to account for 
-the parallelogram linkage:
+In forward kinematics, J₃ is adjusted by subtracting the value of J₂ multiplied
+by a scaling factor `s` (often 1.0). The relationship can be written as:
 
-```joint_3' = joint_3 - joint_2```
+J₃' = J₃ − s * J₂
 
-This adjustment helps maintain the correct orientation of the end-effector as the robot moves.
-In inverse kinematics, the process is reversed, and the influence of J₂ is added back to J₃:
+This adjustment maintains the correct orientation of the end-effector as the
+robot moves through its workspace.
 
-```joint_3' = joint_3 + joint_2```
+In inverse kinematics, the process is reversed. The value of J₂ is added back
+to J₃, ensuring accurate joint angle calculations for achieving the desired
+end-effector pose and orientation. This can be expressed as:
 
-The parallelogram mechanism allows the end-effector (TCP) to travel a considerable distance
-without altering its orientation. See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
+J₃' = J₃ + s * J₂
+
+The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
+factor of 1.0 is the common, as this value ensures the end-effector’s
+orientation remains unchanged if only J₃ and J₂ move.
+ 
+See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
 
 # Example
 
