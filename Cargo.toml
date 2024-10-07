@@ -1,15 +1,14 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2021"
-authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
+authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
 keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
-categories = ["science::robotics"]
+categories = ["science::robotics", "algorithms"]
 
 license = "BSD-3-Clause"
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
-
 readme = "README.md"
 
 [badges]
@@ -18,19 +17,22 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 nalgebra = "0.33"
 
-# Others are only needed to read YAML or convert from URDF
+# Optional dependencies:
+# - yaml-rust2: For reading YAML files.
+# - sxd-document: For reading URDF/XML files
+# - regex: For regex matching in file parsing.
+# - clap: For command-line argument parsing by file processor.
 yaml-rust2 = { version = "0.9", optional = true }
 sxd-document = { version = "0.3", optional = true }
-regex = { version = "1.10.5", optional = true }
+regex = { version = "1.10", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 
 [features]
 default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
-# To disable filesystem:
-#rs-opw-kinematics = { version = "1.5.0", default-features = false }
+# To disable filesystem support:
+# rs-opw-kinematics = { version = "1.6.0", default-features = false }
 
 [dev-dependencies]
-rand = "0.8.5"
-
+rand = "0.8"
