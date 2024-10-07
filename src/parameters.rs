@@ -58,7 +58,7 @@ pub mod opw_kinematics {
               c4: {}\n\
             opw_kinematics_joint_offsets: [{}]\n\
             opw_kinematics_joint_sign_corrections: [{}]\n
-            dof: [{}]\n",
+            dof: {}\n",
                 self.a1,
                 self.a2,
                 self.b,
