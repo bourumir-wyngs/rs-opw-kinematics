@@ -71,15 +71,16 @@ impl Kinematics for Parallelogram {
     fn inverse(&self, tcp: &Pose) -> Solutions {
         let mut solutions = self.robot.inverse(tcp);
 
-        // Reversing the influence of joint 2 in inverse kinematics
-        solutions.iter_mut().for_each(|x| x[self.coupled] += self.scaling * x[self.driven]); 
+        // Reversing the influence of driven joint in inverse kinematics
+        solutions.iter_mut().for_each(|x| x[self.coupled] += 
+            self.scaling * x[self.driven]); 
         solutions
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
         let mut solutions = self.robot.inverse_5dof(tcp, j6);
 
-        // Reversing the influence of joint 2 in inverse kinematics        
+        // Reversing the influence of driven joint in inverse kinematics        
         solutions.iter_mut().for_each(|x| x[self.coupled] += 
             self.scaling * x[self.driven]); 
         solutions
@@ -88,7 +89,7 @@ impl Kinematics for Parallelogram {
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing_5dof(tcp, previous);
         
-        // Reversing the influence of joint 2 in inverse kinematics
+        // Reversing the influence of driven joint in inverse kinematics
         solutions.iter_mut().for_each(|x| x[self.coupled] += 
             self.scaling * x[self.driven]); 
         solutions
@@ -97,23 +98,23 @@ impl Kinematics for Parallelogram {
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing(tcp, previous);
         
-        // Reversing the influence of joint 2 in inverse kinematics
+        // Reversing the influence of driven joint in inverse kinematics
         solutions.iter_mut().for_each(|x| x[self.coupled] += 
             self.scaling * x[self.driven]); 
         solutions
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
-        let mut joints = *qs; // Create a mutable copy of the joints
-        // Adjust for the parallelogram mechanism in forward kinematics
-        joints[2] -= joints[1]; // Adjusting joint 3 based on joint 2 in forward kinematics
+        let mut joints = *qs;
+        // Adjusting coupled joint based on driven joint in forward kinematics
+        joints[self.coupled] -= self.scaling * joints[self.driven]; 
         self.robot.forward(&joints)
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
-        let mut joints = *joints; // Create a mutable copy of the joints
-        // Adjust for the parallelogram mechanism in forward kinematics
-        joints[2] -= joints[1]; // Adjusting joint 3 based on joint 2 in forward kinematics
+        let mut joints = *joints; 
+        // Adjusting coupled joint based on driven joint in forward kinematics
+        joints[self.coupled] -= self.scaling * joints[self.driven]; 
         self.robot.forward_with_joint_poses(&joints)
     }
 
