@@ -16,6 +16,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
+parry3d = "0.17"  # Latest version of parry
 
 # Optional dependencies:
 # - yaml-rust2: For reading YAML files.

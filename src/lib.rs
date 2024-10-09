@@ -67,6 +67,7 @@ mod simplify_joint_name;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+mod collisions;
 
 
 
