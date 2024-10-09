@@ -149,14 +149,15 @@ mod tests {
 
     #[test]
     fn test_collision_detection() {
-        // Define vertices and triangle indices for a sample mesh
+        // Define vertices and triangle indices for a triangular pyramid. 
         let vertices = vec![
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-            Point3::new(0.0, 1.0, 0.0),
-            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, 0.0), // Vertex 0: Origin (0, 0, 0)
+            Point3::new(1.0, 0.0, 0.0), // Vertex 1: (1, 0, 0)
+            Point3::new(0.0, 1.0, 0.0), // Vertex 2: (0, 1, 0)
+            Point3::new(0.0, 0.0, 1.0), // Vertex 3: (0, 0, 1)
         ];
 
+        // Indices defining the four triangular faces of the pyramid. 
         let indices = vec![
             [0, 1, 2],
             [0, 1, 3],
