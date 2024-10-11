@@ -1,21 +1,14 @@
-use std::sync::Arc;
 use nalgebra::{Isometry3, Point3};
 use parry3d::query::contact;
 use parry3d::shape::{SharedShape, TriMesh};
-use crate::collisions_traits::CollisionDetector;
 use crate::joint_body::{CollisionShape, JointBody};
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics};
 
 /// Struct representing the robot, which consists of exactly 6 joints
 pub struct RobotBody {
     pub joints: [JointBody; 6],    // Fixed-size array of 6 joints
     pub tolerance: f32,
     pub detect_first_collision_only: bool,
-}
-
-pub struct CollisionAwareKinematics {
-    pub kinematics: Arc<dyn Kinematics>,   // The kinematics model
-    pub collision: Arc<dyn CollisionDetector>,  // The collision detector
 }
 
 impl RobotBody {
@@ -110,63 +103,17 @@ impl CollisionShape {
     }
 }
 
-impl CollisionDetector for RobotBody {
-    fn collision_details(&self, qs: &Joints, kinematics: &dyn Kinematics) -> Vec<(&CollisionShape, &CollisionShape)> {
-        // Use forward kinematics to get the poses of all 6 joints
+impl RobotBody {
+    pub fn collision_details(&self, qs: &Joints, kinematics: &dyn Kinematics) -> Vec<(&CollisionShape, &CollisionShape)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        let collisions = self.detect_collisions(&joint_poses_f32);
-        collisions
+        self.detect_collisions(&joint_poses_f32)
     }
 
-    fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
-        return !self.collision_details(qs, kinematics).is_empty();
+    pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
+        !self.collision_details(qs, kinematics).is_empty()
     }    
 }
-
-impl CollisionAwareKinematics {
-    fn filter_colliding_solutions(&self, solutions: Solutions) -> Solutions {
-        solutions
-            .into_iter()
-            .filter(|qs| !self.collision.collides(qs, self.kinematics.as_ref()))
-            .collect()
-    }
-}
-
-impl Kinematics for CollisionAwareKinematics {
-    fn inverse(&self, pose: &Pose) -> Solutions {
-        let solutions = self.kinematics.inverse(pose);
-        self.filter_colliding_solutions(solutions)
-    }
-
-    fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
-        let solutions = self.kinematics.inverse_continuing(pose, previous);
-        self.filter_colliding_solutions(solutions)
-    }
-
-    fn forward(&self, qs: &Joints) -> Pose {
-        self.kinematics.forward(qs)
-    }
-
-    fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
-        let solutions = self.kinematics.inverse_5dof(pose, j6);
-        self.filter_colliding_solutions(solutions)
-    }
-
-    fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
-        let solutions = self.kinematics.inverse_continuing_5dof(pose, prev);
-        self.filter_colliding_solutions(solutions)
-    }
-
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.kinematics.kinematic_singularity(qs)
-    }
-
-    fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
-        self.kinematics.forward_with_joint_poses(joints)
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -245,4 +192,6 @@ mod tests {
             assert_ne!(shape_b.name, "Shape 4", "Shape 4 should not be involved in any collision.");
         }
     }
+    
+    
 }
