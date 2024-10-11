@@ -1,61 +1,48 @@
 use nalgebra::{Isometry3, Point3};
-use parry3d::bounding_volume::{Aabb, BoundingVolume};
-use parry3d::shape::{SharedShape, TriMesh};
+use parry3d::bounding_volume::{Aabb};
+use parry3d::shape::{TriMesh};
 
-/// Struct representing a shape (using TriMesh here, but it can be other shapes)
-pub struct CollisionShape {
-    pub name: String,
-    pub local_transform: Isometry3<f32>,
-    pub shape: SharedShape,
-}
-
-/// Struct representing a joint, which contains multiple shapes and a simplified version of the joint's shape (as an AABB).
+/// Struct representing a joint body, which contains a `TriMesh` shape and local transformation, as well as a simplified version of the shape (as an AABB).
 pub struct JointBody {
-    pub shapes: Vec<CollisionShape>,
-    pub simplified_shape: TriMesh, // The simplified shape (AABB as TriMesh)
+    /// The shape with the local_transform applied
+    pub transformed_shape: TriMesh,
+    /// The simplified triangular mesh (AABB as TriMesh) with local transform applied.
+    pub simplified_shape: TriMesh,
 }
 
 impl JointBody {
-    /// Constructor to initialize a joint with a given list of collision shapes.
-    /// The constructor also computes an AABB around all the shapes and creates a simplified triangular mesh.
+    /// Constructor to initialize a joint body with a given mesh and local transform.
+    /// This constructor applies the local transformation, computes the bounding volume, and converts it into a simplified triangular mesh.
     ///
     /// # Arguments
-    /// * `shapes` - A vector of `CollisionShape`s that belong to the joint.
+    /// * `shape` - A `TriMesh` that defines the joint's shape.
+    /// * `local_transform` - The local transformation of the joint's shape.
     ///
     /// # Returns
     /// A new instance of `JointBody`.
-    pub fn new(shapes: Vec<CollisionShape>) -> Self {
-        // Compute the AABB for the entire joint
-        let aabb = Self::compute_aabb(&shapes);
+    pub fn new(shape: TriMesh, local_transform: Isometry3<f32>) -> Self {
+        // Apply the local transformation to the shape
+        let transformed_shape =
+            TriMesh::new(shape
+                             .vertices()
+                             .iter()
+                             .map(|v|
+                                 local_transform.transform_point(v))
+                             .collect(),
+                         shape.indices().to_vec());
 
-        // Return the new JointBody with the simplified shape assigned
+        // Compute the axis aligned bounding box from the transformed shape
+        let aabb = transformed_shape.qbvh().root_aabb().clone();
+
+        // Return the new JointBody with the original, transformed, and simplified shapes
         JointBody {
-            shapes,
+            transformed_shape,
             simplified_shape: Self::aabb_to_trimesh(&aabb),
         }
     }
 
-    /// Compute the AABB (Axis-Aligned Bounding Box) that surrounds all the shapes in the joint.
-    ///
-    /// # Arguments
-    /// * `shapes` - A reference to the vector of shapes to compute the bounding box from.
-    ///
-    /// # Returns
-    /// An `Aabb` that fits all the shapes in the joint.
-    fn compute_aabb(shapes: &[CollisionShape]) -> Aabb {
-        let mut overall_aabb = Aabb::new_invalid();
-
-        // Loop over each shape and expand the AABB to include its local bounding box
-        for shape in shapes {
-            // Cast the Isometry3<f64> to Isometry3<f32> for parry3d
-            let local_aabb = shape.shape.compute_aabb(&shape.local_transform.cast::<f32>());
-            overall_aabb.merge(&local_aabb);
-        }
-
-        overall_aabb
-    }
-
     /// Convert an AABB into a TriMesh (a triangular mesh).
+    /// Unlike AABB, TriMesh will rotate following global transform later.
     ///
     /// # Arguments
     /// * `aabb` - The AABB to convert into a mesh.
@@ -100,4 +87,3 @@ impl JointBody {
         TriMesh::new(vertices, indices)
     }
 }
-

@@ -56,7 +56,7 @@ impl KinematicsWithShape {
         // Create a vector of PositionedJoints without mut
         let positioned_joints: Vec<PositionedJoint> = self
             .body
-            .joints
+            .joint_bodies
             .iter()
             .enumerate()
             .map(|(i, joint_body)| PositionedJoint {
