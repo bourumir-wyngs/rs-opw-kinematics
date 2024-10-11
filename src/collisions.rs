@@ -4,12 +4,25 @@ use parry3d::shape::TriMesh;
 use crate::joint_body::JointBody;
 use crate::kinematic_traits::{Joints, Kinematics};
 
-/// Struct representing the robot, which consists of exactly 6 joints
+/// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
+/// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
+/// of a joint. This struct also provides functionality for detecting collisions 
+/// between these joints.
 pub struct RobotBody {
-    pub joint_bodies: [JointBody; 6],    // Fixed-size array of 6 joints
+    /// A fixed-size array of 6 `JointBody` instances, each representing 
+    /// the geometrical shape of a joint in the robot.
+    pub joint_bodies: [JointBody; 6],
+
+    /// The threshold distance used in collision detection. 
+    /// If the distance between two geometries is less than this value, they are considered colliding.
     pub collision_tolerance: f32,
+
+    /// A boolean flag indicating whether the collision detection 
+    /// should stop after the first detected collision. When set to `true`, the system will halt 
+    /// detection as soon as one collision is found; otherwise, all potential collisions will be checked.
     pub detect_first_collision_only: bool,
 }
+
 
 impl RobotBody {
     /// Constructor to initialize a robot with 6 joints, given tolerance and a flag for early collision detection.

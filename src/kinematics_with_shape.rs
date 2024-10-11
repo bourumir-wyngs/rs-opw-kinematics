@@ -4,9 +4,18 @@ use crate::collisions::RobotBody;
 use crate::joint_body::JointBody;
 use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity};
 
+/// Struct that combines the kinematic model of a robot with its geometrical shape.
+/// This struct provides both the kinematic functionality for computing joint positions and 
+/// the physical structure used for collision detection and other geometric calculations.
 pub struct KinematicsWithShape {
-    pub kinematics: Arc<dyn Kinematics>,   // The kinematics model
-    pub body: RobotBody,                   // The robot body containing the joint definitions
+    /// The kinematic model of the robot, typically used to compute forward and inverse kinematics.
+    /// This is an abstract trait (`Kinematics`), allowing for different implementations of kinematic models.
+    pub kinematics: Arc<dyn Kinematics>,
+
+    /// The physical structure of the robot, represented by its joint geometries.
+    /// This `RobotBody` contains information about the geometrical shapes of the joints 
+    /// and provides functionality for collision detection.
+    pub body: RobotBody,
 }
 
 /// Struct representing a robot with positioned joints.
@@ -82,11 +91,13 @@ impl KinematicsWithShape {
 }
 
 impl Kinematics for KinematicsWithShape {
+    /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse(&self, pose: &Pose) -> Solutions {
         let solutions = self.kinematics.inverse(pose);
         self.filter_colliding_solutions(solutions)
     }
 
+    /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
         let solutions = self.kinematics.inverse_continuing(pose, previous);
         self.filter_colliding_solutions(solutions)
@@ -96,11 +107,13 @@ impl Kinematics for KinematicsWithShape {
         self.kinematics.forward(qs)
     }
 
+    /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         let solutions = self.kinematics.inverse_5dof(pose, j6);
         self.filter_colliding_solutions(solutions)
     }
 
+    /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
         let solutions = self.kinematics.inverse_continuing_5dof(pose, prev);
         self.filter_colliding_solutions(solutions)
