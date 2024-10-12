@@ -1,6 +1,7 @@
 [package]
 name = "rs-opw-kinematics"
 version = "1.6.0"
+autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
@@ -36,4 +37,7 @@ allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 # rs-opw-kinematics = { version = "1.6.0", default-features = false }
 
 [dev-dependencies]
+# Some tests include random generator
 rand = "0.8"
+# Rendering is only used in examples
+bevy = "0.12"
