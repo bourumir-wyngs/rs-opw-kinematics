@@ -1,23 +1,10 @@
 use bevy::prelude::*;
 use bevy::pbr::wireframe::{Wireframe, WireframePlugin};
-use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::input::mouse::{MouseWheel};
 use bevy::window::PrimaryWindow;
-use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 
-pub struct PositionedRobot<'a> {
-    pub joints: Vec<PositionedJoint<'a>>,
-}
-
-pub struct PositionedJoint<'a> {
-    pub joint_body: &'a JointBody,
-    pub transform: Isometry3<f32>,  // Precomputed global transform
-}
-
-pub struct JointBody {
-    pub transformed_shape: TriMesh,
-    pub simplified_shape: TriMesh,
-}
+use rs_opw_kinematics::kinematics_with_shape::PositionedRobot;
 
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList);

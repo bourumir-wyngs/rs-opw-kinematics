@@ -67,9 +67,9 @@ mod simplify_joint_name;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
-mod collisions;
-mod joint_body;
-mod kinematics_with_shape;
+pub mod collisions;
+pub mod joint_body;
+pub mod kinematics_with_shape;
 
 
 
