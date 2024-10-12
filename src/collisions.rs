@@ -1,6 +1,5 @@
-use nalgebra::{Isometry3, Point3};
+use nalgebra::{Isometry3};
 use parry3d::query::contact;
-use parry3d::shape::TriMesh;
 use crate::joint_body::JointBody;
 use crate::kinematic_traits::{Joints, Kinematics};
 
