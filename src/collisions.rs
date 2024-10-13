@@ -11,6 +11,9 @@ pub struct RobotBody {
     /// A fixed-size array of 6 `JointBody` instances, each representing 
     /// the geometrical shape of a joint in the robot.
     pub joint_bodies: [JointBody; 6],
+    
+    // Joint positioning with relate to other joint when the rotation angle is 0.0
+    pub joint_origins: [Isometry3<f32>; 6],
 
     /// The threshold distance used in collision detection. 
     /// If the distance between two geometries is less than this value, they are considered colliding.
@@ -25,9 +28,12 @@ pub struct RobotBody {
 
 impl RobotBody {
     /// Constructor to initialize a robot with 6 joints, given tolerance and a flag for early collision detection.
-    pub fn new(joint_bodies: [JointBody; 6], tolerance: f32, detect_first_collision_only: bool) -> Self {
+    pub fn new(joint_bodies: [JointBody; 6],
+               joint_origins:[Isometry3<f32>; 6],
+               tolerance: f32, detect_first_collision_only: bool) -> Self {
         RobotBody {
             joint_bodies,
+            joint_origins,
             collision_tolerance: tolerance,
             detect_first_collision_only,
         }
@@ -108,6 +114,8 @@ impl RobotBody {
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::Point3;
+    use parry3d::shape::TriMesh;
     use super::*;
 
     fn create_trimesh(x: f32, y: f32, z: f32) -> TriMesh {
