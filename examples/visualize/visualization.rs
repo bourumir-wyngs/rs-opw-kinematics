@@ -8,8 +8,57 @@ use crate::robot_body_builder::create_sample_robot;
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect::<Vec<_>>());
-    mesh.set_indices(Some(bevy::render::mesh::Indices::U32(trimesh.indices().iter().flat_map(|i| i.to_vec()).collect())));
+
+    // Step 1: Extract vertices and indices from the TriMesh
+    let vertices: Vec<_> = trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect();
+    let indices: Vec<_> = trimesh.indices().iter().flat_map(|i| i.to_vec()).collect::<Vec<_>>();
+
+    // Step 2: Initialize normal vectors for each vertex
+    let mut normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0]; vertices.len()];
+
+    // Step 3: Calculate normals for each face (triangle)
+    for triangle in trimesh.indices() {
+        let i0 = triangle[0] as usize;
+        let i1 = triangle[1] as usize;
+        let i2 = triangle[2] as usize;
+
+        // Get the three vertices of the triangle
+        let v0 = nalgebra::Vector3::new(vertices[i0][0], vertices[i0][1], vertices[i0][2]);
+        let v1 = nalgebra::Vector3::new(vertices[i1][0], vertices[i1][1], vertices[i1][2]);
+        let v2 = nalgebra::Vector3::new(vertices[i2][0], vertices[i2][1], vertices[i2][2]);
+
+        // Calculate the two edge vectors
+        let edge1 = v1 - v0;
+        let edge2 = v2 - v0;
+
+        // Calculate the normal using the cross product of the two edges
+        let normal = edge1.cross(&edge2).normalize();
+
+        // Add the **flipped** normal to each vertex's normal (negating the normal)
+        for &i in &[i0, i1, i2] {
+            normals[i][0] -= normal.x;
+            normals[i][1] -= normal.y;
+            normals[i][2] -= normal.z;
+        }
+    }
+
+    // Step 4: Normalize all vertex normals
+    for normal in normals.iter_mut() {
+        let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+        if length > 0.0 {
+            normal[0] /= length;
+            normal[1] /= length;
+            normal[2] /= length;
+        }
+    }
+
+    // Step 5: Insert attributes into the mesh
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);  // Add the flipped normals
+
+    // Step 6: Set the indices
+    mesh.set_indices(Some(bevy::render::mesh::Indices::U32(indices)));
+
     mesh
 }
 
@@ -67,6 +116,7 @@ pub fn setup(
                 base_color: Color::rgb(1.0, 1.0, 0.0),  // Yellow base color
                 metallic: 0.2,
                 perceptual_roughness: 0.3,
+                cull_mode: None,
                 ..default()
             }),
             transform: Transform {
