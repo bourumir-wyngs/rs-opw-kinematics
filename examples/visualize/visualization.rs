@@ -38,12 +38,6 @@ pub fn setup(
 
         // Convert translation to Bevy's Vec3
         // In Bevy, Y axis is going up, and not z !!!!
-        let translation_vec3 = Vec3::new(
-            cumulative_translation.x,
-            cumulative_translation.z,
-            cumulative_translation.y,
-        );
-
         // Swap the y and z axes in the translation
         let translation_vec3 = Vec3::new(
             cumulative_translation.x,
