@@ -53,20 +53,38 @@ pub fn create_six_joint_bodies() -> [JointBody; 6] {
 
 pub fn create_pyramid() -> TriMesh {
     let vertices = vec![
-        nalgebra::Point3::new(1.0, 1.0, 1.0),     // V0
-        nalgebra::Point3::new(-1.0, -1.0, 1.0),   // V1
-        nalgebra::Point3::new(-1.0, 1.0, -1.0),   // V2
-        nalgebra::Point3::new(1.0, -1.0, -1.0),   // V3
+        // Reoriented vertices to lie in the x-y plane with the top at z = 1.0
+        nalgebra::Point3::new(0.0, 0.0, 1.0),     // V0 (Top of the pyramid, facing z+)
+        nalgebra::Point3::new(1.0, -1.0, -1.0),   // V1 (Base in the x-y plane)
+        nalgebra::Point3::new(-1.0, -1.0, -1.0),  // V2 (Base in the x-y plane)
+        nalgebra::Point3::new(0.0, 1.0, -1.0),    // V3 (Base in the x-y plane)
     ];
 
     let indices = vec![
         [0, 1, 2],  // Face 1: (V0, V1, V2)
-        [0, 3, 1],  // Face 2: (V0, V3, V1)
-        [0, 2, 3],  // Face 3: (V0, V2, V3)
-        [1, 3, 2],  // Face 4: (V1, V3, V2)
+        [0, 2, 3],  // Face 2: (V0, V2, V3)
+        [0, 3, 1],  // Face 3: (V0, V3, V1)
+        [1, 2, 3],  // Face 4: Base (V1, V2, V3)
     ];
 
-    TriMesh::new(vertices, indices)
+    // To center the mass, calculate the centroid of the vertices
+    let centroid = nalgebra::Point3::new(
+        (0.0 + 1.0 + -1.0 + 0.0) / 4.0,  // Average x
+        (0.0 + -1.0 + -1.0 + 1.0) / 4.0, // Average y
+        (1.0 + -1.0 + -1.0 + -1.0) / 4.0 // Average z
+    );
+
+    // Translate the vertices so that the centroid is at (0, 0, 0)
+    let centered_vertices: Vec<nalgebra::Point3<f32>> = vertices
+        .into_iter()
+        .map(|v| nalgebra::Point3::new(
+            v.x - centroid.x,
+            v.y - centroid.y,
+            v.z - centroid.z
+        ))
+        .collect();
+
+    TriMesh::new(centered_vertices, indices)
 }
 
 
