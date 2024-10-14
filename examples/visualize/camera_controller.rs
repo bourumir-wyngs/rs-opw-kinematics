@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::input::mouse::MouseWheel;
+use bevy::math::vec3;
 use bevy::window::PrimaryWindow;
 use bevy::prelude::Component;
 
@@ -22,9 +23,9 @@ impl Default for CameraController {
             sensitivity: 0.1,
             pitch: 0.0,
             yaw: 0.0,
-            distance: 40.0,  // Start with a distance of 40 units
+            distance: 5.0,  // Start with a distance of 40 units
             last_mouse_position: None,
-            pan_target: Vec3::ZERO,  // Start by orbiting around the origin
+            pan_target: vec3(0.0,2.0,0.0),  // Start by orbiting around the origin
         }
     }
 }
@@ -83,7 +84,7 @@ pub fn camera_controller_system(
         // Handle mouse wheel for zoom
         for event in wheel_events.read() {
             controller.distance -= event.y * controller.speed * 0.5;
-            controller.distance = controller.distance.clamp(2.0, 100.0);  // Restrict zoom range
+            controller.distance = controller.distance.clamp(0.1, 100.0);  // Restrict zoom range
         }
 
         // Recalculate the camera's position based on the yaw, pitch, and distance

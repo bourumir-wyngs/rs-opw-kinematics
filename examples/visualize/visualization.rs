@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::prelude::*;        // Add the **flipped** normal to each vertex's normal (negating the normal)
 use bevy::pbr::wireframe::Wireframe;
 use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
@@ -34,11 +34,10 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         // Calculate the normal using the cross product of the two edges
         let normal = edge1.cross(&edge2).normalize();
 
-        // Add the **flipped** normal to each vertex's normal (negating the normal)
         for &i in &[i0, i1, i2] {
-            normals[i][0] -= normal.x;
-            normals[i][1] -= normal.y;
-            normals[i][2] -= normal.z;
+            normals[i][0] = normal.x;
+            normals[i][1] = normal.y;
+            normals[i][2] = normal.z;
         }
     }
 
@@ -70,28 +69,19 @@ pub fn setup(
     // Create the sample robot using kinematics and body with joint shapes
     let robot = create_sample_robot();
 
-    // Initialize the cumulative translation and rotation (identity rotation)
-    let mut cumulative_transform = Isometry3::identity();
-
     // Visualize each joint of the robot
     for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
-        // Get the current joint's transform (translation and rotation)
-        let joint_transform = robot.body.joint_origins[i];
-
-        // Accumulate the rotation and translation (successive transforms)
-        cumulative_transform = cumulative_transform * joint_transform;
-
-        // Extract the translation and rotation from the cumulative transform
-        let cumulative_translation = cumulative_transform.translation.vector;
-        let cumulative_rotation = cumulative_transform.rotation;
+        let transform = robot.body.joint_origins[i];
+        let translation = transform.translation.vector;
+        let rotation = transform.rotation;
 
         // Convert translation to Bevy's Vec3
         // In Bevy, Y axis is going up, and not z !!!!
         // Swap the y and z axes in the translation
         let translation_vec3 = Vec3::new(
-            cumulative_translation.x,
-            cumulative_translation.z,  // Swapped y and z
-            cumulative_translation.y,  // Swapped y and z
+            translation.x,
+            translation.z,  // Swapped y and z
+            translation.y,  // Swapped y and z
         );
 
         // Apply an additional 90-degree rotation around the x-axis to account for the axis swap
@@ -99,10 +89,10 @@ pub fn setup(
 
         // Convert the nalgebra quaternion rotation to Bevy's equivalent and apply the swap
         let rotation_quat = Quat::from_xyzw(
-            cumulative_rotation.i,
-            cumulative_rotation.j,
-            cumulative_rotation.k,
-            cumulative_rotation.w,
+            rotation.i,
+            rotation.j,
+            rotation.k,
+            rotation.w,
         );
 
         // Combine the original rotation with the swap quaternion
@@ -116,7 +106,7 @@ pub fn setup(
                 base_color: Color::rgb(1.0, 1.0, 0.0),  // Yellow base color
                 metallic: 0.2,
                 perceptual_roughness: 0.3,
-                cull_mode: None,
+                //cull_mode: None,
                 ..default()
             }),
             transform: Transform {

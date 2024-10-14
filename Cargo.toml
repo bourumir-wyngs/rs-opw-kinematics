@@ -17,7 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
-parry3d = "0.17"  # Latest version of parry
+
 
 # Optional dependencies:
 # - yaml-rust2: For reading YAML files.
@@ -29,9 +29,15 @@ sxd-document = { version = "0.3", optional = true }
 regex = { version = "1.10", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 
+# Needed for collision
+parry3d = { version = "0.17", optional = true }
+ply-rs = { version = "0.1", optional = true }
+stl_io = { version = "0.8", optional = true }
+
 [features]
-default = ["allow_filesystem"]
+default = ["allow_filesystem", "collisions"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
+collisions = ["parry3d", "ply-rs", "stl_io"]
 
 # To disable filesystem support:
 # rs-opw-kinematics = { version = "1.6.0", default-features = false }
