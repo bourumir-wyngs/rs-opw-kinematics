@@ -236,14 +236,6 @@ impl Kinematics for OPWKinematics {
         let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
         let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
-        let psi3 = f64::atan2(p.a2, p.c3);
-        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
-
-        // Precompute q23_psi3 for better readability and reuse
-        let q23_psi3 = q2 + q3 + psi3;
-        let sin_q23_psi3 = q23_psi3.sin();
-        let cos_q23_psi3 = q23_psi3.cos();
-
         // Precompute sines and cosines for efficiency
         let (s1, c1) = (q1.sin(), q1.cos());
         let (s2, c2) = (q2.sin(), q2.cos());
@@ -263,9 +255,11 @@ impl Kinematics for OPWKinematics {
         let pose2 = Pose::from_parts(Translation3::from(joint2_pos), UnitQuaternion::from_rotation_matrix(&joint2_rot));
 
         // Pose 3: Link 2 position
-        let cx1 = p.c2 * f64::sin(q2) + p.a1;
+        let (sin_q2, cos_q2)  = (q2.sin(), q2.cos());
+        
+        let cx1 = p.c2 * sin_q2 + p.a1;
         let cy1 = p.b; // Typically 0 for most robots
-        let cz1 = p.c2 * f64::cos(q2); // Move in Z by link length
+        let cz1 = p.c2 * cos_q2; // Move in Z by link length
         let joint3_pos = Vector3::new(
             cx1 * c1 - cy1 * s1,
             cx1 * s1 + cy1 * c1,
@@ -274,16 +268,16 @@ impl Kinematics for OPWKinematics {
         let joint3_rot = Rotation3::from_euler_angles(q1, q2, 0.0); // Rotation around Z and Y
         let pose3 = Pose::from_parts(Translation3::from(joint3_pos), UnitQuaternion::from_rotation_matrix(&joint3_rot));
 
-        // Pose 4: Link 3 position (additional translation along Z)
-        let cx2 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
-        let cz2 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
+        // Pose 4: Link 3 position (corrected calculation)
+        let cx2 = p.a1 + p.c2 * sin_q2 + p.a2 * (q2 + q3).sin();
+        let cz2 = p.c1 + p.c2 * cos_q2 + p.c3;
         let joint4_pos = Vector3::new(
             cx2 * c1 - cy1 * s1,
             cx2 * s1 + cy1 * c1,
-            cz2 + p.c1 // Continue translating along Z
+            cz2 // Corrected Z position without excessive offset
         );
         let joint4_rot = Rotation3::from_euler_angles(q1, q2, q3); // Rotation around Z, Y, and additional Y (q3)
-        let pose4 = Pose::from_parts(Translation3::from(joint4_pos), UnitQuaternion::from_rotation_matrix(&joint4_rot));
+        let pose4 = Pose::from_parts(Translation3::from(joint4_pos - Vector3::new(0.0, 0.0, p.c3)), UnitQuaternion::from_rotation_matrix(&joint4_rot));
 
         // Pose 5: Link 4 position (No c4 applied here, just joint4_pos)
         let joint5_pos = joint4_pos; // Do not apply c4 here
@@ -310,8 +304,7 @@ impl Kinematics for OPWKinematics {
 
         // Return all 6 Poses, with Pose 6 including c4 offset
         [pose1, pose2, pose3, pose4, pose5, pose6]
-    }    
-
+    }
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         self.filter_constraints_compliant(self.inverse_intern_5_dof(&pose, j6))
     }
