@@ -66,7 +66,7 @@ fn test_forward_kinematics_straight_up() {
 #[test]
 fn test_forward_kinematics_straight_up_2() {
     // Define the joint angles for pointing the robot straight up (all 0)
-    let joints: [f64; 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let joints: [f64; 6] = [0.0, -std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0];
 
     let parameters = Parameters {
         a1: 0.1,
@@ -76,6 +76,7 @@ fn test_forward_kinematics_straight_up_2() {
         c2: 0.705,
         c3: 0.755,
         c4: 0.085,
+        offsets: [0.0, -std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0],
         ..Parameters::new() // Any other required fields
     };
 

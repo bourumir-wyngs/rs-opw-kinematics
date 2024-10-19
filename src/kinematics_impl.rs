@@ -236,9 +236,6 @@ impl Kinematics for OPWKinematics {
         let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
         let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
-        let away = Isometry3::from_parts(Translation3::new(0.0, 0.0, 1000.0),
-                                         Isometry3::identity().rotation);
-
         // Pose 1: The base joint is at the height of c1 rotated by J1
         // This is how joints are given in URDF. There is also non-movable "robot base",
         // so the body of the first movable joint does not start at origin.
