@@ -19,7 +19,10 @@ pub fn create_robot_body(kinematics: &dyn Kinematics) -> RobotBody {
     // Define whether to stop after the first collision is detected
     let detect_first_collision_only = false;
 
-    let joint_origins: [Isometry3<f64>; 6] = kinematics.forward_with_joint_poses(&JOINTS_AT_ZERO);
+    let r = std::f64::consts::FRAC_PI_2;
+    let joints = [0.0, r/2., 0.0, r/2.0, 0.0, 0.0];
+    let joint_origins: [Isometry3<f64>; 6] = kinematics.forward_with_joint_poses(&joints);
+    
     let joint_origins = joint_origins.map(|pose| pose.cast::<f32>());        
     
     // Create a new RobotBody with the 6 joint bodies, tolerance, and early-stop flag
@@ -30,23 +33,58 @@ pub fn create_robot_body(kinematics: &dyn Kinematics) -> RobotBody {
 }
 
 pub fn create_six_joint_bodies() -> [JointBody; 6] {
-    // Use the identity transform for the local transformation of each joint
-    let identity_transform = Isometry3::identity();
+    // For the case of this robot, all links have identity local transform. This is not always the case. If the link is offset in its
+    // STL / PLY file, it must be "planted" in place by specifying the appropriate local transform ('origin' in URDF).
+    let identity = Isometry3::identity();
 
     // Create 6 joint bodies, each initialized with the pyramid shape and identity transformation
     [
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link1.stl").unwrap(), identity_transform),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link2.stl").unwrap(), identity_transform),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link3.stl").unwrap(), identity_transform),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link4.stl").unwrap(), identity_transform),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link5.stl").unwrap(), identity_transform),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link6.stl").unwrap(), identity_transform),
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_1.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_2.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_3.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_4.stl").unwrap(), identity), // Isometry3::translation(0.0, 0.0, -0.625)), // Second robot already with this bug. Check.
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_5.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_6.stl").unwrap(), identity),
+    ]
+}
+
+pub fn _create_six_joint_bodies() -> [JointBody; 6] {
+    // For the case of this robot, all links have identity local transform. This is not always the case. If the link is offset in its
+    // STL / PLY file, it must be "planted" in place by specifying the appropriate local transform ('origin' in URDF).
+
+    // Create 6 joint bodies, each initialized with the pyramid shape and identity transformation
+    [
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link1.stl").unwrap(),
+            Isometry3::translation(0.0, 0.0, -0.55)
+        ),
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link2.stl").unwrap(),
+            Isometry3::translation(-0.15, 0.0, -0.55)
+        ),
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link3.stl").unwrap(),
+            Isometry3::translation(-0.15, 0.0, -1.375)
+        ),
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link4.stl").unwrap(),
+            Isometry3::translation(-0.15, 0.0, -1.375) 
+        ),
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link5.stl").unwrap(),
+            Isometry3::translation(-0.15, 0.0, -2.3)
+        ),
+        JointBody::new(
+            load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_tx2_160l_support/meshes/tx2_160l/visual/link6.stl").unwrap(),
+            Isometry3::translation(-0.15, 0.0, -2.41)
+        ),
     ]
 }
 
 
 pub fn create_sample_robot() -> KinematicsWithShape {
-    let kinematics = Arc::new(OPWKinematics::new(Parameters::staubli_tx2_160l()));
+    let kinematics = Arc::new(OPWKinematics::new(Parameters::staubli_rx160()));
+    //let kinematics = Arc::new(OPWKinematics::new(Parameters::staubli_tx2_160l()));
     let body = create_robot_body(kinematics.as_ref());
     KinematicsWithShape {
         kinematics,

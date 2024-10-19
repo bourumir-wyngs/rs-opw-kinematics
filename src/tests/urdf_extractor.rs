@@ -1,5 +1,6 @@
 use std::fs::read_to_string;
 use crate::kinematic_traits::{Joints};
+use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::urdf;
 use crate::urdf::URDFParameters;
@@ -91,6 +92,37 @@ fn test_extraction_lrmate200ib() {
 
     for (i, &val) in expected_to.iter().enumerate() {
         assert_eq!(opw_parameters.to[i], val, "Mismatch in constraints to at index {}", i);
+    }
+}
+
+#[test]
+fn test_rx160() {
+    let opw_parameters = Parameters::staubli_rx160();
+
+    // opw_kinematics_geometric_parameters:
+    //   a1: 0.15
+    //   a2: 0.0
+    //   b: 0.0
+    //   c1: 0.55
+    //   c2: 0.825
+    //   c3: 0.625
+    //   c4: 0.11
+    // opw_kinematics_joint_offsets: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    // opw_kinematics_joint_sign_corrections: [1, 1, 1, 1, 1, 1]
+
+    assert_eq!(opw_parameters.a1, 0.15, "a1 parameter mismatch");
+    assert_eq!(opw_parameters.a2, 0.0, "a2 parameter mismatch");
+    assert_eq!(opw_parameters.b, 0.0, "b parameter mismatch");
+    assert_eq!(opw_parameters.c1, 0.55, "c1 parameter mismatch");
+    assert_eq!(opw_parameters.c2, 0.825, "c2 parameter mismatch");
+    assert_eq!(opw_parameters.c3, 0.625, "c3 parameter mismatch");
+    assert_eq!(opw_parameters.c4, 0.11, "c4 parameter mismatch");
+
+    let expected_sign_corrections: [i32; 6] = [1, 1, 1, 1, 1, 1];
+
+    for (i, &val) in expected_sign_corrections.iter().enumerate() {
+        assert_eq!(opw_parameters.sign_corrections[i], val as i8,
+                   "Mismatch in sign_corrections at index {}", i);
     }
 }
 

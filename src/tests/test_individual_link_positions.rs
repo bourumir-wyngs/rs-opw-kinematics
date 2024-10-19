@@ -4,6 +4,7 @@ use crate::frame::Frame;
 use crate::kinematic_traits::{Kinematics, Pose};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
+use crate::tests::test_utils::are_isometries_approx_equal;
 use crate::tool::{Base, Tool};
 
 const SMALL: f64 = 1e-6;
@@ -12,18 +13,39 @@ const SMALL: f64 = 1e-6;
 fn test_forward_kinematics_straight_up() {
     // Define the joint angles for pointing the robot straight up (all 0)
     let joints: [f64; 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    let parameters: Parameters = create_parameters();
-    let opw_kinematics: OPWKinematics = OPWKinematics::new(parameters);    
+
+    let parameters = Parameters {
+        a1: 0.150,
+        a2: 0.00017,
+        b: 0.0002,
+        c1: 0.551,
+        c2: 0.552,
+        c3: 0.600,
+        c4: 0.110,
+        ..Parameters::new() // Any other required fields
+    };
+
+    let opw_kinematics: OPWKinematics = OPWKinematics::new(parameters);
     let poses = opw_kinematics.forward_with_joint_poses(&joints);
+
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
 
     // Expected positions
     let expected_positions = [
-        (0.0, 0.0, parameters.c1),                              // Pose 1: Base link Z height
-        (parameters.a1, 0.0, parameters.c1),                     // Pose 2: Link 1 along X by a1, same Z
-        (parameters.a1, 0.0, parameters.c1 + parameters.c2),     // Pose 3: Add link 2 length along Z
-        (parameters.a1, 0.0, parameters.c1 + parameters.c2 + parameters.c3), // Pose 4: Add link 3 length along Z
-        (parameters.a1, 0.0, parameters.c1 + parameters.c2 + parameters.c3), // Pose 5: Same Z as Pose 4, no c4 yet
-        (parameters.a1, 0.0, parameters.c1 + parameters.c2 + parameters.c3 + parameters.c4), // Pose 6: Add wrist length c4
+        (0.0, 0.0, c1), // 1
+        (a1, 0.0, c1),  // 2
+        (a1, b, c1 + c2),  // 3 
+        (a1 + a2, b, c1 + c2),  // 4
+        (a1 + a2, b, c1 + c2 + c3),  // 5
+        (a1 + a2, b, c1 + c2 + c3 + c4),  // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
@@ -35,24 +57,104 @@ fn test_forward_kinematics_straight_up() {
     for (i, pose) in poses.iter().enumerate() {
         check_rotation(standing, i, &pose.rotation);
     }
+    
+    // Check also if the tcp-only version provides the same output
+    let tcp = opw_kinematics.forward(&joints); 
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
 }
+
+#[test]
+fn test_forward_kinematics_straight_up_2() {
+    // Define the joint angles for pointing the robot straight up (all 0)
+    let joints: [f64; 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+    let parameters = Parameters {
+        a1: 0.1,
+        a2: -0.135,
+        b: 0.,
+        c1: 0.615,
+        c2: 0.705,
+        c3: 0.755,
+        c4: 0.085,
+        ..Parameters::new() // Any other required fields
+    };
+
+    let opw_kinematics: OPWKinematics = OPWKinematics::new(parameters);
+    let poses = opw_kinematics.forward_with_joint_poses(&joints);
+
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
+
+    // Expected positions
+    let expected_positions = [
+        (0.0, 0.0, c1), // 1
+        (a1, 0.0, c1),  // 2
+        (a1, b, c1 + c2),  // 3 
+        (a1 + a2, b, c1 + c2),  // 4
+        (a1 + a2, b, c1 + c2 + c3),  // 5
+        (a1 + a2, b, c1 + c2 + c3 + c4),  // 6
+    ];
+
+    // Check all poses for correct X, Y, and Z translation
+    check_xyz(poses, expected_positions);
+
+    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
+
+    // Check that the quaternion (rotation) is identity quaternion for all poses
+    for (i, pose) in poses.iter().enumerate() {
+        check_rotation(standing, i, &pose.rotation);
+    }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = opw_kinematics.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+}
+
 
 #[test]
 fn test_forward_kinematics_j2_rotated_90_degrees() {
     // Define the joint angles: J2 rotated 90 degrees (π/2), other joints are 0
     let joints = [0.0, std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0];
-    let parameters: Parameters = create_parameters();
+
+    let parameters = Parameters {
+        a1: 0.150,
+        a2: 0.00017,
+        b: 0.0002,
+        c1: 0.551,
+        c2: 0.552,
+        c3: 0.600,
+        c4: 0.110,
+        ..Parameters::new() // Any other required fields
+    };
+
     let opw_kinematics: OPWKinematics = OPWKinematics::new(parameters);
+
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
     let poses = opw_kinematics.forward_with_joint_poses(&joints);
 
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
-        (0.0, 0.0, parameters.c1),
-        (parameters.a1, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3 + parameters.c4, 0.0, parameters.c1),
+        (0.0, 0.0, c1), // 1
+        (a1, 0.0, c1), // 2
+        (a1 + c2, b, c1), // 3
+        (a1 + c2, b, c1 - a2), // 4
+        (a1 + c2 + c3, b, c1 - a2), // 5
+        (a1 + c2 + c3 + c4, b, c1 - a2), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
@@ -64,13 +166,78 @@ fn test_forward_kinematics_j2_rotated_90_degrees() {
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
         // Pose 1 and Pose 2 should still have identity quaternions (no rotation applied)
-        if i <= 1 {
+        if i == 0 {
             check_rotation(standing, i, &pose.rotation);
         } else {
             // From Pose 3 onwards, J2 rotation is applied (90 degrees around Y-axis)
             check_rotation(lying, i, &pose.rotation);
         }
     }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = opw_kinematics.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));    
+}
+
+#[test]
+fn test_forward_kinematics_j2_rotated_90_degrees_2() {
+    // Define the joint angles: J2 rotated 90 degrees (π/2), other joints are 0
+    let joints = [0.0, std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0];
+
+    let parameters = Parameters {
+        a1: 0.1,
+        a2: -0.135,
+        b: 0.,
+        c1: 0.615,
+        c2: 0.705,
+        c3: 0.755,
+        c4: 0.085,
+        ..Parameters::new() // Any other required fields
+    };
+
+    let opw_kinematics: OPWKinematics = OPWKinematics::new(parameters);
+
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
+    let poses = opw_kinematics.forward_with_joint_poses(&joints);
+
+    // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
+    let expected_positions = [
+        (0.0, 0.0, c1), // 1
+        (a1, 0.0, c1), // 2
+        (a1 + c2, b, c1), // 3
+        (a1 + c2, b, c1 - a2), // 4
+        (a1 + c2 + c3, b, c1 - a2), // 5
+        (a1 + c2 + c3 + c4, b, c1 - a2), // 6
+    ];
+
+    // Check all poses for correct X, Y, and Z translation
+    check_xyz(poses, expected_positions);
+
+    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
+    let lying = UnitQuaternion::from_euler_angles(0.0, std::f64::consts::FRAC_PI_2, 0.0);
+
+    // Check quaternions for each pose (after J2 rotation)
+    for (i, pose) in poses.iter().enumerate() {
+        // Pose 1 and Pose 2 should still have identity quaternions (no rotation applied)
+        if i == 0 {
+            check_rotation(standing, i, &pose.rotation);
+        } else {
+            // From Pose 3 onwards, J2 rotation is applied (90 degrees around Y-axis)
+            check_rotation(lying, i, &pose.rotation);
+        }
+    }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = opw_kinematics.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -237,11 +404,11 @@ fn test_base_forward_kinematics() {
 fn create_parameters() -> Parameters {
     let parameters = Parameters {
         a1: 0.150,
-        a2: 0.000,
-        b: 0.000,
-        c1: 0.550,
-        c2: 0.550, // Example model-specific value
-        c3: 0.600, // Example model-specific value
+        a2: 0.00017,
+        b: 0.0002,
+        c1: 0.551,
+        c2: 0.552,
+        c3: 0.600,
         c4: 0.110,
         ..Parameters::new() // Any other required fields
     };

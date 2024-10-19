@@ -98,8 +98,6 @@ pub fn setup(
         // Combine the original rotation with the swap quaternion
         let final_rotation = swap_quat * rotation_quat;
 
-
-        // Spawn a pyramid for each joint, using the accumulated transform
         commands.spawn(PbrBundle {
             mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
             material: materials.add(StandardMaterial {

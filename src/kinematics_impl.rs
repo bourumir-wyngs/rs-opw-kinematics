@@ -32,7 +32,7 @@ impl OPWKinematics {
     }
 
     /// Create a new instance that takes also Constraints.
-    /// If constraints are set, all solutions returned by this solver are constraint compliant. 
+    /// If constraints are set, all solutions returned by this solver are constraint compliant.
     pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
         OPWKinematics {
             parameters,
@@ -57,7 +57,7 @@ impl Kinematics for OPWKinematics {
     /// The rotation of pose in this case is only approximate.
     fn inverse(&self, pose: &Pose) -> Solutions {
         if self.parameters.dof == 5 {
-            // For 5 DOF robot, we can only do 5 DOF approximate inverse. 
+            // For 5 DOF robot, we can only do 5 DOF approximate inverse.
             self.inverse_intern_5_dof(pose, f64::NAN)
         } else {
             self.filter_constraints_compliant(self.inverse_intern(&pose))
@@ -66,7 +66,7 @@ impl Kinematics for OPWKinematics {
 
     // Replaces singularity with correct solution
     // If this is 5 degree of freedom robot only, the 6 joint is set to as it was previous.
-    // The rotation of pose in this case is only approximate.    
+    // The rotation of pose in this case is only approximate.
     fn inverse_continuing(&self, pose: &Pose, prev: &Joints) -> Solutions {
         if self.parameters.dof == 5 {
             return self.inverse_intern_5_dof(pose, prev[5]);
@@ -188,12 +188,12 @@ impl Kinematics for OPWKinematics {
         let cz0 = cz1 + p.c1;
 
         // Precompute sines and cosines for efficiency
-        let (s1, c1) = (q1.sin(), q1.cos());
-        let (s2, c2) = (q2.sin(), q2.cos());
-        let (s3, c3) = (q3.sin(), q3.cos());
-        let (s4, c4) = (q4.sin(), q4.cos());
-        let (s5, c5) = (q5.sin(), q5.cos());
-        let (s6, c6) = (q6.sin(), q6.cos());
+        let (s1, c1) = q1.sin_cos();
+        let (s2, c2) = q2.sin_cos();
+        let (s3, c3) = q3.sin_cos();
+        let (s4, c4) = q4.sin_cos();
+        let (s5, c5) = q5.sin_cos();
+        let (s6, c6) = q6.sin_cos();
 
         // Compute rotation matrix r_0c
         let r_0c = Matrix3::new(
@@ -236,75 +236,56 @@ impl Kinematics for OPWKinematics {
         let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
         let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
-        // Precompute sines and cosines for efficiency
-        let (s1, c1) = (q1.sin(), q1.cos());
-        let (s2, c2) = (q2.sin(), q2.cos());
-        let (s3, c3) = (q3.sin(), q3.cos());
-        let (s4, c4) = (q4.sin(), q4.cos());
-        let (s5, c5) = (q5.sin(), q5.cos());
-        let (s6, c6) = (q6.sin(), q6.cos());
+        let away = Isometry3::from_parts(Translation3::new(0.0, 0.0, 1000.0),
+                                         Isometry3::identity().rotation);
 
-        // Pose 1: Base link position
-        let joint1_pos = Vector3::new(0.0, 0.0, p.c1); // Z-offset from the base height
-        let joint1_rot = Rotation3::identity(); // No rotation for the base frame
-        let pose1 = Pose::from_parts(Translation3::from(joint1_pos), UnitQuaternion::from_rotation_matrix(&joint1_rot));
-
-        // Pose 2: Link 1 position (translation along x = a1, rotation around q1)
-        let joint2_pos = Vector3::new(p.a1 * c1, p.a1 * s1, p.c1); // a1 affects X, base height remains Z
-        let joint2_rot = Rotation3::from_euler_angles(q1, 0.0, 0.0); // Rotation around Z-axis (q1)
-        let pose2 = Pose::from_parts(Translation3::from(joint2_pos), UnitQuaternion::from_rotation_matrix(&joint2_rot));
-
-        // Pose 3: Link 2 position
-        let (sin_q2, cos_q2)  = (q2.sin(), q2.cos());
-        
-        let cx1 = p.c2 * sin_q2 + p.a1;
-        let cy1 = p.b; // Typically 0 for most robots
-        let cz1 = p.c2 * cos_q2; // Move in Z by link length
-        let joint3_pos = Vector3::new(
-            cx1 * c1 - cy1 * s1,
-            cx1 * s1 + cy1 * c1,
-            cz1 + p.c1 // Add the base height
+        // Pose 1: The base joint is at the height of c1 rotated by J1
+        // This is how joints are given in URDF. There is also non-movable "robot base",
+        // so the body of the first movable joint does not start at origin.
+        let pose1 = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, p.c1),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), q1),
         );
-        let joint3_rot = Rotation3::from_euler_angles(q1, q2, 0.0); // Rotation around Z and Y
-        let pose3 = Pose::from_parts(Translation3::from(joint3_pos), UnitQuaternion::from_rotation_matrix(&joint3_rot));
 
-        // Pose 4: Link 3 position (corrected calculation)
-        let cx2 = p.a1 + p.c2 * sin_q2 + p.a2 * (q2 + q3).sin();
-        let cz2 = p.c1 + p.c2 * cos_q2 + p.c3;
-        let joint4_pos = Vector3::new(
-            cx2 * c1 - cy1 * s1,
-            cx2 * s1 + cy1 * c1,
-            cz2 // Corrected Z position without excessive offset
+        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by 
+        let pose2 = pose1 * Isometry3::from_parts(
+            Translation3::new(p.a1, 0.0, 0.0),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2),
         );
-        let joint4_rot = Rotation3::from_euler_angles(q1, q2, q3); // Rotation around Z, Y, and additional Y (q3)
-        let pose4 = Pose::from_parts(Translation3::from(joint4_pos - Vector3::new(0.0, 0.0, p.c3)), UnitQuaternion::from_rotation_matrix(&joint4_rot));
 
-        // Pose 5: Link 4 position (No c4 applied here, just joint4_pos)
-        let joint5_pos = joint4_pos; // Do not apply c4 here
-        let joint5_rot = Rotation3::from_euler_angles(q1, q2, q3 + q4); // Adding q4 for rotation around X-axis
-        let pose5 = Pose::from_parts(Translation3::from(joint5_pos), UnitQuaternion::from_rotation_matrix(&joint5_rot));
-
-        // Pose 6: End-effector position (including c4 offset)
-        let r_0c = Matrix3::new(
-            c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
-            s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
-            -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
+        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2. 
+        let pose3 = pose2 * Isometry3::from_parts(
+            Translation3::new(0.0, p.b, p.c2),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
         );
-        let r_ce = Matrix3::new(
-            c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
-            s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
-            -s5 * c6, s5 * s6, c5,
+
+        // Pose 4: this part uses pose3 as a base and just rotates around z.
+        let pose4 = pose3 * Isometry3::from_parts(
+            Translation3::new(p.a2, 0.0, 0.0),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
         );
-        let r_oe = r_0c * r_ce;
 
-        // Apply the c4 offset for the final end-effector position
-        let end_effector_pos = joint5_pos + r_oe * (p.c4 * *self.unit_z); // Apply c4 offset here for the wrist
-        let end_effector_rot = Rotation3::from_matrix_unchecked(r_oe); // Final rotation
-        let pose6 = Pose::from_parts(Translation3::from(end_effector_pos), UnitQuaternion::from_rotation_matrix(&end_effector_rot));
 
-        // Return all 6 Poses, with Pose 6 including c4 offset
+        // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments 
+        // in between.
+        let pose5 = pose4 * Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, p.c3),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q5),
+        );
+
+        // Pose 6 is not the physical joint of the robot itself, but rather where the tool would be attached.
+        // It is further away by c4 and rotates arround j6.
+        let pose6 = pose5 * Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, p.c4),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q6),
+        );
+
+        // Return poses of all five links between the joint, 
+        // and the tool center point as the last pose.
         [pose1, pose2, pose3, pose4, pose5, pose6]
     }
+
+
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         self.filter_constraints_compliant(self.inverse_intern_5_dof(&pose, j6))
     }
