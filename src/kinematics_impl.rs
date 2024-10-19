@@ -244,16 +244,25 @@ impl Kinematics for OPWKinematics {
             UnitQuaternion::from_axis_angle(&Vector3::z_axis(), q1),
         );
 
-        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by 
-        let pose2 = pose1 * Isometry3::from_parts(
-            Translation3::new(p.a1, 0.0, 0.0),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2),
+        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by
+        let pose2 = Isometry3::from_parts(
+            Translation3::new(p.a1 * q1.cos(), -p.a1 * q1.sin(), p.c1),
+            pose1.rotation *
+                UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2)
         );
 
-        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2. 
-        let pose3 = pose2 * Isometry3::from_parts(
-            Translation3::new(0.0, p.b, p.c2),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
+        // Compute the rod's projection in the x-y plane
+        let xy_projection = p.c2 * q2.cos();
+
+        // Final coordinates of the rod's tip
+        let x_rod = pose2.translation.x + xy_projection * q1.cos();
+        let y_rod = pose2.translation.y - xy_projection * q1.sin();
+        let z_rod = pose2.translation.z + p.c2 * q2.sin();        
+
+        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2.
+        let pose3 = Isometry3::from_parts(
+            Translation3::new(x_rod, y_rod, z_rod),
+            pose2.rotation * UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
         );
 
         // Pose 4: this part uses pose3 as a base and just rotates around z.
@@ -262,8 +271,7 @@ impl Kinematics for OPWKinematics {
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
         );
 
-
-        // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments 
+        // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments
         // in between.
         let pose5 = pose4 * Isometry3::from_parts(
             Translation3::new(0.0, 0.0, p.c3),
@@ -277,7 +285,7 @@ impl Kinematics for OPWKinematics {
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q6),
         );
 
-        // Return poses of all five links between the joint, 
+        // Return poses of all five links between the joint,
         // and the tool center point as the last pose.
         [pose1, pose2, pose3, pose4, pose5, pose6]
     }
