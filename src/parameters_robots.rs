@@ -120,6 +120,19 @@ pub mod opw_kinematics {
             }
         }
 
+        pub fn staubli_rx160() -> Self {
+            Parameters {
+                a1: 0.15,
+                a2: 0.0,
+                b: 0.0,
+                c1: 0.55,
+                c2: 0.825,
+                c3: 0.625,
+                c4: 0.11,
+                ..Self::new()
+            }
+        }        
+
         pub fn irb2600_12_165() -> Self {
             Parameters {
                 a1: 0.150,
