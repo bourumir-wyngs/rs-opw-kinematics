@@ -41,7 +41,7 @@ fn test_forward_kinematics_straight_up() {
     // Expected positions
     let expected_positions = [
         (0.0, 0.0, c1), // 1
-        (a1, 0.0, c1),  // 2
+        (a1, b, c1),  // 2
         (a1, b, c1 + c2),  // 3 
         (a1 + a2, b, c1 + c2),  // 4
         (a1 + a2, b, c1 + c2 + c3),  // 5
@@ -96,7 +96,7 @@ fn test_forward_kinematics_straight_up_2() {
     // Expected positions
     let expected_positions = [
         (0.0, 0.0, c1), // 1
-        (a1, 0.0, c1),  // 2
+        (a1, b, c1),  // 2
         (a1, b, c1 + c2),  // 3 
         (a1 + a2, b, c1 + c2),  // 4
         (a1 + a2, b, c1 + c2 + c3),  // 5
@@ -151,7 +151,7 @@ fn test_forward_kinematics_j2_rotated_90_degrees() {
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
         (0.0, 0.0, c1), // 1
-        (a1, 0.0, c1), // 2
+        (a1, b, c1), // 2
         (a1 + c2, b, c1), // 3
         (a1 + c2, b, c1 - a2), // 4
         (a1 + c2 + c3, b, c1 - a2), // 5

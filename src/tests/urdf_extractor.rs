@@ -1,6 +1,5 @@
 use std::fs::read_to_string;
 use crate::kinematic_traits::{Joints};
-use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::urdf;
 use crate::urdf::URDFParameters;

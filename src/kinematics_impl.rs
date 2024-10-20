@@ -264,7 +264,7 @@ impl Kinematics for OPWKinematics {
 
         // Pose 4: this part uses pose3 as a base and just rotates around z.
         let pose4 = pose3 * Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.0),
+            Translation3::new(p.a2, 0.0, 0.0),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
         );
 
@@ -272,13 +272,13 @@ impl Kinematics for OPWKinematics {
         // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments 
         // in between.
         let pose5 = pose4 * Isometry3::from_parts(
-            Translation3::new(p.a2, 0.0, p.c3),
+            Translation3::new(0.0, 0.0, p.c3),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q5),
         );
 
         // Pose 6 is not the physical joint of the robot itself, but rather where the tool would be attached.
         // It is further away by c4 and rotates arround j6.
-        let pose6 = pose4 * Isometry3::from_parts(
+        let pose6 = pose5 * Isometry3::from_parts(
             Translation3::new(0.0, 0.0, p.c4),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q6),
         );
