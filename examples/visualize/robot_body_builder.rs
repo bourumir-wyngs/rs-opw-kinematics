@@ -1,3 +1,4 @@
+use std::f64::consts::FRAC_PI_2;
 use std::sync::Arc;
 use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
@@ -19,8 +20,12 @@ pub fn create_robot_body(kinematics: &dyn Kinematics) -> RobotBody {
     // Define whether to stop after the first collision is detected
     let detect_first_collision_only = false;
 
-    let r = std::f64::consts::FRAC_PI_2;
-    let joints = [0.0, r/2., 0.0, r/2.0, 0.0, 0.0];
+    let r = FRAC_PI_2;
+    let joints = [r, r/2., r/4., r/4.0, r, r];
+    //let joints = [r, 0.0, 0.0, 0.0, 0.0, 0.0];
+    //let joints = [22.0_f64.to_radians(), -160.0_f64.to_radians(), 1.0_f64.to_radians(), -21.0_f64.to_radians(), -176.0_f64.to_radians(), -173.0_f64.to_radians()];
+    //let joints = [22.0_f64.to_radians(), -160.0_f64.to_radians(), 1.0_f64.to_radians(), -21.0_f64.to_radians(), -176.0_f64.to_radians(), -173.0_f64.to_radians()];
+    
     let joint_origins: [Isometry3<f64>; 6] = kinematics.forward_with_joint_poses(&joints);
     
     let joint_origins = joint_origins.map(|pose| pose.cast::<f32>());        

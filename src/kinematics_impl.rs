@@ -1,6 +1,7 @@
 //! Provides implementation of inverse and direct kinematics.
 
 use std::f64::{consts::PI};
+use std::f64::consts::FRAC_PI_2;
 use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
 use crate::kinematic_traits::{J4, J5, J6};
 use crate::parameters::opw_kinematics::{Parameters};
@@ -226,6 +227,12 @@ impl Kinematics for OPWKinematics {
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+        fn rotate_point_around_z(x: f64, y: f64, z: f64, q1: f64) -> (f64, f64, f64) {
+            let x_new = x * q1.cos() - y * q1.sin();
+            let y_new = x * q1.sin() + y * q1.cos();
+            (x_new, y_new, z)  // z remains unchanged
+        }
+        
         let p = &self.parameters;
 
         // Use joint angles directly as radians (no conversion needed)
@@ -236,58 +243,72 @@ impl Kinematics for OPWKinematics {
         let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
         let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
-        // Pose 1: The base joint is at the height of c1 rotated by J1
-        // This is how joints are given in URDF. There is also non-movable "robot base",
-        // so the body of the first movable joint does not start at origin.
-        let pose1 = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c1),
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), q1),
+        let away = Isometry3::from_parts(Translation3::new(0.0, 0.0, 1000.0),
+                                         Isometry3::identity().rotation);
+
+
+        // Transform oly works properly for q1 = 0. We can use 0 here and rotate the whole robot at the end.
+        let pose1 = Translation3::new(0.0, 0.0, p.c1);
+
+        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by 
+        let pose2 = pose1 * Isometry3::from_parts(
+            Translation3::new(p.a1, p.b, 0.0),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2),
         );
 
-        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by
-        let pose2 = Isometry3::from_parts(
-            Translation3::new(p.a1 * q1.cos(), -p.a1 * q1.sin(), p.c1),
-            pose1.rotation *
-                UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2)
-        );
-
-        // Compute the rod's projection in the x-y plane
-        let xy_projection = p.c2 * q2.cos();
-
-        // Final coordinates of the rod's tip
-        let x_rod = pose2.translation.x + xy_projection * q1.cos();
-        let y_rod = pose2.translation.y - xy_projection * q1.sin();
-        let z_rod = pose2.translation.z + p.c2 * q2.sin();        
-
-        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2.
-        let pose3 = Isometry3::from_parts(
-            Translation3::new(x_rod, y_rod, z_rod),
-            pose2.rotation * UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
+        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2. 
+        let pose3 = pose2 * Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, p.c2),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
         );
 
         // Pose 4: this part uses pose3 as a base and just rotates around z.
         let pose4 = pose3 * Isometry3::from_parts(
-            Translation3::new(p.a2, 0.0, 0.0),
+            Translation3::new(0.0, 0.0, 0.0),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
         );
 
-        // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments
+
+        // Pose 5 is the last robot segment to render. We have 6 joints so we have 5 segments 
         // in between.
         let pose5 = pose4 * Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c3),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q5),
+            Translation3::new(p.a2, 0.0, p.c3),
+            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q5),
         );
 
         // Pose 6 is not the physical joint of the robot itself, but rather where the tool would be attached.
         // It is further away by c4 and rotates arround j6.
-        let pose6 = pose5 * Isometry3::from_parts(
+        let pose6 = pose4 * Isometry3::from_parts(
             Translation3::new(0.0, 0.0, p.c4),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q6),
         );
+        
+        let pose_6_original_ik = self.forward(joints);
+        
+        let pose1 = Isometry3::from_parts(pose1, UnitQuaternion::identity());
 
-        // Return poses of all five links between the joint,
-        // and the tool center point as the last pose.
-        [pose1, pose2, pose3, pose4, pose5, pose6]
+        // Return poses of all five links betw, last being the tool center point.
+        let poses = [pose1, pose2, pose3, pose4, pose5, pose6];
+
+        let basis_rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), -q1);
+
+        // Rotate each pose independently
+        let mut rotated_poses = poses.clone();
+
+        for i in 0..6 {
+            let translation = &poses[i].translation.vector;
+            let (x_new, y_new, z_new) = rotate_point_around_z(translation.x, translation.y, translation.z, q1);
+
+            // Update only the translation part of the pose with the rotated values
+            rotated_poses[i] = Isometry3::from_parts(
+                Translation3::new(x_new, y_new, z_new),
+                basis_rotation * poses[i].rotation
+            );
+        }
+        
+        //rotated_poses[5] = pose_6_original_ik;
+
+        rotated_poses
     }
 
 
