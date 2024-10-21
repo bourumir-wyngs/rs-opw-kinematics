@@ -2,7 +2,7 @@ use bevy::prelude::*;        // Add the **flipped** normal to each vertex's norm
 use bevy::pbr::wireframe::Wireframe;
 use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
-use crate::camera_controller::CameraController;
+use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
@@ -78,7 +78,7 @@ pub(crate) fn mein() {
             joint_angles: [0.0; 6],  // Initialize all joints to 0 degrees
         })
         .add_systems(Startup, setup)               // Register setup system in Startup phase
-        .add_systems(Update, (update_robot_joints, control_panel)) // Add systems without .system()
+        .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
         .run();
 }
 
@@ -129,10 +129,13 @@ fn setup(
         ..default()
     });
 
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 2.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 5.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        CameraController::default(), // Custom component for controlling the camera
+    ));
 }
 
 // Update the robot when joint angles change
