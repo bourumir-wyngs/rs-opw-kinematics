@@ -47,3 +47,4 @@ collisions = ["parry3d", "ply-rs", "stl_io"]
 rand = "0.8"
 # Rendering is only used in examples
 bevy = "0.12"
+bevy_egui = "0.23"

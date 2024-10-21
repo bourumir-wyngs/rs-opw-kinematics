@@ -61,13 +61,35 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     mesh
 }
 
-pub fn setup(
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
+
+// Data to store the current joint angles
+#[derive(Resource)]
+struct RobotControls {
+    joint_angles: [f32; 6],
+}
+
+pub(crate) fn mein() {
+    App::new()
+        .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
+        .insert_resource(RobotControls {
+            joint_angles: [0.0; 6],  // Initialize all joints to 0 degrees
+        })
+        .add_systems(Startup, setup)               // Register setup system in Startup phase
+        .add_systems(Update, (update_robot_joints, control_panel)) // Add systems without .system()
+        .run();
+}
+
+fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    robot_controls: Res<RobotControls>,  // Get joint angles for initial setup
 ) {
-    // Create the sample robot using kinematics and body with joint shapes
-    let robot = create_sample_robot();
+    // Create the sample robot using initial joint values
+    let robot = _create_sample_robot(robot_controls.joint_angles);
 
     // Visualize each joint of the robot
     for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
@@ -75,36 +97,17 @@ pub fn setup(
         let translation = transform.translation.vector;
         let rotation = transform.rotation;
 
-        // Convert translation to Bevy's Vec3
-        // In Bevy, Y axis is going up, and not z !!!!
-        // Swap the y and z axes in the translation
-        let translation_vec3 = Vec3::new(
-            translation.x,
-            translation.z,  // Swapped y and z
-            translation.y,  // Swapped y and z
-        );
-
-        // Apply an additional 90-degree rotation around the x-axis to account for the axis swap
-        let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2); // 90-degree rotation around the x-axis
-
-        // Convert the nalgebra quaternion rotation to Bevy's equivalent and apply the swap
-        let rotation_quat = Quat::from_xyzw(
-            rotation.i,
-            rotation.j,
-            rotation.k,
-            rotation.w,
-        );
-
-        // Combine the original rotation with the swap quaternion
+        let translation_vec3 = Vec3::new(translation.x, translation.z, translation.y);
+        let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
         let final_rotation = swap_quat * rotation_quat;
 
         commands.spawn(PbrBundle {
             mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
             material: materials.add(StandardMaterial {
-                base_color: Color::rgb(1.0, 1.0, 0.0),  // Yellow base color
+                base_color: Color::rgb(1.0, 1.0, 0.0),  // Yellow color
                 metallic: 0.2,
                 perceptual_roughness: 0.3,
-                //cull_mode: None,
                 ..default()
             }),
             transform: Transform {
@@ -113,10 +116,10 @@ pub fn setup(
                 ..default()
             },
             ..default()
-        }).insert(Wireframe);  // Add wireframe to visualize edges
+        });
     }
 
-    // Add a directional light
+    // Add camera and light
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             illuminance: 30000.0,
@@ -126,14 +129,71 @@ pub fn setup(
         ..default()
     });
 
-    // Add a camera to view the scene
-    commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+    commands.spawn(Camera3dBundle {
+        transform: Transform::from_xyz(0.0, 2.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ..default()
+    });
+}
+
+// Update the robot when joint angles change
+fn update_robot_joints(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    robot_controls: Res<RobotControls>,
+    query: Query<Entity, With<Handle<Mesh>>>,  // Query entities with Mesh components
+) {
+    // Despawn all current robot joints
+    for entity in query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    // Recreate the robot with the updated joint angles
+    let robot = _create_sample_robot(robot_controls.joint_angles);
+
+    // (Same joint visualization code as in setup, reusing robot)
+    for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
+        let transform = robot.body.joint_origins[i];
+        let translation = transform.translation.vector;
+        let rotation = transform.rotation;
+
+        let translation_vec3 = Vec3::new(translation.x, translation.z, translation.y);
+        let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
+        let final_rotation = swap_quat * rotation_quat;
+
+        commands.spawn(PbrBundle {
+            mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
+            material: materials.add(StandardMaterial {
+                base_color: Color::rgb(1.0, 1.0, 0.0),
+                metallic: 0.2,
+                perceptual_roughness: 0.3,
+                ..default()
+            }),
+            transform: Transform {
+                translation: translation_vec3,
+                rotation: final_rotation,
+                ..default()
+            },
             ..default()
-        },
-        CameraController::default(),  // Custom component for controlling the camera
-    ));
+        });
+    }
 }
 
 
+// Control panel for adjusting joint angles
+fn control_panel(
+    mut egui_contexts: EguiContexts,  // Use EguiContexts instead of EguiContext
+    mut robot_controls: ResMut<RobotControls>,
+) {
+    bevy_egui::egui::Window::new("Robot Controls").show(egui_contexts.ctx_mut(), |ui| {
+        for (i, angle) in robot_controls.joint_angles.iter_mut().enumerate() {
+            ui.add(egui::Slider::new(angle, -360.0..=360.0).text(format!("Joint {}", i + 1)));
+        }
+    });
+}
+
+// Function to create a robot with joint angles (you need to implement this)
+fn _create_sample_robot(joint_angles: [f32; 6]) -> KinematicsWithShape {
+    create_sample_robot()
+}
