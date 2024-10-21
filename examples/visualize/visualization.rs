@@ -71,11 +71,28 @@ struct RobotControls {
     joint_angles: [f32; 6],
 }
 
+// Resource to store the current robot instance
+#[derive(Resource)]
+struct Robot {
+    kinematics: KinematicsWithShape,
+}
+
+#[derive(Resource, Clone)]
+struct PreviousRobotControls {
+    joint_angles: [f32; 6],
+}
+
 pub(crate) fn mein() {
     App::new()
         .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
         .insert_resource(RobotControls {
             joint_angles: [0.0; 6],  // Initialize all joints to 0 degrees
+        })
+        .insert_resource(Robot {
+            kinematics: _create_sample_robot([0.0; 6]),  // Initialize robot with default joint angles
+        })
+        .insert_resource(PreviousRobotControls {
+            joint_angles: [0.0; 6],  // Track previous joint angles
         })
         .add_systems(Startup, setup)               // Register setup system in Startup phase
         .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
@@ -86,38 +103,12 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    robot_controls: Res<RobotControls>,  // Get joint angles for initial setup
+    robot_controls: Res<RobotControls>,
+    mut previous_robot_controls: ResMut<PreviousRobotControls>,
+    robot: Res<Robot>
 ) {
     // Create the sample robot using initial joint values
-    let robot = _create_sample_robot(robot_controls.joint_angles);
-
-    // Visualize each joint of the robot
-    for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
-        let transform = robot.body.joint_origins[i];
-        let translation = transform.translation.vector;
-        let rotation = transform.rotation;
-
-        let translation_vec3 = Vec3::new(translation.x, translation.z, translation.y);
-        let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-        let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
-        let final_rotation = swap_quat * rotation_quat;
-
-        commands.spawn(PbrBundle {
-            mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
-            material: materials.add(StandardMaterial {
-                base_color: Color::rgb(1.0, 1.0, 0.0),  // Yellow color
-                metallic: 0.2,
-                perceptual_roughness: 0.3,
-                ..default()
-            }),
-            transform: Transform {
-                translation: translation_vec3,
-                rotation: final_rotation,
-                ..default()
-            },
-            ..default()
-        });
-    }
+    visualize_robot_joints(&mut commands, &mut meshes, &mut materials, &robot.kinematics);
 
     // Add camera and light
     commands.spawn(DirectionalLightBundle {
@@ -138,23 +129,14 @@ fn setup(
     ));
 }
 
-// Update the robot when joint angles change
-fn update_robot_joints(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    robot_controls: Res<RobotControls>,
-    query: Query<Entity, With<Handle<Mesh>>>,  // Query entities with Mesh components
+fn visualize_robot_joints(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    robot: &KinematicsWithShape,
 ) {
-    // Despawn all current robot joints
-    for entity in query.iter() {
-        commands.entity(entity).despawn();
-    }
-
-    // Recreate the robot with the updated joint angles
-    let robot = _create_sample_robot(robot_controls.joint_angles);
-
-    // (Same joint visualization code as in setup, reusing robot)
+    // Visualize each joint of the robot
+    // @todo This is totally wrong and must be rewritten
     for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
         let transform = robot.body.joint_origins[i];
         let translation = transform.translation.vector;
@@ -169,8 +151,8 @@ fn update_robot_joints(
             mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
             material: materials.add(StandardMaterial {
                 base_color: Color::rgb(1.0, 1.0, 0.0),
-                metallic: 0.2,
-                perceptual_roughness: 0.3,
+                metallic: 0.7,
+                perceptual_roughness: 0.1,
                 ..default()
             }),
             transform: Transform {
@@ -183,6 +165,30 @@ fn update_robot_joints(
     }
 }
 
+// Update the robot when joint angles change
+fn update_robot_joints(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    robot_controls: Res<RobotControls>,
+    mut previous_robot_controls: ResMut<PreviousRobotControls>,
+    mut robot: ResMut<Robot>,
+    query: Query<Entity, With<Handle<Mesh>>>,  // Query entities with Mesh components
+) {
+    if robot_controls.joint_angles != previous_robot_controls.joint_angles {
+        // Update the robot's joint angles with the new values
+        // robot.kinematics.reposition(robot_controls.joint_angles); ???
+
+        // Despawn the existing visualized robot joints
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+
+        // Revisualize the robot joints with the updated joint angles
+        visualize_robot_joints(&mut commands, &mut meshes, &mut materials, &robot.kinematics);
+        previous_robot_controls.joint_angles = robot_controls.joint_angles.clone();
+    }
+}
 
 // Control panel for adjusting joint angles
 fn control_panel(
