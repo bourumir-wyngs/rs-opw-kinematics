@@ -136,7 +136,7 @@ fn visualize_robot_joints(
     robot: &KinematicsWithShape,
 ) {
     // Visualize each joint of the robot
-    // @todo This is totally wrong and must be rewritten
+    // @todo This is totally wrong and must be rewritten using PositionedRobot
     for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
         let transform = robot.body.joint_origins[i];
         let translation = transform.translation.vector;
