@@ -1,4 +1,10 @@
-// Declare the modules from the visualize folder
+/// This example builds and visualizes complete robot, using Bevy.
+/// The visualization provides control bars to change the joint
+/// angles, the visualization of the robot is updated accordingly.
+/// This visualization is not part of the main library but
+/// rather example intended to show that everything works as 
+/// expected. You can use the modified version to test your own
+/// robot.
 #[path = "visualize/robot_body_builder.rs"]
 mod robot_body_builder;
 #[path = "visualize/visualization.rs"]
