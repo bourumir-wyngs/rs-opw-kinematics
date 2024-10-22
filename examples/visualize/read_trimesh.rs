@@ -1,8 +1,7 @@
 use parry3d::shape::TriMesh;
 use ply_rs::parser::Parser;
 use ply_rs::ply::{DefaultElement, Property};
-use std::path::Path;
-use stl_io::{read_stl, Vertex, Triangle};
+use stl_io::{read_stl};
 use std::fs::File;
 use std::io::BufReader;
 use nalgebra::Point3;

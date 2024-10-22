@@ -1,16 +1,13 @@
-use std::f64::consts::FRAC_PI_2;
 use std::sync::Arc;
 use nalgebra::Isometry3;
-use parry3d::shape::TriMesh;
 use rs_opw_kinematics::collisions::RobotBody;
 use rs_opw_kinematics::joint_body::JointBody;
-use rs_opw_kinematics::kinematic_traits::{Kinematics, JOINTS_AT_ZERO};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use crate::read_trimesh::load_trimesh_from_stl;
 
-pub fn create_robot_body(kinematics: &dyn Kinematics) -> RobotBody {
+pub fn create_robot_body() -> RobotBody {
     // Create 6 joint bodies, each with a pyramid shape and identity transformation
     let joint_bodies = create_six_joint_bodies();
 
@@ -19,20 +16,9 @@ pub fn create_robot_body(kinematics: &dyn Kinematics) -> RobotBody {
 
     // Define whether to stop after the first collision is detected
     let detect_first_collision_only = false;
-
-    let r = FRAC_PI_2;
-    let joints = [r, r/2., r/4., r/4.0, r, r];
-    //let joints = [r, 0.0, 0.0, 0.0, 0.0, 0.0];
-    //let joints = [22.0_f64.to_radians(), -160.0_f64.to_radians(), 1.0_f64.to_radians(), -21.0_f64.to_radians(), -176.0_f64.to_radians(), -173.0_f64.to_radians()];
-    //let joints = [22.0_f64.to_radians(), -160.0_f64.to_radians(), 1.0_f64.to_radians(), -21.0_f64.to_radians(), -176.0_f64.to_radians(), -173.0_f64.to_radians()];
-    
-    let joint_origins: [Isometry3<f64>; 6] = kinematics.forward_with_joint_poses(&joints);
-    
-    let joint_origins = joint_origins.map(|pose| pose.cast::<f32>());        
     
     // Create a new RobotBody with the 6 joint bodies, tolerance, and early-stop flag
     RobotBody::new(joint_bodies,
-                   joint_origins,
                    collision_tolerance, 
                    detect_first_collision_only)
 }
@@ -88,12 +74,9 @@ pub fn _create_six_joint_bodies() -> [JointBody; 6] {
 
 
 pub fn create_sample_robot() -> KinematicsWithShape {
-    let kinematics = Arc::new(OPWKinematics::new(Parameters::staubli_rx160()));
-    //let kinematics = Arc::new(OPWKinematics::new(Parameters::staubli_tx2_160l()));
-    let body = create_robot_body(kinematics.as_ref());
     KinematicsWithShape {
-        kinematics,
-        body: body
+        kinematics: Arc::new(OPWKinematics::new(Parameters::staubli_rx160())),
+        body: create_robot_body()
     }
 }
 

@@ -28,7 +28,6 @@ pub struct RobotBody {
 impl RobotBody {
     /// Constructor to initialize a robot with 6 joints, given tolerance and a flag for early collision detection.
     pub fn new(joint_bodies: [JointBody; 6],
-               joint_origins:[Isometry3<f32>; 6],
                tolerance: f32, detect_first_collision_only: bool) -> Self {
         RobotBody {
             joint_bodies,
@@ -150,7 +149,7 @@ mod tests {
             JointBody::new(create_trimesh(0.0, 0.0, 0.0), Isometry3::translation(0.02, 0.02, 0.02)),
         ];
 
-        let robot = RobotBody::new(joints, [identity; 6], 0.0,false);
+        let robot = RobotBody::new(joints, 0.0,false);
 
         let collisions = robot.detect_collisions(&[identity; 6]);
         assert!(!collisions.is_empty(), "Expected at least one collision, but none were detected.");

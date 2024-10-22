@@ -267,16 +267,26 @@ fn test_tool_forward_kinematics() {
     // Compute forward kinematics for the given joint angles
     let poses = robot_with_tool.forward_with_joint_poses(&joints);
 
-    // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2, plus the tool offset in Z direction
-    let expected_positions = [
-        (0.0, 0.0, parameters.c1),
-        (parameters.a1, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3 + parameters.c4 + tool_offset, 0.0, parameters.c1), // Tool adds 1 meter in X
-    ];
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
 
+    // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
+    let expected_positions = [
+        (0.0, 0.0, c1), // 1
+        (a1, b, c1), // 2
+        (a1 + c2, b, c1), // 3
+        (a1 + c2, b, c1 - a2), // 4
+        (a1 + c2 + c3, b, c1 - a2), // 5
+        (a1 + c2 + c3 + c4 + tool_offset, b, c1 - a2), // 6
+    ];
+    
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
@@ -286,13 +296,17 @@ fn test_tool_forward_kinematics() {
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
         // Pose 1 and Pose 2 should still have identity quaternions (no rotation applied)
-        if i <= 1 {
+        if i == 0 {
             check_rotation(standing, i, &pose.rotation);
         } else {
             // From Pose 3 onwards, J2 rotation is applied (90 degrees around Y-axis)
             check_rotation(lying, i, &pose.rotation);
         }
     }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = robot_with_tool.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -301,7 +315,7 @@ fn test_frame_forward_kinematics() {
 
     // Create an instance of OPWKinematics
     let parameters: Parameters = create_parameters();
-    let robot_without_tool = OPWKinematics::new(parameters);
+    let robot_without_frame = OPWKinematics::new(parameters);
 
     // Tool extends 1 meter in the Z direction
     let frame_translation = Isometry3::from_parts(
@@ -310,8 +324,8 @@ fn test_frame_forward_kinematics() {
     );
 
     // Create the Tool instance with the transformation
-    let robot_with_tool = Frame {
-        robot: Arc::new(robot_without_tool),
+    let robot_with_frame = Frame {
+        robot: Arc::new(robot_without_frame),
         frame: frame_translation,
     };
 
@@ -319,16 +333,26 @@ fn test_frame_forward_kinematics() {
     let joints = [0.0, std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0];
 
     // Compute forward kinematics for the given joint angles
-    let poses = robot_with_tool.forward_with_joint_poses(&joints);
+    let poses = robot_with_frame.forward_with_joint_poses(&joints);
 
-    // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2, plus the tool offset in Z direction
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );
+
+    // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
-        (0.0, 0.0, parameters.c1),
-        (parameters.a1, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1),
-        (parameters.a1 + parameters.c2 + parameters.c3 + parameters.c4 + frame_offset, 0.0, parameters.c1), // Frame adds 1 meter in X
+        (0.0, 0.0, c1), // 1
+        (a1, b, c1), // 2
+        (a1 + c2, b, c1), // 3
+        (a1 + c2, b, c1 - a2), // 4
+        (a1 + c2 + c3, b, c1 - a2), // 5
+        (a1 + c2 + c3 + c4 + frame_offset, b, c1 - a2), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
@@ -340,13 +364,17 @@ fn test_frame_forward_kinematics() {
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
         // Pose 1 and Pose 2 should still have identity quaternions (no rotation applied)
-        if i <= 1 {
+        if i == 0 {
             check_rotation(standing, i, &pose.rotation);
         } else {
             // From Pose 3 onwards, J2 rotation is applied (90 degrees around Y-axis)
             check_rotation(lying, i, &pose.rotation);
         }
     }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = robot_with_frame.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -374,17 +402,26 @@ fn test_base_forward_kinematics() {
     // Compute forward kinematics for the given joint angles
     let poses = robot_with_base.forward_with_joint_poses(&joints);
 
+    let (a1, a2, b, c1, c2, c3, c4) = (
+        parameters.a1,
+        parameters.a2,
+        parameters.b,
+        parameters.c1,
+        parameters.c2,
+        parameters.c3,
+        parameters.c4
+    );    
+
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2, plus the base offset in Z direction
     let expected_positions = [
-        (0.0, 0.0, parameters.c1 + base_height), // Base adds 1 meter in Z
-        (parameters.a1, 0.0, parameters.c1 + base_height),
-        (parameters.a1 + parameters.c2, 0.0, parameters.c1 + base_height),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1 + base_height),
-        (parameters.a1 + parameters.c2 + parameters.c3, 0.0, parameters.c1 + base_height),
-        (parameters.a1 + parameters.c2 + parameters.c3 + parameters.c4, 0.0, parameters.c1 + base_height),
+        (0.0, 0.0, c1 + base_height), // 1
+        (a1, b, c1 + base_height), // 2
+        (a1 + c2, b, c1 + base_height), // 3
+        (a1 + c2, b, c1 - a2 + base_height), // 4
+        (a1 + c2 + c3, b, c1 - a2 + base_height), // 5
+        (a1 + c2 + c3 + c4, b, c1 - a2 + base_height), // 6
     ];
 
-    // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
     let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
@@ -393,13 +430,17 @@ fn test_base_forward_kinematics() {
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
         // Pose 1 and Pose 2 should still have identity quaternions (no rotation applied)
-        if i <= 1 {
+        if i == 0 {
             check_rotation(standing, i, &pose.rotation);
         } else {
             // From Pose 3 onwards, J2 rotation is applied (90 degrees around Y-axis)
             check_rotation(lying, i, &pose.rotation);
         }
     }
+
+    // Check also if the tcp-only version provides the same output
+    let tcp = robot_with_base.forward(&joints);
+    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 fn create_parameters() -> Parameters {
