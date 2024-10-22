@@ -30,12 +30,12 @@ pub fn create_six_joint_bodies() -> [JointBody; 6] {
 
     // Create 6 joint bodies, each initialized with the pyramid shape and identity transformation
     [
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_1.stl").unwrap(), identity),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_2.stl").unwrap(), identity),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_3.stl").unwrap(), identity),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_4.stl").unwrap(), identity), // Isometry3::translation(0.0, 0.0, -0.625)), // Second robot already with this bug. Check.
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_5.stl").unwrap(), identity),
-        JointBody::new(load_trimesh_from_stl("/home/audrius/opw/staubli/staubli_rx160_support/meshes/rx160/visual/link_6.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl").unwrap(), identity),
+        JointBody::new(load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl").unwrap(), identity),
     ]
 }
 
