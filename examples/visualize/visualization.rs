@@ -1,6 +1,4 @@
 use bevy::prelude::*;        // Add the **flipped** normal to each vertex's normal (negating the normal)
-use bevy::pbr::wireframe::Wireframe;
-use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
@@ -63,7 +61,9 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
-use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
+use bevy_egui::egui::emath::Numeric;
+use rs_opw_kinematics::kinematic_traits::JOINTS_AT_ZERO;
+use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape, PositionedJoint};
 
 // Data to store the current joint angles
 #[derive(Resource)]
@@ -75,6 +75,8 @@ struct RobotControls {
 #[derive(Resource)]
 struct Robot {
     kinematics: KinematicsWithShape,
+    joint_meshes: Option<[Handle<Mesh>; 6]>, // Precomputed and converted meshes
+    previous_joint_angles: Option<[f32; 6]>, // Store previous joint angles here
 }
 
 #[derive(Resource, Clone)]
@@ -89,7 +91,9 @@ pub(crate) fn mein() {
             joint_angles: [0.0; 6],  // Initialize all joints to 0 degrees
         })
         .insert_resource(Robot {
-            kinematics: _create_sample_robot([0.0; 6]),  // Initialize robot with default joint angles
+            kinematics: create_sample_robot(),
+            joint_meshes: None,
+            previous_joint_angles: None            
         })
         .insert_resource(PreviousRobotControls {
             joint_angles: [0.0; 6],  // Track previous joint angles
@@ -104,11 +108,22 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     robot_controls: Res<RobotControls>,
-    mut previous_robot_controls: ResMut<PreviousRobotControls>,
-    robot: Res<Robot>
+    mut robot: ResMut<Robot>,
 ) {
-    // Create the sample robot using initial joint values
-    visualize_robot_joints(&mut commands, &mut meshes, &mut materials, &robot.kinematics);
+    fn prepare(meshes: &mut ResMut<Assets<Mesh>>, robot: &ResMut<Robot>, k: usize) -> Handle<Mesh> {
+        meshes.add(trimesh_to_bevy_mesh(&robot.kinematics.body.joint_bodies[k].transformed_shape))
+    }
+
+    // Precompute the mesh for each of the six robot joints
+    let k = 0;
+    robot.joint_meshes  = Some([
+        prepare(&mut meshes, &robot, 0), prepare(&mut meshes, &robot, 1),
+        prepare(&mut meshes, &robot, 2), prepare(&mut meshes, &robot, 3),
+        prepare(&mut meshes, &robot, 4), prepare(&mut meshes, &robot, 5)
+    ]);
+
+    // Visualize the robot joints with the initial joint values
+    visualize_robot_joints(&mut commands, &mut materials, &robot, &robot_controls.joint_angles);
 
     // Add camera and light
     commands.spawn(DirectionalLightBundle {
@@ -129,26 +144,43 @@ fn setup(
     ));
 }
 
+/// This function generates a visual representation of each joint of a robot
+/// based on the provided joint angles. The joint shapes are transformed
+/// according to the kinematic configuration and rendered using Bevy's `PbrBundle`
+/// for materials and lighting.
+///
+/// # Parameters:
+/// - `commands`: Mutable reference to Bevy's `Commands`, used to issue entity spawn commands.
+/// - `meshes`: Mutable resource containing Bevy's asset storage for meshes.
+/// - `materials`: Mutable resource containing Bevy's asset storage for standard materials.
+/// - `robot`: Reference to the robot's kinematic model and shapes (`KinematicsWithShape`).
+/// - `joint_angles`: Array of 6 f32 values representing the joint angles of the robot in degrees.
+///
+/// Each joint's shape is transformed and rendered at the correct position and orientation
+/// based on the robot's forward kinematics.
 fn visualize_robot_joints(
     commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    robot: &KinematicsWithShape,
+    robot: &ResMut<Robot>,
+    joint_angles: &[f32; 6],
 ) {
     // Visualize each joint of the robot
-    // @todo This is totally wrong and must be rewritten using PositionedRobot
-    for (i, joint_body) in robot.body.joint_bodies.iter().enumerate() {
-        let transform = robot.body.joint_origins[i];
-        let translation = transform.translation.vector;
-        let rotation = transform.rotation;
+    let angles: [f64; 6] = [
+        joint_angles[0].to_f64().to_radians(),
+        joint_angles[1].to_f64().to_radians(),
+        joint_angles[2].to_f64().to_radians(),
+        joint_angles[3].to_f64().to_radians(),
+        joint_angles[4].to_f64().to_radians(),
+        joint_angles[5].to_f64().to_radians()
+    ];
 
-        let translation_vec3 = Vec3::new(translation.x, translation.z, translation.y);
-        let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-        let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
-        let final_rotation = swap_quat * rotation_quat;
+    let positioned_robot = robot.kinematics.positioned_robot(&angles);
+    for j in 0..6 {
+        let positioned_joint = &positioned_robot.joints[j];
+        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint);
 
         commands.spawn(PbrBundle {
-            mesh: meshes.add(trimesh_to_bevy_mesh(&joint_body.transformed_shape)),
+            mesh: robot.joint_meshes.as_ref().unwrap()[j].clone(),
             material: materials.add(StandardMaterial {
                 base_color: Color::rgb(1.0, 1.0, 0.0),
                 metallic: 0.7,
@@ -165,6 +197,20 @@ fn visualize_robot_joints(
     }
 }
 
+// Obtain Bevy-compliate coordinates
+fn as_bevy(positioned_joint: &&PositionedJoint) -> (Vec3, Quat) {
+    let transform = &positioned_joint.transform;
+    let translation = &transform.translation.vector;
+    let rotation = &transform.rotation;
+
+    // Migrate to Bevy system of coordinates
+    let translation_vec3 = Vec3::new(translation.x, translation.z, translation.y);
+    let swap_quat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
+    let final_rotation = swap_quat * rotation_quat;
+    (translation_vec3, final_rotation)
+}
+
 // Update the robot when joint angles change
 fn update_robot_joints(
     mut commands: Commands,
@@ -176,16 +222,15 @@ fn update_robot_joints(
     query: Query<Entity, With<Handle<Mesh>>>,  // Query entities with Mesh components
 ) {
     if robot_controls.joint_angles != previous_robot_controls.joint_angles {
-        // Update the robot's joint angles with the new values
-        // robot.kinematics.reposition(robot_controls.joint_angles); ???
-
         // Despawn the existing visualized robot joints
         for entity in query.iter() {
             commands.entity(entity).despawn();
         }
 
         // Revisualize the robot joints with the updated joint angles
-        visualize_robot_joints(&mut commands, &mut meshes, &mut materials, &robot.kinematics);
+        visualize_robot_joints(&mut commands, &mut materials,
+                               &mut robot, &robot_controls.joint_angles);
+
         previous_robot_controls.joint_angles = robot_controls.joint_angles.clone();
     }
 }
@@ -200,9 +245,4 @@ fn control_panel(
             ui.add(egui::Slider::new(angle, -360.0..=360.0).text(format!("Joint {}", i + 1)));
         }
     });
-}
-
-// Function to create a robot with joint angles (you need to implement this)
-fn _create_sample_robot(joint_angles: [f32; 6]) -> KinematicsWithShape {
-    create_sample_robot()
 }

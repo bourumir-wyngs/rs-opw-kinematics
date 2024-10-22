@@ -6,14 +6,13 @@ use crate::kinematic_traits::{Joints, Kinematics};
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
 /// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
 /// of a joint. This struct also provides functionality for detecting collisions 
-/// between these joints.
+/// between these joints. This structure does not specify the exact pose of the robot,
+/// it is used to build a `PositionedRobot` that does.
 pub struct RobotBody {
     /// A fixed-size array of 6 `JointBody` instances, each representing 
     /// the geometrical shape of a joint in the robot.
     pub joint_bodies: [JointBody; 6],
-    
-    // Joint positioning with relate to other joint when the rotation angle is 0.0
-    pub joint_origins: [Isometry3<f32>; 6],
+
 
     /// The threshold distance used in collision detection. 
     /// If the distance between two geometries is less than this value, they are considered colliding.
@@ -33,7 +32,6 @@ impl RobotBody {
                tolerance: f32, detect_first_collision_only: bool) -> Self {
         RobotBody {
             joint_bodies,
-            joint_origins,
             collision_tolerance: tolerance,
             detect_first_collision_only,
         }
