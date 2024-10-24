@@ -196,7 +196,7 @@ pub struct ColinearPoints {
 }
 
 /// Struct to hold six points that still do not represent a valid isometry.
-/// It implements Error, containing at the same a pairs of 3D time points 
+/// It implements Error, containing at the same time six 3D points 
 /// from whom the isometry cannot be constructed.
 #[derive(Debug)]
 pub struct NotIsometry {
@@ -209,7 +209,8 @@ pub struct NotIsometry {
 }
 
 impl NotIsometry {
-    /// Creates a new NotIsometry instance.
+    /// Creates a new NotIsometry instance, containing 6 points that do not
+    /// represent a valid isometry.
     pub fn new(a1: Point3<f64>, a2: Point3<f64>, a3: Point3<f64>,
                b1: Point3<f64>, b2: Point3<f64>, b3: Point3<f64>) -> Self {
         NotIsometry { a1, a2, a3, b1, b2, b3 }
