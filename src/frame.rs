@@ -195,7 +195,9 @@ pub struct ColinearPoints {
     pub source: bool,
 }
 
-/// Struct to hold six points and represent a potential non-isometry.
+/// Struct to hold six points that still do not represent a valid isometry.
+/// It implements Error, containing at the same a pairs of 3D time points 
+/// from whom the isometry cannot be constructed.
 #[derive(Debug)]
 pub struct NotIsometry {
     pub a1: Point3<f64>,
