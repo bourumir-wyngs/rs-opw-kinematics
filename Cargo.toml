@@ -1,15 +1,15 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.5.0"
+version = "1.6.1"
+autoexamples = true
 edition = "2021"
-authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
+authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
 keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
-categories = ["science::robotics"]
+categories = ["science::robotics", "algorithms"]
 
 license = "BSD-3-Clause"
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
-
 readme = "README.md"
 
 [badges]
@@ -29,7 +29,7 @@ default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
 # To disable filesystem:
-#rs-opw-kinematics = { version = "1.5.0", default-features = false }
+#rs-opw-kinematics = { version = "1.6.1", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"
