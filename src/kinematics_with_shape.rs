@@ -26,6 +26,7 @@ pub struct KinematicsWithShape {
 pub struct PositionedRobot<'a> {
     /// A vector of references to `PositionedJoint`, representing the joints and their precomputed transforms.
     pub joints: Vec<PositionedJoint<'a>>,
+    pub tool: Option<PositionedJoint<'a>>,
 }
 
 /// Struct representing a positioned joint, which consists of a reference to a `JointBody`
@@ -75,8 +76,20 @@ impl KinematicsWithShape {
             .collect();
 
         // Return the PositionedRobot with all the positioned joints
+        let positioned_tool = if let Some(tool) = self.body.tool.as_ref() {
+            Some(
+                PositionedJoint {
+                    joint_body: tool,
+                    transform: global_transforms[5], // TCP pose
+                }
+            )
+        } else {
+            None
+        };
+        
         PositionedRobot {
             joints: positioned_joints,
+            tool: positioned_tool
         }
     }
 }

@@ -12,7 +12,10 @@ pub struct RobotBody {
     /// A fixed-size array of 6 `JointBody` instances, each representing 
     /// the geometrical shape of a joint in the robot.
     pub joint_bodies: [JointBody; 6],
-
+    
+    /// Optional tool that, if exists, is attached to the last joint. Being JointBody, it can be
+    /// attached with the local transform.
+    pub tool: Option<JointBody>,
 
     /// The threshold distance used in collision detection. 
     /// If the distance between two geometries is less than this value, they are considered colliding.
@@ -26,15 +29,6 @@ pub struct RobotBody {
 
 
 impl RobotBody {
-    /// Constructor to initialize a robot with 6 joints, given tolerance and a flag for early collision detection.
-    pub fn new(joint_bodies: [JointBody; 6],
-               tolerance: f32, detect_first_collision_only: bool) -> Self {
-        RobotBody {
-            joint_bodies,
-            collision_tolerance: tolerance,
-            detect_first_collision_only,
-        }
-    }
 
     /// Perform collision detection and return a vector of pairs of joint indices that collide.
     /// In each returned pair, the lower index will always come first.
@@ -149,7 +143,12 @@ mod tests {
             JointBody::new(create_trimesh(0.0, 0.0, 0.0), Isometry3::translation(0.02, 0.02, 0.02)),
         ];
 
-        let robot = RobotBody::new(joints, 0.0,false);
+        let robot = RobotBody {
+            joint_bodies: joints,
+            tool: None,
+            collision_tolerance: 0.0,
+            detect_first_collision_only: false,
+        };
 
         let collisions = robot.detect_collisions(&[identity; 6]);
         assert!(!collisions.is_empty(), "Expected at least one collision, but none were detected.");

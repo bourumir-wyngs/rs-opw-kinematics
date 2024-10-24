@@ -76,7 +76,9 @@ struct Robot {
     kinematics: KinematicsWithShape,
     joint_meshes: Option<[Handle<Mesh>; 6]>, // Precomputed and converted meshes
     material: Option<Handle<StandardMaterial>>,
+    tool_material: Option<Handle<StandardMaterial>>,
     previous_joint_angles: [f32; 6], // Store previous joint angles here
+    tool: Option<Handle<Mesh>>,
 }
 
 pub(crate) fn main_method() {
@@ -89,6 +91,8 @@ pub(crate) fn main_method() {
             kinematics: create_sample_robot(),
             joint_meshes: None,
             material: None,
+            tool_material: None,
+            tool: None,
             previous_joint_angles: [0.0; 6],  // Track previous joint angles            
         })
         .add_systems(Startup, setup)               // Register setup system in Startup phase
@@ -108,19 +112,31 @@ fn setup(
     }
 
     // Precompute the mesh for each of the six robot joints
-    robot.joint_meshes  = Some([
+    robot.joint_meshes = Some([
         prepare(&mut meshes, &robot, 0), prepare(&mut meshes, &robot, 1),
         prepare(&mut meshes, &robot, 2), prepare(&mut meshes, &robot, 3),
         prepare(&mut meshes, &robot, 4), prepare(&mut meshes, &robot, 5)
     ]);
-    
+
+    if let Some(tool) = robot.kinematics.body.tool.as_ref() {
+        robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool.transformed_shape)));
+        robot.tool_material = Some(
+            materials.add(StandardMaterial {
+                base_color: Color::rgb(1.0, 1.0, 1.0),
+                metallic: 0.7,
+                perceptual_roughness: 0.05,
+                ..default()
+            })
+        );
+    }
+
     robot.material = Some(
         materials.add(StandardMaterial {
             base_color: Color::rgb(1.0, 1.0, 0.0),
             metallic: 0.7,
             perceptual_roughness: 0.1,
             ..default()
-        })        
+        })
     );
 
     // Visualize the robot joints with the initial joint values
@@ -181,7 +197,7 @@ fn visualize_robot_joints(
         let final_rotation = rotation_quat;
         (translation_vec3, final_rotation)
     }
-    
+
     // Visualize each joint of the robot
     let angles: [f64; 6] = [
         joint_angles[0].to_f64().to_radians(),
@@ -200,6 +216,23 @@ fn visualize_robot_joints(
         commands.spawn(PbrBundle {
             mesh: robot.joint_meshes.as_ref().unwrap()[j].clone(),
             material: robot.material.as_ref().unwrap().clone(),
+            transform: Transform {
+                translation: translation_vec3,
+                rotation: final_rotation,
+                ..default()
+            },
+            ..default()
+        });
+    }
+
+
+    if let (Some(tool), Some(positioned_joint)) =
+        (&robot.tool, positioned_robot.tool.as_ref()) {
+        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint);
+
+        commands.spawn(PbrBundle {
+            mesh: tool.clone(),
+            material: robot.tool_material.as_ref().unwrap().clone(),
             transform: Transform {
                 translation: translation_vec3,
                 rotation: final_rotation,
