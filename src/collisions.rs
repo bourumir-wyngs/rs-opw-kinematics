@@ -1,7 +1,7 @@
 use nalgebra::{Isometry3};
 use parry3d::query::contact;
 use crate::joint_body::JointBody;
-use crate::kinematic_traits::{Joints, Kinematics};
+use crate::kinematic_traits::{Joints, Kinematics, J5, J_TOOL};
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
 /// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
@@ -45,6 +45,9 @@ impl RobotBody {
     ///
     /// If the `detect_first_collision_only` flag is true, the function returns after detecting
     /// the first collision.
+    /// 
+    /// If the tool is present and collides with something, it is named in returned tuple
+    /// as J_TOOL (value 6). 
     pub fn detect_collisions(
         &self,
         transforms: &[Isometry3<f32>; 6],
@@ -83,6 +86,35 @@ impl RobotBody {
                             }
                         }
                     }
+                }
+            }
+            
+            // If the tool is defined, check it against joints J1 to J5 (it is attached to J6)
+            if let Some(tool) = &self.tool {
+                for i in 0..5 {
+                    let joint = &self.joint_bodies[i];
+                    let simplified_contact = contact(
+                        &transforms[i], &joint.simplified_shape,
+                        &transforms[J5], &tool.simplified_shape,
+                        self.collision_tolerance,
+                    );
+
+                    // If simplified shapes collide, proceed to detailed collision check
+                    if simplified_contact.is_ok() && simplified_contact.unwrap().is_some() {
+                        let shape_contact = contact(
+                            &transforms[i], &joint.transformed_shape,
+                            &transforms[J5], &tool.simplified_shape,
+                            self.collision_tolerance,
+                        );
+
+                        if let Ok(Some(_)) = shape_contact {
+                            // Ensure lower index comes first in the tuple
+                            collisions.push((i, J_TOOL));
+                            if self.detect_first_collision_only {
+                                return collisions;
+                            }
+                        }
+                    }                    
                 }
             }
         }

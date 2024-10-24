@@ -48,6 +48,10 @@ pub const J5: usize = 4;
 #[allow(dead_code)]
 pub const J6: usize = 5;
 
+#[allow(dead_code)]
+/// Tool attached to J5, used in collision detection reporting
+pub const J_TOOL: usize = 6;
+
 /// For providing singularity - proof solution when the previous value is not known.
 /// Joints that take arbitrary angles will take angles as close to 0 as possible:
 /// let solutions = kinematics.inverse_continuing(&pose, &JOINTS_AT_ZERO);
