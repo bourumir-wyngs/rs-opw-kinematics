@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.6.1"
+version = "1.5.1"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -29,7 +29,7 @@ default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
 # To disable filesystem:
-#rs-opw-kinematics = { version = "1.6.1", default-features = false }
+#rs-opw-kinematics = { version = "1.5.1", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"
