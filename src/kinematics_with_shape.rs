@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use nalgebra::Isometry3;
 use crate::collisions::RobotBody;
-use crate::joint_body::JointBody;
+use crate::joint_body::CollisionBody;
 use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity};
 
 /// Struct that combines the kinematic model of a robot with its geometrical shape.
@@ -36,7 +36,7 @@ pub struct PositionedRobot<'a> {
 /// This struct simplifies access to the final world-space transform of the joint's shapes.
 pub struct PositionedJoint<'a> {
     /// A reference to the associated `JointBody` that defines the shapes and collision behavior of the joint.
-    pub joint_body: &'a JointBody,
+    pub joint_body: &'a CollisionBody,
 
     /// The combined transformation matrix (Isometry3), representing the precomputed global position
     /// and orientation of the joint in the world space.

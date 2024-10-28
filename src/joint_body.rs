@@ -3,14 +3,14 @@ use parry3d::bounding_volume::{Aabb};
 use parry3d::shape::{TriMesh};
 
 /// Struct representing a joint body, which contains a `TriMesh` shape and local transformation, as well as a simplified version of the shape (as an AABB).
-pub struct JointBody {
+pub struct CollisionBody {
     /// The shape with the local_transform applied
     pub transformed_shape: TriMesh,
     /// The simplified triangular mesh (AABB as TriMesh) with local transform applied.
     pub simplified_shape: TriMesh,
 }
 
-impl JointBody {
+impl CollisionBody {
     /// Constructor to initialize a joint body with a given mesh and local transform.
     /// This constructor applies the local transformation, computes the bounding volume, and converts it into a simplified triangular mesh.
     ///
@@ -35,7 +35,7 @@ impl JointBody {
         let aabb = transformed_shape.qbvh().root_aabb().clone();
 
         // Return the new JointBody with the original, transformed, and simplified shapes
-        JointBody {
+        CollisionBody {
             transformed_shape,
             simplified_shape: Self::aabb_to_trimesh(&aabb),
         }
