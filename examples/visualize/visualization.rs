@@ -2,7 +2,7 @@ use bevy::prelude::*;        // Add the **flipped** normal to each vertex's norm
 use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_egui::egui::emath::Numeric;
-
+use nalgebra::Isometry3;
 use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
 use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape, PositionedJoint};
@@ -79,6 +79,7 @@ struct Robot {
     tool_material: Option<Handle<StandardMaterial>>,
     previous_joint_angles: [f32; 6], // Store previous joint angles here
     tool: Option<Handle<Mesh>>,
+    environment: Vec<Handle<Mesh>>, // Environment objects
 }
 
 pub(crate) fn main_method() {
@@ -93,7 +94,8 @@ pub(crate) fn main_method() {
             material: None,
             tool_material: None,
             tool: None,
-            previous_joint_angles: [0.0; 6],  // Track previous joint angles            
+            previous_joint_angles: [0.0; 6],  // Track previous joint angles
+            environment: Vec::new(),
         })
         .add_systems(Startup, setup)               // Register setup system in Startup phase
         .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
@@ -108,7 +110,7 @@ fn setup(
     mut robot: ResMut<Robot>,
 ) {
     fn prepare(meshes: &mut ResMut<Assets<Mesh>>, robot: &ResMut<Robot>, k: usize) -> Handle<Mesh> {
-        meshes.add(trimesh_to_bevy_mesh(&robot.kinematics.body.joint_bodies[k].transformed_shape))
+        meshes.add(trimesh_to_bevy_mesh(&robot.kinematics.body.joint_meshes[k]))
     }
 
     // Precompute the mesh for each of the six robot joints
@@ -118,8 +120,13 @@ fn setup(
         prepare(&mut meshes, &robot, 4), prepare(&mut meshes, &robot, 5)
     ]);
 
+    robot.environment = robot.kinematics.body.collision_environment.iter()
+        .map(|x| { meshes.add(trimesh_to_bevy_mesh(&x.mesh)) })
+        .collect();
+    
+
     if let Some(tool) = robot.kinematics.body.tool.as_ref() {
-        robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool.transformed_shape)));
+        robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool)));
         robot.tool_material = Some(
             materials.add(StandardMaterial {
                 base_color: Color::rgb(1.0, 1.0, 1.0),
@@ -186,8 +193,7 @@ fn visualize_robot_joints(
     joint_angles: &[f32; 6],
 ) {
     // Obtain Bevy-compliate coordinates
-    fn as_bevy(positioned_joint: &&PositionedJoint) -> (Vec3, Quat) {
-        let transform = &positioned_joint.transform;
+    fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
         let translation = &transform.translation.vector;
         let rotation = &transform.rotation;
 
@@ -211,7 +217,7 @@ fn visualize_robot_joints(
     let positioned_robot = robot.kinematics.positioned_robot(&angles);
     for j in 0..6 {
         let positioned_joint = &positioned_robot.joints[j];
-        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint);
+        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint.transform);
 
         commands.spawn(PbrBundle {
             mesh: robot.joint_meshes.as_ref().unwrap()[j].clone(),
@@ -228,10 +234,28 @@ fn visualize_robot_joints(
 
     if let (Some(tool), Some(positioned_joint)) =
         (&robot.tool, positioned_robot.tool.as_ref()) {
-        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint);
+        let (translation_vec3, final_rotation) =
+            as_bevy(&positioned_joint.transform);
 
         commands.spawn(PbrBundle {
             mesh: tool.clone(),
+            material: robot.tool_material.as_ref().unwrap().clone(),
+            transform: Transform {
+                translation: translation_vec3,
+                rotation: final_rotation,
+                ..default()
+            },
+            ..default()
+        });
+    }
+
+    // Add environment objects
+    for i in 0..positioned_robot.environment.len() {
+        let e = positioned_robot.environment[i];
+        let mesh = &robot.environment[i];
+        let (translation_vec3, final_rotation) = as_bevy(&e.pose);
+        commands.spawn(PbrBundle {
+            mesh: mesh.clone(),
             material: robot.tool_material.as_ref().unwrap().clone(),
             transform: Transform {
                 translation: translation_vec3,

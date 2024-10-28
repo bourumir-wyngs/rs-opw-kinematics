@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use nalgebra::Isometry3;
+use parry3d::shape::TriMesh;
 use crate::collisions::RobotBody;
 use crate::joint_body::CollisionBody;
 use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity};
@@ -27,6 +28,7 @@ pub struct PositionedRobot<'a> {
     /// A vector of references to `PositionedJoint`, representing the joints and their precomputed transforms.
     pub joints: Vec<PositionedJoint<'a>>,
     pub tool: Option<PositionedJoint<'a>>,
+    pub environment: Vec<&'a CollisionBody>,
 }
 
 /// Struct representing a positioned joint, which consists of a reference to a `JointBody`
@@ -36,7 +38,7 @@ pub struct PositionedRobot<'a> {
 /// This struct simplifies access to the final world-space transform of the joint's shapes.
 pub struct PositionedJoint<'a> {
     /// A reference to the associated `JointBody` that defines the shapes and collision behavior of the joint.
-    pub joint_body: &'a CollisionBody,
+    pub joint_body: &'a TriMesh,
 
     /// The combined transformation matrix (Isometry3), representing the precomputed global position
     /// and orientation of the joint in the world space.
@@ -66,7 +68,7 @@ impl KinematicsWithShape {
         // Create a vector of PositionedJoints without mut
         let positioned_joints: Vec<PositionedJoint> = self
             .body
-            .joint_bodies
+            .joint_meshes
             .iter()
             .enumerate()
             .map(|(i, joint_body)| PositionedJoint {
@@ -87,9 +89,14 @@ impl KinematicsWithShape {
             None
         };
         
+        // Convert to vector of references
+        let referenced_environment = 
+            self.body.collision_environment.iter().collect();
+        
         PositionedRobot {
             joints: positioned_joints,
-            tool: positioned_tool
+            tool: positioned_tool,
+            environment: referenced_environment,
         }
     }
 }

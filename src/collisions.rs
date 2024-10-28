@@ -1,8 +1,8 @@
 use nalgebra::{Isometry3};
 use parry3d::query::contact;
 use parry3d::shape::TriMesh;
-use crate::joint_body::CollisionBody;
-use crate::kinematic_traits::{Joints, Kinematics, J1, J6};
+use crate::joint_body::{BaseBody, CollisionBody};
+use crate::kinematic_traits::{Joints, Kinematics, J1, J5, J6};
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
 /// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
@@ -12,15 +12,20 @@ use crate::kinematic_traits::{Joints, Kinematics, J1, J6};
 pub struct RobotBody {
     /// A fixed-size array of 6 `JointBody` instances, each representing 
     /// the geometrical shape of a joint in the robot.
-    pub joint_bodies: [CollisionBody; 6],
+    pub joint_meshes: [TriMesh; 6],
 
     /// Optional tool that, if exists, is attached to the last joint. Being JointBody, it can be
-    /// attached with the local transform.
-    pub tool: Option<CollisionBody>,
+    /// attached with the local transform. It has the same global transform as the joint J6
+    /// (that is usually a small flange only)
+    pub tool: Option<TriMesh>,
 
-    /// Optional structure attached to the robot base joint.
-    pub base: Option<CollisionBody>,
-    
+    /// Optional structure attached to the robot base joint. It has its own global transform
+    /// that brings the robot to the location. This structure includes two transforms,
+    /// one bringing us to the base of the stand supporting the robot (and this is the 
+    /// pose of the stand itself), and then another defining the point where J1 rotating part
+    /// begins.
+    pub base: Option<BaseBody>,
+
     /// The threshold distance used in collision detection. 
     /// If the distance between two geometries is less than this value, they are considered colliding.
     pub collision_tolerance: f32,
@@ -38,36 +43,15 @@ pub struct RobotBody {
 const J_TOOL: usize = 100;
 
 /// The robot base joint
-const J_BASE: usize = 101; 
+const J_BASE: usize = 101;
 
 /// Starting index for collision_environment entries in collision pairs
-const ENV_START_IDX: usize = 100_000; 
+const ENV_START_IDX: usize = 100_000;
 
 
 impl RobotBody {
-    /// Perform collision detection and return a vector of pairs of joint indices that collide.
-    /// In each returned pair, the lower index will always come first.
-    ///
-    /// # Arguments
-    ///
-    /// * `transforms` - A reference to an array of global transforms, where each 
-    /// transform corresponds to a joint. The local transforms must already be applied.   
-    ///
-    /// # Returns
-    ///
-    /// * A vector of tuples, where each tuple contains the indices of the joints that collide.
-    /// **The lower index will always be the first element of the tuple.**
-    ///
-    /// If the `detect_first_collision_only` flag is true, the function returns after detecting
-    /// the first collision.
-    ///
-    /// If the tool is present and collides with something, it is named in returned tuple
-    /// as J_TOOL (value 6). 
-    /// Collisions with objects in `collision_environment` will use a higher index to 
-    /// distinguish them from joint-to-joint collisions.
     pub fn detect_collisions(
-        &self,
-        transforms: &[Isometry3<f32>; 6],
+        &self, joint_poses: &[Isometry3<f32>; 6],
     ) -> Vec<(usize, usize)> {
         let mut collisions = Vec::new();
 
@@ -75,13 +59,13 @@ impl RobotBody {
         for i in 0..6 {
             for j in (i + 1)..6 {
                 if j - i > 1 {   // Skip adjacent joints
-                    let joint1 = &self.joint_bodies[i];
-                    let joint2 = &self.joint_bodies[j];
+                    let joint_1_mesh = &self.joint_meshes[i];
+                    let joint_2_mesh = &self.joint_meshes[j];
 
                     if self.check_collision(
                         i, j,
-                        &transforms[i], &transforms[j],
-                        &joint1.simplified_shape, &joint2.simplified_shape,
+                        &joint_poses[i], &joint_poses[j],
+                        &joint_1_mesh, &joint_2_mesh,
                         &mut collisions,
                     ) {
                         return collisions;
@@ -93,18 +77,21 @@ impl RobotBody {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 if self.check_collision(
                     i, ENV_START_IDX + env_idx,
-                    &transforms[i], &Isometry3::identity(),
-                    &self.joint_bodies[i].simplified_shape, &env_obj.simplified_shape,
+                    &joint_poses[i], &env_obj.pose,
+                    &self.joint_meshes[i], &env_obj.mesh,
                     &mut collisions,
                 ) {
                     return collisions;
                 }
             }
 
-            // Check collisions with `self.tool` if it is defined (tool is attached to J6)
-            if i != J6 {
+            // Check collisions with `self.tool` if it is defined (tool is same as J6
+            // and attached to J5)
+            if i != J6 && i != J5 {
                 if let Some(tool) = &self.tool {
-                    if self.check_tool_collisions(i, J_TOOL, tool, transforms, &mut collisions) {
+                    if self.check_accessory_collisions(i, J_TOOL, tool, joint_poses,
+                                                       &joint_poses[J6],
+                                                       &mut collisions) {
                         return collisions;
                     }
                 }
@@ -113,7 +100,8 @@ impl RobotBody {
             // Check collisions with `self.base` if it is defined (base is attached to J1)
             if i != J1 {
                 if let Some(base) = &self.base {
-                    if self.check_tool_collisions(i, J_BASE, base, transforms, &mut collisions) {
+                    if self.check_accessory_collisions(i, J_BASE, &base.mesh,
+                                                       joint_poses, &base.base_pose, &mut collisions) {
                         return collisions;
                     }
                 }
@@ -124,33 +112,17 @@ impl RobotBody {
         if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
             if self.check_collision(
                 J_TOOL, J_BASE,
-                &transforms[J_TOOL - 1], &transforms[J_BASE - 1],  
-                &tool.simplified_shape, &base.simplified_shape,
+                &joint_poses[J6], &base.base_pose,
+                &tool, &base.mesh,
                 &mut collisions,
             ) {
                 return collisions;
             }
-        }        
+        }
 
         collisions
     }
 
-    /// Check for a collision between two bodies, updating the collisions vector if a collision is detected.
-    ///
-    /// # Arguments
-    ///
-    /// * `i` - Index of the first body in the pair being checked for collision.
-    /// * `j` - Index of the second body in the pair being checked for collision.
-    /// * `transform_i` - A reference to the global transform of the first body.
-    /// * `transform_j` - A reference to the global transform of the second body.
-    /// * `shape_i` - A reference to the collision shape of the first body.
-    /// * `shape_j` - A reference to the collision shape of the second body.
-    /// * `collisions` - A mutable reference to the vector collecting collision pairs.
-    ///
-    /// # Returns
-    ///
-    /// * `bool` - Returns `true` if a collision is detected and `detect_first_collision_only` is true,
-    /// causing an early exit from the collision detection process.
     fn check_collision(&self,
                        i: usize, j: usize,
                        transform_i: &Isometry3<f32>, transform_j: &Isometry3<f32>,
@@ -183,32 +155,18 @@ impl RobotBody {
         false
     }
 
-    /// Checks for collisions between a specified tool and the robot's joints as well as static objects
-    ///
-    /// # Arguments
-    ///
-    /// * `i` - Index of the joint to check against.
-    /// * `tool_idx` - Index representing the tool.
-    /// * `tool` - A reference to the tool being checked for collisions.
-    /// * `transforms` - Reference to an array of global transforms for the joints.
-    /// * `collisions` - A mutable reference to the vector storing collision pairs.
-    ///
-    /// # Returns
-    ///
-    /// * `bool` - Returns `true` if a collision is detected and `detect_first_collision_only` is true,
-    /// causing an early exit from the collision detection process.
-    fn check_tool_collisions(
-        &self,
-        i: usize,
-        tool_idx: usize,
-        tool: &CollisionBody,
-        transforms: &[Isometry3<f32>; 6],
+    fn check_accessory_collisions(
+        &self, joint_idx: usize,
+        acc_reporting_code: usize,
+        accessory: &TriMesh,
+        joint_poses: &[Isometry3<f32>; 6],
+        accessory_pose: &Isometry3<f32>,
         collisions: &mut Vec<(usize, usize)>,
     ) -> bool {
         if self.check_collision(
-            i, tool_idx,
-            &transforms[i], &transforms[tool_idx - 1],
-            &self.joint_bodies[i].simplified_shape, &tool.simplified_shape,
+            joint_idx, acc_reporting_code,
+            &joint_poses[joint_idx], accessory_pose,
+            &self.joint_meshes[joint_idx], &accessory,
             collisions,
         ) {
             return true;
@@ -217,17 +175,16 @@ impl RobotBody {
         // Check the tool against static objects in collision_environment
         for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
             if self.check_collision(
-                tool_idx, ENV_START_IDX + env_idx,
-                &transforms[tool_idx - 1], &Isometry3::identity(),
-                &tool.simplified_shape, &env_obj.simplified_shape,
-                collisions,
+                acc_reporting_code, ENV_START_IDX + env_idx,
+                &accessory_pose, &env_obj.pose,
+                &accessory, &env_obj.mesh, collisions,
             ) {
                 return true;
             }
         }
 
         false
-    }    
+    }
 }
 
 impl RobotBody {
@@ -246,6 +203,7 @@ impl RobotBody {
 mod tests {
     use nalgebra::Point3;
     use parry3d::shape::TriMesh;
+    use crate::joint_body::transform_mesh;
     use super::*;
 
     fn create_trimesh(x: f32, y: f32, z: f32) -> TriMesh {
@@ -271,19 +229,21 @@ mod tests {
         // Create joints with attached shapes and corresponding translations
         // There are 4 collisions between these joints
         let identity = Isometry3::identity();
-        let joints: [CollisionBody; 6] = [
-            CollisionBody::new(create_trimesh(0.0, 0.0, 0.0), identity),
-            CollisionBody::new(create_trimesh(0.01, 0.01, 0.01), identity),
-            CollisionBody::new(create_trimesh(0.1, 0.1, 0.1), identity),
+        let joints: [TriMesh; 6] = [
+            create_trimesh(0.0, 0.0, 0.0),
+            create_trimesh(0.01, 0.01, 0.01),
+            create_trimesh(0.1, 0.1, 0.1),
             // Use local transform at places to be sure it works. This joint must be far away.
-            CollisionBody::new(create_trimesh(0.0, 0.0, 0.0), Isometry3::translation(20.0, 20.0, 20.0)),
-            CollisionBody::new(create_trimesh(30.0, 30.0, 30.0), identity),
+            transform_mesh(&create_trimesh(0.0, 0.0, 0.0),
+                           &Isometry3::translation(20.0, 20.0, 20.0)),
+            create_trimesh(30.0, 30.0, 30.0),
             // Place Joint 6 close to joint 1
-            CollisionBody::new(create_trimesh(0.0, 0.0, 0.0), Isometry3::translation(0.02, 0.02, 0.02)),
+            transform_mesh(&create_trimesh(0.0, 0.0, 0.0),
+                           &Isometry3::translation(0.02, 0.02, 0.02)),
         ];
 
         let robot = RobotBody {
-            joint_bodies: joints,
+            joint_meshes: joints,
             tool: None,
             base: None,
             collision_tolerance: 0.0,
