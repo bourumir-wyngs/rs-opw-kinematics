@@ -3,7 +3,7 @@ use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use crate::collisions::RobotBody;
 use crate::joint_body::CollisionBody;
-use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity};
+use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity, J6};
 
 /// Struct that combines the kinematic model of a robot with its geometrical shape.
 /// This struct provides both the kinematic functionality for computing joint positions and 
@@ -82,7 +82,7 @@ impl KinematicsWithShape {
             Some(
                 PositionedJoint {
                     joint_body: tool,
-                    transform: global_transforms[5], // TCP pose
+                    transform: global_transforms[J6], // TCP pose
                 }
             )
         } else {

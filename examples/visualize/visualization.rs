@@ -123,13 +123,13 @@ fn setup(
     robot.environment = robot.kinematics.body.collision_environment.iter()
         .map(|x| { meshes.add(trimesh_to_bevy_mesh(&x.mesh)) })
         .collect();
-    
+
 
     if let Some(tool) = robot.kinematics.body.tool.as_ref() {
         robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool)));
         robot.tool_material = Some(
             materials.add(StandardMaterial {
-                base_color: Color::rgb(1.0, 1.0, 1.0),
+                base_color: Color::rgb(0.8, 1.0, 0.8),
                 metallic: 0.7,
                 perceptual_roughness: 0.05,
                 ..default()
@@ -158,6 +158,15 @@ fn setup(
         transform: Transform::from_xyz(5.0, 8.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            illuminance: 30000.0,
+            ..default()
+        },
+        transform: Transform::from_xyz(-5.0, 0.0, -5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ..default()
+    });    
 
     commands.spawn((
         Camera3dBundle {
