@@ -77,6 +77,7 @@ struct Robot {
     joint_meshes: Option<[Handle<Mesh>; 6]>, // Precomputed and converted meshes
     material: Option<Handle<StandardMaterial>>,
     tool_material: Option<Handle<StandardMaterial>>,
+    environment_material: Option<Handle<StandardMaterial>>,
     previous_joint_angles: [f32; 6], // Store previous joint angles here
     tool: Option<Handle<Mesh>>,
     environment: Vec<Handle<Mesh>>, // Environment objects
@@ -96,6 +97,7 @@ pub(crate) fn main_method() {
             tool: None,
             previous_joint_angles: [0.0; 6],  // Track previous joint angles
             environment: Vec::new(),
+            environment_material: None,
         })
         .add_systems(Startup, setup)               // Register setup system in Startup phase
         .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
@@ -145,6 +147,15 @@ fn setup(
             ..default()
         })
     );
+    
+    robot.environment_material = Some(
+        materials.add(StandardMaterial {
+            base_color: Color::rgb(0.5, 0.5, 0.5),
+            metallic: 1.0,
+            perceptual_roughness: 1.0,
+            ..default()
+        })
+    ); 
 
     // Visualize the robot joints with the initial joint values
     visualize_robot_joints(&mut commands, &robot, &robot_controls.joint_angles);
@@ -265,7 +276,7 @@ fn visualize_robot_joints(
         let (translation_vec3, final_rotation) = as_bevy(&e.pose);
         commands.spawn(PbrBundle {
             mesh: mesh.clone(),
-            material: robot.tool_material.as_ref().unwrap().clone(),
+            material: robot.environment_material.as_ref().unwrap().clone(),
             transform: Transform {
                 translation: translation_vec3,
                 rotation: final_rotation,
