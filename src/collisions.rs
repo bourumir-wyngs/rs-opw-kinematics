@@ -2,7 +2,7 @@ use nalgebra::{Isometry3};
 use parry3d::query::contact;
 use parry3d::shape::TriMesh;
 use crate::joint_body::{BaseBody, CollisionBody};
-use crate::kinematic_traits::{Joints, Kinematics, J1, J5, J6};
+use crate::kinematic_traits::{Joints, Kinematics, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL};
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
 /// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
@@ -38,16 +38,6 @@ pub struct RobotBody {
     /// Static objects against that we check the robot does not collide.
     pub collision_environment: Vec<CollisionBody>,
 }
-
-/// The number for the robot tool in collision report
-const J_TOOL: usize = 100;
-
-/// The robot base joint
-const J_BASE: usize = 101;
-
-/// Starting index for collision_environment entries in collision pairs
-const ENV_START_IDX: usize = 100_000;
-
 
 impl RobotBody {
     pub fn detect_collisions(

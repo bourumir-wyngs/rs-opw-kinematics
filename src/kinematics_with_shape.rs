@@ -102,12 +102,30 @@ impl KinematicsWithShape {
 }
 
 impl KinematicsWithShape {
-    fn filter_colliding_solutions(&self, solutions: Solutions) -> Solutions {
+    
+    /// Remove solutions that are reported as result the robot colliding with self or
+    /// environment. Only retain non-colliding solutions
+    pub fn filter_colliding_solutions(&self, solutions: Solutions) -> Solutions {
         solutions
             .into_iter()
             .filter(|qs| !self.body.collides(qs, self.kinematics.as_ref()))
             .collect()
     }
+    
+    /// Check for collisions for the given joint position. Both self-collisions and collisions
+    /// with environment are checked. This method simply returns true (if collides) or false (if not) 
+    pub fn collides(&self, joints: &Joints) -> bool {
+        self.body.collides(joints, self.kinematics.as_ref())
+    }
+
+    /// Provide details about he collision, who with whom collides.
+    /// Depending on if the RobotBody has been configured for complete check,
+    /// either all collisions or only the first found colliding pair
+    /// is returned.
+    pub fn collision_details(&self, joints: &Joints) -> Vec<(usize, usize)> {
+        self.body.collision_details(joints, self.kinematics.as_ref())
+    }
+    
 }
 
 impl Kinematics for KinematicsWithShape {

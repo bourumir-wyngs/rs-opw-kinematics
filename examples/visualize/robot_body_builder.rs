@@ -37,10 +37,13 @@ pub fn create_sample_robot() -> KinematicsWithShape {
         kinematics: Arc::new(OPWKinematics::new(Parameters::staubli_rx160())),
         body: RobotBody {
             joint_meshes: create_Staubli_RS160_joint_bodies(),
+            // Supply tool (metal flag) that is also checked for collision.
             tool: Some(load_trimesh_from_stl("src/tests/data/flag.stl").unwrap()),
             base: None,
             collision_tolerance: 0.01,
-            detect_first_collision_only: true,
+            detect_first_collision_only: false, // Report all collisions for visualization
+            
+            // Place four stones around for collision check
             collision_environment: vec![
                 CollisionBody {
                     mesh: monolith.clone(),
