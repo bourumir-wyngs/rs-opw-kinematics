@@ -119,27 +119,17 @@ impl RobotBody {
                        shape_i: &TriMesh, shape_j: &TriMesh,
                        collisions: &mut Vec<(usize, usize)>,
     ) -> bool {
-        // Check for initial collision using simplified shapes
-        let simplified_contact = contact(
+        let shape_contact = contact(
             transform_i, shape_i,
             transform_j, shape_j,
             self.collision_tolerance,
         );
 
-        if simplified_contact.is_ok() && simplified_contact.unwrap().is_some() {
-            // Perform detailed collision check on the full shapes
-            let shape_contact = contact(
-                transform_i, shape_i,
-                transform_j, shape_j,
-                self.collision_tolerance,
-            );
-
-            if let Ok(Some(_)) = shape_contact {
-                // Add collision with ordered indices (lower index first)
-                collisions.push((i.min(j), i.max(j)));
-                if self.detect_first_collision_only {
-                    return true; // Exit if only first collision is needed
-                }
+        if let Ok(Some(_)) = shape_contact {
+            // Add collision with ordered indices (lower index first)
+            collisions.push((i.min(j), i.max(j)));
+            if self.detect_first_collision_only {
+                return true; // Exit if only first collision is needed
             }
         }
         false

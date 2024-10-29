@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Instant;
 use bevy::prelude::*;        // Add the **flipped** normal to each vertex's normal (negating the normal)
 use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
@@ -253,8 +254,10 @@ fn visualize_robot_joints(
     let positioned_robot = robot.kinematics.positioned_robot(&angles);
 
     // Scan for collisions.
+    let start = Instant::now();
     let mut colliding_segments = HashSet::new();
     let collisions = robot.kinematics.collision_details(&angles);
+    println!("Time for collision check: {:?}", start.elapsed());
     if !collisions.is_empty() {
         for (x, y) in &collisions {
             colliding_segments.insert(*x);
