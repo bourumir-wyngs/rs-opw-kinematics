@@ -5,10 +5,10 @@ use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_egui::egui::emath::Numeric;
 use nalgebra::Isometry3;
-use rs_opw_kinematics::kinematic_traits::{ENV_START_IDX, J_TOOL};
+use rs_opw_kinematics::kinematic_traits::{ENV_START_IDX, J_BASE, J_TOOL};
 use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
-use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape, PositionedJoint};
+use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape};
 
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
@@ -80,10 +80,12 @@ struct Robot {
     joint_meshes: Option<[Handle<Mesh>; 6]>, // Precomputed and converted meshes
     material: Option<Handle<StandardMaterial>>,
     tool_material: Option<Handle<StandardMaterial>>,
+    base_material: Option<Handle<StandardMaterial>>,
     environment_material: Option<Handle<StandardMaterial>>,
     colliding_material: Option<Handle<StandardMaterial>>, // Highlight colliding components in color
     previous_joint_angles: [f32; 6], // Store previous joint angles here
     tool: Option<Handle<Mesh>>,
+    base: Option<Handle<Mesh>>,
     environment: Vec<Handle<Mesh>>, // Environment objects
 }
 
@@ -96,15 +98,17 @@ pub(crate) fn main_method() {
         .insert_resource(Robot {
             kinematics: create_sample_robot(),
             joint_meshes: None,
-            material: None,
-            tool_material: None,
             tool: None,
+            base: None,
             previous_joint_angles: [0.0; 6],  // Track previous joint angles
             environment: Vec::new(),
+            material: None,
+            tool_material: None,
+            base_material: None,            
             environment_material: None,
             colliding_material: None,
         })
-        .add_systems(Startup, setup)               // Register setup system in Startup phase
+        .add_systems(Startup, setup) // Register setup system in Startup phase
         .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
         .run();
 }
@@ -146,6 +150,18 @@ fn setup(
             })
         );
     }
+
+    if let Some(base) = robot.kinematics.body.base.as_ref() {
+        robot.base = Some(meshes.add(trimesh_to_bevy_mesh(&base.mesh)));
+        robot.base_material = Some(
+            materials.add(StandardMaterial {
+                base_color: Color::rgb(0.8, 1.0, 0.8),
+                metallic: 0.7,
+                perceptual_roughness: 0.05,
+                ..default()
+            })
+        );
+    }    
 
     robot.material = Some(
         materials.add(StandardMaterial {
@@ -283,10 +299,10 @@ fn visualize_robot_joints(
     }
 
 
-    if let (Some(tool), Some(positioned_joint)) =
+    if let (Some(tool), Some(tool_joint)) =
         (&robot.tool, positioned_robot.tool.as_ref()) {
         let (translation_vec3, final_rotation) =
-            as_bevy(&positioned_joint.transform);
+            as_bevy(&tool_joint.transform);
 
         commands.spawn(PbrBundle {
             mesh: tool.clone(),
@@ -300,6 +316,24 @@ fn visualize_robot_joints(
             ..default()
         });
     }
+
+    if let (Some(base), Some(base_joint)) =
+        (&robot.base, robot.kinematics.body.base.as_ref()) {
+        let (translation_vec3, final_rotation) =
+            as_bevy(&base_joint.base_pose);
+
+        commands.spawn(PbrBundle {
+            mesh: base.clone(),
+            material: maybe_colliding_material(&robot, &robot.base_material,
+                                               &colliding_segments, &J_BASE),
+            transform: Transform {
+                translation: translation_vec3,
+                rotation: final_rotation,
+                ..default()
+            },
+            ..default()
+        });
+    }    
 
     // Add environment objects
     for i in 0..positioned_robot.environment.len() {
