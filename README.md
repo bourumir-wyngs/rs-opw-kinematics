@@ -20,7 +20,7 @@ This documentation also incorporates the robot diagram from that project.
 
 # Features
 
-- rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
+- rs-opw-kinematics is written entirely in Rust (not a C++ binding and not automated translation) and deployable via Cargo.
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
 - To generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as
