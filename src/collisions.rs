@@ -119,13 +119,12 @@ impl RobotBody {
                        shape_i: &TriMesh, shape_j: &TriMesh,
                        collisions: &mut Vec<(usize, usize)>,
     ) -> bool {
-        let shape_contact = contact(
+        let collides = parry3d::query::intersection_test(
             transform_i, shape_i,
-            transform_j, shape_j,
-            self.collision_tolerance,
+            transform_j, shape_j
         );
 
-        if let Ok(Some(_)) = shape_contact {
+        if collides.expect("Mesh intersection must be supported") {
             // Add collision with ordered indices (lower index first)
             collisions.push((i.min(j), i.max(j)));
             if self.detect_first_collision_only {
