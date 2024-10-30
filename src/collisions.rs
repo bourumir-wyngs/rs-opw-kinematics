@@ -1,5 +1,4 @@
 use nalgebra::{Isometry3};
-use parry3d::query::contact;
 use parry3d::shape::TriMesh;
 use crate::joint_body::{BaseBody, CollisionBody};
 use crate::kinematic_traits::{Joints, Kinematics, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL};
