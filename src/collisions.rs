@@ -25,10 +25,6 @@ pub struct RobotBody {
     /// begins.
     pub base: Option<BaseBody>,
 
-    /// The threshold distance used in collision detection. 
-    /// If the distance between two geometries is less than this value, they are considered colliding.
-    pub collision_tolerance: f32,
-
     /// A boolean flag indicating whether the collision detection 
     /// should stop after the first detected collision. When set to `true`, the system will halt 
     /// detection as soon as one collision is found; otherwise, all potential collisions will be checked.

@@ -1,11 +1,12 @@
 use std::sync::Arc;
-use nalgebra::Isometry3;
+use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use parry3d::shape::TriMesh;
 use rs_opw_kinematics::collisions::RobotBody;
 use rs_opw_kinematics::joint_body::{BaseBody, CollisionBody};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::tool::Base;
 use crate::read_trimesh::load_trimesh_from_stl;
 
 /// Create robot body for Staubli RS160, loading joint meshes from .stl files bundles in the test folder.
@@ -16,12 +17,12 @@ fn create_staubli_rs160_joint_bodies() -> [TriMesh; 6] {
     // They are link (not joint!) origins. Use
     // `collisions::transform_mesh` to offset the mesh as needed
     [
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl").unwrap(),
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl").unwrap(),
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl").unwrap(),
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl").unwrap(),
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl").unwrap(),
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl").unwrap()
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl")
     ]
 }
 
@@ -31,22 +32,32 @@ fn create_staubli_rs160_joint_bodies() -> [TriMesh; 6] {
 /// where they are shared under the rights of Apache license (ROS Industrial project)
 pub fn create_sample_robot() -> KinematicsWithShape {
     // Environment object
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl").unwrap();
+    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
+    let robot_without_base = OPWKinematics::new(Parameters::staubli_rx160());
+
+    // Put robot on a base to show how we can position it where needed.
+    let base_translation = Isometry3::from_parts(
+        Translation3::new(0.4, 0.7, 0.0).into(),
+        UnitQuaternion::identity(),
+    );
+
+    let robot_with_base = Base {
+        robot: Arc::new(robot_without_base),
+        base: base_translation,
+    };
     
     KinematicsWithShape {
-        kinematics: Arc::new(OPWKinematics::new(Parameters::staubli_rx160())),
+        kinematics: Arc::new(robot_with_base),
         body: RobotBody {
             joint_meshes: create_staubli_rs160_joint_bodies(),
             // Supply tool (metal flag) that is also checked for collision.
-            tool: Some(load_trimesh_from_stl("src/tests/data/flag.stl").unwrap()),
+            tool: Some(load_trimesh_from_stl("src/tests/data/flag.stl")),
             base: Some(
                 BaseBody {
-                    mesh: (load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl").unwrap()),
-                    base_pose: Isometry3::translation(0., 0., 0.),
-                    robot_pose: Isometry3::translation(0., 0., 0.),
+                    mesh: (load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl")),
+                    base_pose: base_translation.cast(),
                 }
             ),
-            collision_tolerance: 0.01,
             detect_first_collision_only: false, // Report all collisions for visualization
             
             // Place four stones around for collision check

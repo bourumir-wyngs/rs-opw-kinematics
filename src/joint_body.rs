@@ -10,7 +10,6 @@ use parry3d::shape::{TriMesh};
 pub struct BaseBody {
     pub mesh: TriMesh,
     pub base_pose: Isometry3<f32>,
-    pub robot_pose: Isometry3<f32>,
 }
 
 
