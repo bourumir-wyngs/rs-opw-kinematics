@@ -4,7 +4,7 @@ use bevy::prelude::*;        // Add the **flipped** normal to each vertex's norm
 use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_egui::egui::emath::Numeric;
-use nalgebra::Isometry3;
+use nalgebra::{Isometry3, Translation, Translation3};
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, ENV_START_IDX, JOINTS_AT_ZERO, J_BASE, J_TOOL};
 use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
@@ -71,7 +71,7 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
 #[derive(Resource)]
 struct RobotControls {
     joint_angles: [f32; 6],
-    tcp: [f32; 3]
+    tcp: [f64; 3],
 }
 
 // Resource to store the current robot instance
@@ -85,7 +85,7 @@ struct Robot {
     environment_material: Option<Handle<StandardMaterial>>,
     colliding_material: Option<Handle<StandardMaterial>>, // Highlight colliding components in color
     previous_joint_angles: [f32; 6], // Store previous joint angles here
-    previous_tcp: [f32; 3],
+    previous_tcp: [f64; 3],
     tool: Option<Handle<Mesh>>,
     base: Option<Handle<Mesh>>,
     environment: Vec<Handle<Mesh>>, // Environment objects
@@ -96,19 +96,19 @@ pub(crate) fn main_method() {
         .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
         .insert_resource(RobotControls {
             joint_angles: [0.0; 6],  // Initialize all joints to 0 degrees
-            tcp: [0.0; 3]
+            tcp: [0.0; 3],
         })
         .insert_resource(Robot {
             kinematics: create_sample_robot(),
             joint_meshes: None,
             tool: None,
             base: None,
-            previous_joint_angles: [0.0; 6], 
+            previous_joint_angles: [0.0; 6],
             previous_tcp: [0.0; 3],
             environment: Vec::new(),
             material: None,
             tool_material: None,
-            base_material: None,            
+            base_material: None,
             environment_material: None,
             colliding_material: None,
         })
@@ -121,7 +121,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    robot_controls: Res<RobotControls>,
+    mut robot_controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
 ) {
     fn mesh_for_joint(meshes: &mut ResMut<Assets<Mesh>>, robot: &ResMut<Robot>, k: usize) -> Handle<Mesh> {
@@ -130,11 +130,11 @@ fn setup(
 
     // Precompute the mesh for each of the six robot joints
     robot.joint_meshes = Some([
-        mesh_for_joint(&mut meshes, &robot, 0), 
+        mesh_for_joint(&mut meshes, &robot, 0),
         mesh_for_joint(&mut meshes, &robot, 1),
-        mesh_for_joint(&mut meshes, &robot, 2), 
+        mesh_for_joint(&mut meshes, &robot, 2),
         mesh_for_joint(&mut meshes, &robot, 3),
-        mesh_for_joint(&mut meshes, &robot, 4), 
+        mesh_for_joint(&mut meshes, &robot, 4),
         mesh_for_joint(&mut meshes, &robot, 5)
     ]);
 
@@ -165,7 +165,7 @@ fn setup(
                 ..default()
             })
         );
-    }    
+    }
 
     robot.material = Some(
         materials.add(StandardMaterial {
@@ -196,6 +196,12 @@ fn setup(
 
     // Visualize the robot joints with the initial joint values
     visualize_robot_joints(&mut commands, &robot, &JOINTS_AT_ZERO);
+    let cartesian = robot.kinematics.kinematics.forward(&JOINTS_AT_ZERO);
+    robot_controls.tcp = [
+        cartesian.translation.x,
+        cartesian.translation.y,
+        cartesian.translation.z,
+    ];
 
     // Add camera and light
     commands.spawn(DirectionalLightBundle {
@@ -247,7 +253,7 @@ fn setup(
 fn visualize_robot_joints(
     commands: &mut Commands,
     robot: &ResMut<Robot>,
-    angles: &Joints
+    angles: &Joints,
 ) {
     // Obtain Bevy-compliate coordinates
     fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
@@ -281,7 +287,7 @@ fn visualize_robot_joints(
 
         commands.spawn(PbrBundle {
             mesh: robot.joint_meshes.as_ref().unwrap()[j].clone(),
-            material: maybe_colliding_material(&robot, &robot.material, 
+            material: maybe_colliding_material(&robot, &robot.material,
                                                &colliding_segments, &j),
             transform: Transform {
                 translation: translation_vec3,
@@ -300,7 +306,7 @@ fn visualize_robot_joints(
 
         commands.spawn(PbrBundle {
             mesh: tool.clone(),
-            material: maybe_colliding_material(&robot, &robot.tool_material, 
+            material: maybe_colliding_material(&robot, &robot.tool_material,
                                                &colliding_segments, &J_TOOL),
             transform: Transform {
                 translation: translation_vec3,
@@ -327,7 +333,7 @@ fn visualize_robot_joints(
             },
             ..default()
         });
-    }    
+    }
 
     // Add environment objects
     for i in 0..positioned_robot.environment.len() {
@@ -351,7 +357,7 @@ fn visualize_robot_joints(
 /// Either return colliding material or some other material
 fn maybe_colliding_material(robot: &ResMut<Robot>,
                             material: &Option<Handle<StandardMaterial>>,
-                            colliding_segments: &HashSet<usize>, 
+                            colliding_segments: &HashSet<usize>,
                             joint: &usize) -> Handle<StandardMaterial> {
     if colliding_segments.contains(joint) {
         &robot.colliding_material
@@ -363,7 +369,7 @@ fn maybe_colliding_material(robot: &ResMut<Robot>,
 // Update the robot when joint angles change
 fn update_robot_joints(
     mut commands: Commands,
-    robot_controls: Res<RobotControls>,
+    mut robot_controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
     query: Query<Entity, With<Handle<Mesh>>>,  // Query entities with Mesh components
 ) {
@@ -375,32 +381,50 @@ fn update_robot_joints(
 
         // Revisualize the robot joints with the updated joint angles
         // Visualize each joint of the robot
-        let joint_angles = robot_controls.joint_angles;
-        let angles: [f64; 6] = [
-            joint_angles[0].to_f64().to_radians(),
-            joint_angles[1].to_f64().to_radians(),
-            joint_angles[2].to_f64().to_radians(),
-            joint_angles[3].to_f64().to_radians(),
-            joint_angles[4].to_f64().to_radians(),
-            joint_angles[5].to_f64().to_radians()
-        ];
-
+        let angles = joints(&robot_controls);
         visualize_robot_joints(&mut commands, &mut robot, &angles);
-
         robot.previous_joint_angles = robot_controls.joint_angles.clone();
-        
+        let pose = robot.kinematics.kinematics.forward(&angles);
+        let tcp = [
+            pose.translation.x,
+            pose.translation.y,
+            pose.translation.z
+        ];
+        robot.previous_tcp = tcp;
+        robot_controls.tcp = tcp;
     } else if robot_controls.tcp != robot.previous_tcp {
-        // Despawn the existing visualized robot joints
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
-
         // Revisualize the robot joints with the updated joint angles
-        let angles = JOINTS_AT_ZERO;
-        visualize_robot_joints(&mut commands, &mut robot, &angles);
+        let angles = joints(&robot_controls);
+        let pose = robot.kinematics.kinematics.forward(&angles);
+        let pose = Isometry3::from_parts(Translation3::new(robot_controls.tcp[0],
+                                                           robot_controls.tcp[1],
+                                                           robot_controls.tcp[2]),
+                                         pose.rotation);
 
+        let ik = robot.kinematics.kinematics.inverse_continuing(&pose, &angles);
+        if ik.len() > 0 {
+            for entity in query.iter() {
+                commands.entity(entity).despawn();
+            }            
+            let angles = ik[0];
+            visualize_robot_joints(&mut commands, &mut robot, &angles);
+        }
         robot.previous_tcp = robot_controls.tcp.clone();
-    }    
+        robot.previous_joint_angles = robot_controls.joint_angles;
+    }
+}
+
+fn joints(robot_controls: &ResMut<RobotControls>) -> [f64; 6] {
+    let joint_angles = robot_controls.joint_angles;
+    let angles: [f64; 6] = [
+        joint_angles[0].to_f64().to_radians(),
+        joint_angles[1].to_f64().to_radians(),
+        joint_angles[2].to_f64().to_radians(),
+        joint_angles[3].to_f64().to_radians(),
+        joint_angles[4].to_f64().to_radians(),
+        joint_angles[5].to_f64().to_radians()
+    ];
+    angles
 }
 
 // Control panel for adjusting joint angles
@@ -415,7 +439,7 @@ fn control_panel(
 
         ui.add_space(10.0);
         ui.add(egui::Slider::new(&mut robot_controls.tcp[0], -3.0..=3.0).text("TCP X"));
-        ui.add(egui::Slider::new(&mut  robot_controls.tcp[1], -3.0..=3.0).text("TCP Y"));
+        ui.add(egui::Slider::new(&mut robot_controls.tcp[1], -3.0..=3.0).text("TCP Y"));
         ui.add(egui::Slider::new(&mut robot_controls.tcp[2], -3.0..=3.0).text("TCP Z"));
     });
 }
