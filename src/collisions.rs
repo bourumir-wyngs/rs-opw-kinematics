@@ -220,7 +220,6 @@ mod tests {
             joint_meshes: joints,
             tool: None,
             base: None,
-            collision_tolerance: 0.0,
             detect_first_collision_only: false,
             collision_environment: vec![],
         };

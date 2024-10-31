@@ -100,16 +100,15 @@ impl Kinematics for Tool {
         tcp
     }
 
+    /// Tool does not add transform to any joints. J6 stays where it was,
+    /// and it is also the base transform for the tool. Tool's tip is
+    /// the "robot pose", but this point does not have the object to render or
+    /// check for collisions. Hence the pose of J6 is not longer TCP on inverse kinematics.
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
-        // Compute the forward kinematics for the robot itself
-        let mut poses = self.robot.forward_with_joint_poses(joints);
-
-        // Apply the tool transformation only to the last pose (TCP pose)
-        poses[5] = poses[5] * self.tool;
-
-        poses
+        self.robot.forward_with_joint_poses(joints)
     }
 
+    /// There is nothing that the tool would add to singularities
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
     }

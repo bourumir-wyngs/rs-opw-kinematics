@@ -387,6 +387,8 @@ fn update_robot_joints(
         let angles = utils::joints(&robot_controls.joint_angles);
         visualize_robot_joints(&mut commands, &mut robot, &angles);
         robot.previous_joint_angles = robot_controls.joint_angles.clone();
+
+        // Update the TCP position (this is the end of the tool, not the base)
         let pose = robot.kinematics.kinematics.forward(&angles);
         let tcp = [
             pose.translation.x,
@@ -414,16 +416,18 @@ fn update_robot_joints(
             }
             let angles = ik[0];
             visualize_robot_joints(&mut commands, &mut robot, &angles);
+
+            // Update joint angles to match the current position
+            robot_controls.joint_angles = utils::to_degrees(&angles);
         }
         robot.previous_tcp = robot_controls.tcp.clone();
         robot.previous_joint_angles = robot_controls.joint_angles;
     }
 }
 
-
-// Control panel for adjusting joint angles
+// Control panel for adjusting joint angles and tool center point
 fn control_panel(
-    mut egui_contexts: EguiContexts,  // Use EguiContexts instead of EguiContext
+    mut egui_contexts: EguiContexts,  
     mut robot_controls: ResMut<RobotControls>,
 ) {
     bevy_egui::egui::Window::new("Robot Controls").show(egui_contexts.ctx_mut(), |ui| {

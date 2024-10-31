@@ -1,12 +1,12 @@
 use std::sync::Arc;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+use nalgebra::{Isometry, Isometry3, Translation3, UnitQuaternion};
 use parry3d::shape::TriMesh;
 use rs_opw_kinematics::collisions::RobotBody;
 use rs_opw_kinematics::joint_body::{BaseBody, CollisionBody};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::tool::Base;
+use rs_opw_kinematics::tool::{Base, Tool};
 use crate::read_trimesh::load_trimesh_from_stl;
 
 /// Create robot body for Staubli RS160, loading joint meshes from .stl files bundles in the test folder.
@@ -33,21 +33,12 @@ fn create_staubli_rs160_joint_bodies() -> [TriMesh; 6] {
 pub fn create_sample_robot() -> KinematicsWithShape {
     // Environment object
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
-    let robot_without_base = OPWKinematics::new(Parameters::staubli_rx160());
 
-    // Put robot on a base to show how we can position it where needed.
-    let base_translation = Isometry3::from_parts(
-        Translation3::new(0.4, 0.7, 0.0).into(),
-        UnitQuaternion::identity(),
-    );
 
-    let robot_with_base = Base {
-        robot: Arc::new(robot_without_base),
-        base: base_translation,
-    };
+    let (base_translation, robot_with_tool) = create_robot_with_base_and_tool();
     
     KinematicsWithShape {
-        kinematics: Arc::new(robot_with_base),
+        kinematics: Arc::new(robot_with_tool),
         body: RobotBody {
             joint_meshes: create_staubli_rs160_joint_bodies(),
             // Supply tool (metal flag) that is also checked for collision.
@@ -82,5 +73,30 @@ pub fn create_sample_robot() -> KinematicsWithShape {
                 
         },
     }
+}
+
+fn create_robot_with_base_and_tool() -> (Isometry<f64, UnitQuaternion<f64>, 3>, Tool) {
+    let robot_without_base = OPWKinematics::new(Parameters::staubli_rx160());
+
+    // Put robot on a base to show how we can position it where needed.
+    let base_translation = Isometry3::from_parts(
+        Translation3::new(0.4, 0.7, 0.0).into(),
+        UnitQuaternion::identity(),
+    );
+    let tool_translation = Isometry3::from_parts(
+        Translation3::new(0.0, 0.0, 0.8).into(),
+        UnitQuaternion::identity(),
+    ); 
+
+    let robot_with_base = Base {
+        robot: Arc::new(robot_without_base),
+        base: base_translation,
+    };
+
+    let robot_with_tool = Tool {
+        robot: Arc::new(robot_with_base),
+        tool: tool_translation,
+    };
+    (base_translation, robot_with_tool)
 }
 
