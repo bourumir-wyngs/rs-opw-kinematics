@@ -14,6 +14,19 @@ pub(crate) mod opw_kinematics {
     }
 }
 
+/// Convert array of f32's in degrees to Joints 
+/// that are array of f64's in radians
+pub fn joints(angles: &[f32; 6]) -> Joints {
+    [
+        (angles[0] as f64).to_radians(),
+        (angles[1] as f64).to_radians(),
+        (angles[2] as f64).to_radians(),
+        (angles[3] as f64).to_radians(),
+        (angles[4] as f64).to_radians(),
+        (angles[5] as f64).to_radians()
+    ]
+}
+
 /// Print joint values for all solutions, converting radianst to degrees.
 #[allow(dead_code)]
 pub fn dump_solutions(solutions: &Solutions) {
