@@ -3,14 +3,16 @@ use std::time::Instant;
 use bevy::prelude::*;        // Add the **flipped** normal to each vertex's normal (negating the normal)
 use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
-use nalgebra::{Isometry3, Translation3};
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, ENV_START_IDX, J_BASE, J_TOOL};
+use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
 use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::robot_body_builder::create_sample_robot;
 use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape};
 use rs_opw_kinematics::utils;
 
-const INITIAL_ROBOT_ANGLES: [f32; 6] = [0., 50., 0., 0., 0., 0.];
+/// Give some "natural" pose for that solutions exist when changing both
+/// x y z and rotation of TCP
+const INITIAL_ROBOT_ANGLES: [f32; 6] = [173., -8., -94., 6., 83., 207.];
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
@@ -68,11 +70,38 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     mesh
 }
 
-// Data to store the current joint angles
+/// Data to store the current joint angles and TCP as they are shown in control panel
 #[derive(Resource)]
 struct RobotControls {
     joint_angles: [f32; 6],
     tcp: [f64; 6],
+}
+
+impl RobotControls {
+    fn set_tcp_from_pose(&mut self, pose: &Isometry3<f64>) {
+        let (roll, pitch, yaw) = pose.rotation.to_rotation_matrix().euler_angles();
+        self.tcp = [
+            pose.translation.x, pose.translation.y, pose.translation.z,
+            roll.to_degrees(), pitch.to_degrees(), yaw.to_degrees(),
+        ];
+    }
+
+    fn pose(&self) -> Pose {
+        fn quat_from_euler(this: &RobotControls) -> UnitQuaternion<f64> {
+            let roll = this.tcp[3].to_radians();
+            let pitch = this.tcp[4].to_radians();
+            let yaw = this.tcp[5].to_radians();
+
+            // Combine rotations in roll-pitch-yaw order
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), roll) *
+                UnitQuaternion::from_axis_angle(&Vector3::y_axis(), pitch) *
+                UnitQuaternion::from_axis_angle(&Vector3::x_axis(), yaw)
+        }
+
+        Isometry3::from_parts(
+            Translation3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
+            quat_from_euler(&self))
+    }
 }
 
 // Resource to store the current robot instance
@@ -114,7 +143,7 @@ pub(crate) fn main_method() {
             colliding_material: None,
         })
         .add_systems(Startup, setup) // Register setup system in Startup phase
-        .add_systems(Update, (update_robot_joints, camera_controller_system, control_panel)) // Add systems without .system()
+        .add_systems(Update, (update_robot, camera_controller_system, control_panel)) // Add systems without .system()
         .run();
 }
 
@@ -199,12 +228,7 @@ fn setup(
     let angles = utils::joints(&INITIAL_ROBOT_ANGLES);
     visualize_robot_joints(&mut commands, &robot, &angles);
     let cartesian = robot.kinematics.kinematics.forward(&angles);
-    robot_controls.tcp = [
-        cartesian.translation.x,
-        cartesian.translation.y,
-        cartesian.translation.z,
-        0., 0., 0.
-    ];
+    robot_controls.set_tcp_from_pose(&cartesian);
 
     // Add camera and light
     commands.spawn(DirectionalLightBundle {
@@ -370,7 +394,7 @@ fn maybe_colliding_material(robot: &ResMut<Robot>,
 }
 
 // Update the robot when joint angles change
-fn update_robot_joints(
+fn update_robot(
     mut commands: Commands,
     mut robot_controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
@@ -390,22 +414,12 @@ fn update_robot_joints(
 
         // Update the TCP position (this is the end of the tool, not the base)
         let pose = robot.kinematics.kinematics.forward(&angles);
-        let tcp = [
-            pose.translation.x,
-            pose.translation.y,
-            pose.translation.z,
-            0., 0., 0.
-        ];
-        robot.previous_tcp = tcp;
-        robot_controls.tcp = tcp;
+        robot_controls.set_tcp_from_pose(&pose);
+        robot.previous_tcp = robot_controls.tcp;
     } else if robot_controls.tcp != robot.previous_tcp {
         // Revisualize the robot joints with the updated joint angles
         let angles = utils::joints(&robot_controls.joint_angles);
-        let pose = robot.kinematics.kinematics.forward(&angles);
-        let pose = Isometry3::from_parts(Translation3::new(robot_controls.tcp[0],
-                                                           robot_controls.tcp[1],
-                                                           robot_controls.tcp[2]),
-                                         pose.rotation);
+        let pose = robot_controls.pose();
 
         // We ask kinematics with shape to do the inverse kinematics.
         // This means, colliding solutions will be discarded.
@@ -418,28 +432,41 @@ fn update_robot_joints(
             visualize_robot_joints(&mut commands, &mut robot, &angles);
 
             // Update joint angles to match the current position
-            robot_controls.joint_angles = utils::to_degrees(&angles);
+            robot_controls.joint_angles = utils::to_degrees(&angles);           
+        } else {
+            println!("No solution for pose {} {} {} rotation {} {} {}",
+                     robot_controls.tcp[0],
+                     robot_controls.tcp[1],
+                     robot_controls.tcp[2],
+                     robot_controls.tcp[3],
+                     robot_controls.tcp[4],
+                     robot_controls.tcp[5],
+            );
         }
         robot.previous_tcp = robot_controls.tcp.clone();
-        robot.previous_joint_angles = robot_controls.joint_angles;
+        robot.previous_joint_angles = robot_controls.joint_angles;        
     }
 }
 
 // Control panel for adjusting joint angles and tool center point
 fn control_panel(
-    mut egui_contexts: EguiContexts,  
+    mut egui_contexts: EguiContexts,
     mut robot_controls: ResMut<RobotControls>,
 ) {
     bevy_egui::egui::Window::new("Robot Controls").show(egui_contexts.ctx_mut(), |ui| {
+        ui.label("Joint rotations");
         for (i, angle) in robot_controls.joint_angles.iter_mut().enumerate() {
             ui.add(egui::Slider::new(angle, -225.0..=225.0).text(format!("Joint {}", i + 1)));
         }
-        ui.add_space(10.0);
-        ui.add(egui::Slider::new(&mut robot_controls.tcp[0], -2.0..=2.0).text("TCP X"));
-        ui.add(egui::Slider::new(&mut robot_controls.tcp[1], -2.0..=2.0).text("TCP Y"));
-        ui.add(egui::Slider::new(&mut robot_controls.tcp[2], 1.0..=2.0).text("TCP Z"));
 
         ui.add_space(10.0);
+        ui.label("Tool center point (TCP)");
+        ui.add(egui::Slider::new(&mut robot_controls.tcp[0], -2.0..=2.0).text("X"));
+        ui.add(egui::Slider::new(&mut robot_controls.tcp[1], -2.0..=2.0).text("Y"));
+        ui.add(egui::Slider::new(&mut robot_controls.tcp[2], 1.0..=2.0).text("Z"));
+
+        ui.add_space(10.0);
+        ui.label("TCP Euler angles");
         ui.add(egui::Slider::new(&mut robot_controls.tcp[3], -90.0..=90.0).text("Roll"));
         ui.add(egui::Slider::new(&mut robot_controls.tcp[4], -90.0..=90.0).text("Pitch"));
         ui.add(egui::Slider::new(&mut robot_controls.tcp[5], -90.0..=90.0).text("Yaw"));
