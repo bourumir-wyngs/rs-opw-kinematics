@@ -90,15 +90,8 @@ the [Jacobian](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobia
 the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
 
--
-
-Joint [velocities](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities)
-required to achieve a desired end-effector velocity.
-
--
-
-Joint [torques](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques)
-required to achieve a desired end-effector force/torque.
+- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
+- Joint [torques](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
 or torgues in Newton meters. For the end effector, it is possible to use either
