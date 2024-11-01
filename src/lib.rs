@@ -64,12 +64,27 @@ pub mod parameter_error;
 #[cfg(feature = "allow_filesystem")]
 mod simplify_joint_name;
 
-#[cfg(test)]
-#[cfg(feature = "allow_filesystem")]
-mod tests;
 pub mod collisions;
 pub mod joint_body;
 pub mod kinematics_with_shape;
+
+#[cfg(feature = "allow_filesystem")]
+pub mod read_trimesh;
+
+#[path = "visualize/visualization.rs"]
+#[cfg(feature = "visualization")]
+pub mod visualization;
+
+#[path = "visualize/camera_controller.rs"]
+#[cfg(feature = "visualization")]
+pub mod camera_controller;
+
+#[cfg(test)]
+#[cfg(feature = "allow_filesystem")]
+mod tests;
+
+
+
 
 
 

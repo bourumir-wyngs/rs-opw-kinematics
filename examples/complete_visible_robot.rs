@@ -1,10 +1,12 @@
+use std::ops::RangeInclusive;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
-use rs_opw_kinematics::constraints::Constraints;
+use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::joint_body::{CollisionBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils;
-use crate::read_trimesh::load_trimesh_from_stl;
+use rs_opw_kinematics::{utils, visualization};
+use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+
 
 /// Create the sample robot we will visualize. This function creates 
 /// Staubli RX160, using is parameter set. 
@@ -16,7 +18,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
 
     KinematicsWithShape::new(
-        // OPW parameters
+        // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
             a2: 0.0,
@@ -31,7 +33,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
         // Define constraints. Use utils::joints to give them in degrees, not radians.
         Constraints::new(utils::joints(&[-225., -225., -225., -225., -225., -360.]),
                          utils::joints(&[225., 225., 225., 225., 225., 360.]),
-                         0.0),
+                         // Take priority to the previous joint position (0.). Center of constraints can
+                         // also be prioritized by passing BY_CONSTRAINS (1.) or any weighted value                         
+                         BY_PREV),
         
         // Joint meshes
         [
@@ -75,4 +79,25 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
         ],
     )
+}
+
+/// This example builds and visualizes complete robot, using Bevy.
+/// The visualization provides control bars to change the joint
+/// angles, the visualization of the robot is updated accordingly.
+/// This visualization is not part of the main library but
+/// rather example intended to show that everything works as 
+/// expected. You can use the modified version to test your own
+/// robot.
+
+fn main() {
+    // The robot itself.
+    let robot = create_rx160_robot();
+
+    // In which position to show the robot on startup
+    let intial_angles = [173., -8., -94., 6., 83., 207.];
+
+    // Boundaries for XYZ drawbars in visualizaiton GUI
+    let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
+
+    visualization::visualize_robot(robot, intial_angles, tcp_box);
 }
