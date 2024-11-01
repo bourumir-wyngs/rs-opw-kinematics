@@ -31,7 +31,7 @@ pub struct RobotBody {
 
 impl RobotBody {
     pub fn detect_collisions(
-        &self, joint_poses: &[Isometry3<f32>; 6], detect_first_collision_only: bool,
+        &self, joint_poses: &[Isometry3<f32>; 6], first_collision_only: bool,
     ) -> Vec<(usize, usize)> {
         let mut collisions = Vec::new();
 
@@ -43,7 +43,7 @@ impl RobotBody {
                     J_TOOL, ENV_START_IDX + env_idx,
                     &joint_poses[J6], &env_obj.pose,
                     &tool, &env_obj.mesh,
-                    detect_first_collision_only,
+                    first_collision_only,
                     &mut collisions,                    
                 ) {
                     return collisions;
@@ -62,7 +62,7 @@ impl RobotBody {
                         i, j,
                         &joint_poses[i], &joint_poses[j],
                         &joint_1_mesh, &joint_2_mesh,
-                        detect_first_collision_only,
+                        first_collision_only,
                         &mut collisions,
                     ) {
                         return collisions;
@@ -76,7 +76,7 @@ impl RobotBody {
                     i, ENV_START_IDX + env_idx,
                     &joint_poses[i], &env_obj.pose,
                     &self.joint_meshes[i], &env_obj.mesh,
-                    detect_first_collision_only,
+                    first_collision_only,
                     &mut collisions,
                 ) {
                     return collisions;
@@ -89,7 +89,7 @@ impl RobotBody {
                 if let Some(tool) = &self.tool {
                     if self.check_accessory_collisions(i, J_TOOL, tool, joint_poses,
                                                        &joint_poses[J6],
-                                                       detect_first_collision_only,
+                                                       first_collision_only,
                                                        &mut collisions) {
                         return collisions;
                     }
@@ -100,8 +100,8 @@ impl RobotBody {
             if i != J1 {
                 if let Some(base) = &self.base {
                     if self.check_accessory_collisions(i, J_BASE, &base.mesh,
-                                                       joint_poses, &base.base_pose, 
-                                                       detect_first_collision_only,
+                                                       joint_poses, &base.base_pose,
+                                                       first_collision_only,
                                                        &mut collisions) {
                         return collisions;
                     }
@@ -115,7 +115,7 @@ impl RobotBody {
                 J_TOOL, J_BASE,
                 &joint_poses[J6], &base.base_pose,
                 &tool, &base.mesh,
-                detect_first_collision_only,
+                first_collision_only,
                 &mut collisions,
             ) {
                 return collisions;
