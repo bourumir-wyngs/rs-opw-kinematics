@@ -27,7 +27,8 @@ This documentation also incorporates the robot diagram from that project.
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
-- Collision detection allows to exclude solutions where robot would collide with itself or environment objects.
+- Collision detection (with [Parry](https://parry.rs/)) allows to exclude solutions where robot would collide with
+  itself or environment objects.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
@@ -36,7 +37,7 @@ This documentation also incorporates the robot diagram from that project.
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
-- Visualization (with Bevy) allows quick check if the robot is properly configured.
+- Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
