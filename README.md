@@ -15,12 +15,9 @@ planning.
 
 This work builds upon the 2014 paper titled _An Analytical Solution of the Inverse Kinematics Problem of Industrial
 Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist_, authored by Mathias Brandstötter, Arthur
-Angerer, and Michael Hofbaur. The paper
-is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf)
-. Additionally, it draws inspiration from the similar C++
-project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference
-implementation for generating data for the test suite.
-This documentation also incorporates the robot diagram from that project.
+Angerer, and Michael Hofbaur. The paper is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf). Additionally, it draws inspiration from 
+the similar C++ project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference implementation for generating 
+data for the test suite. This documentation also incorporates the robot diagram from that project.
 
 # Features
 
@@ -120,8 +117,7 @@ nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Iso
 both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the
-conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 "Robot with the tool" and "Robot on the base" can be constructed around
 any [Kinematics](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
