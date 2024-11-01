@@ -9,13 +9,17 @@ planning.
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
+![Collision detection in visualization](https://bourumir-wyngs.github.io/rs-opw-kinematics/documentation/screenshot.png)
+
 # Intro
 
 This work builds upon the 2014 paper titled _An Analytical Solution of the Inverse Kinematics Problem of Industrial
 Serial Manipulators with an Ortho-parallel Basis and a Spherical Wrist_, authored by Mathias Brandstötter, Arthur
-Angerer, and Michael Hofbaur. The paper is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf)
+Angerer, and Michael Hofbaur. The paper
+is [available in ResearchGate](https://www.researchgate.net/profile/Mathias-Brandstoetter/publication/264212870_An_Analytical_Solution_of_the_Inverse_Kinematics_Problem_of_Industrial_Serial_Manipulators_with_an_Ortho-parallel_Basis_and_a_Spherical_Wrist/links/53d2417e0cf2a7fbb2e98b09/An-Analytical-Solution-of-the-Inverse-Kinematics-Problem-of-Industrial-Serial-Manipulators-with-an-Ortho-parallel-Basis-and-a-Spherical-Wrist.pdf)
 . Additionally, it draws inspiration from the similar C++
-project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference implementation for generating data for the test suite.
+project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference
+implementation for generating data for the test suite.
 This documentation also incorporates the robot diagram from that project.
 
 # Features
@@ -23,19 +27,16 @@ This documentation also incorporates the robot diagram from that project.
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
-- To generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as
-  additional input.
-- If the previous joint positions are provided, the solutions are sorted by proximity to them (closest first).
-  It is also possible to prioritize proximity to the center of constraints.
+- Collision detection allows to exclude solutions where robot would collide with itself or environment objects.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
+- Respecting previous joint position helps against unwanted jumps.
 - Jacobian, torgues and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
-- Individual link positions now available for collision check and 3D rendering.
-- Experimental support for parameter extraction from URDF
+- Visualization (with Bevy) allows quick check if the robot is properly configured.
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
@@ -58,9 +59,9 @@ For example, the ABB IRB2400 has the following values:
 
 ```Rust
 let parameters = Parameters {
-  a1: 0.100, a2: - 0.135, b: 0.000, c1: 0.615, c2: 0.705, c3: 0.755, c4: 0.085,
-  offsets: [0.0, 0.0, -std::f64::consts::PI / 2.0, 0.0, 0.0, 0.0],
-  sign_corrections: [1; 6],
+a1: 0.100, a2: - 0.135, b: 0.000, c1: 0.615, c2: 0.705, c3: 0.755, c4: 0.085,
+offsets: [0.0, 0.0, -std::f64::consts::PI / 2.0, 0.0, 0.0, 0.0],
+sign_corrections: [1; 6],
 }
 ``` 
 
@@ -69,7 +70,9 @@ the ground at "zero."
 
 ## Constraints
 
-Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
+Since 1.1.0, it is possible to
+set [constraints](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/constraints/index.html) for the joints.
+Robot poses where any of the joints are outside
 the specified constraint range are not included into returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
 
@@ -83,30 +86,52 @@ Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat 
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
 ## Jacobian: torgues and velocities
-Since 1.3.2, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
+
+Since 1.3.2, it is possible to obtain
+the [Jacobian](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents
+the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
-- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
-- Joint [torques](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
+
+-
+
+Joint [velocities](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities)
+required to achieve a desired end-effector velocity.
+
+-
+
+Joint [torques](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques)
+required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torgues in Newton meters. For the end effector, it is possible to use either nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html) 
-or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or rotations in N m. 
+or torgues in Newton meters. For the end effector, it is possible to use either
+nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
+or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or
+rotations in N m.
 
-These values are useful when path planning for a robot that needs to move very swiftly, to prevent 
+These values are useful when path planning for a robot that needs to move very swiftly, to prevent
 overspeed or overtorgue of individual joints.
 
 ## The tool and the base
-Since 1.3.2, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
+
+Since 1.3.2, robot can be equipped with
+the [tool](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Tool.html), defined as
+nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
+both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the
+conditions much closer to the real industrial environment.
 
-"Robot with the tool" and "Robot on the base" can be constructed around any [Kinematics](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, and implement
-this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or 
+"Robot with the tool" and "Robot on the base" can be constructed around
+any [Kinematics](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
+trait, and implement
+this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or
 two tools if the first is a receptacle of the tool changer).
 
 ## The frame
-Since 1.6.0 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint angles)
+
+Since 1.6.0 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
+angles)
 prepared for one location to make the same kind of movements in another location (translated and rotated).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
@@ -116,8 +141,11 @@ and calculated joint angles for the transformed (shifted and rotated) trajector.
 [frame](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/frame/index.html) documentation for details.
 
 ## Individual link positions
+
 It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
-collision avoidance and graphical rendering of the robot. See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses) method.
+collision avoidance and graphical rendering of the robot.
+See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses)
+method.
 
 ## 5 DOF inverse kinematics
 
@@ -136,6 +164,7 @@ rotation would cause the robot to exceed its constraints. This method is also fa
 flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
 
 ## Parallelogram
+
 The parallelogram mechanism maintains the orientation of the end-effector in
 some robots. It introduces a geometric relationship between two joints,
 typically referred to as the _driven joint_ (often J₂) and the _coupled joint_
@@ -159,8 +188,24 @@ J₃' = J₃ + s * J₂
 The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
 factor of 1.0 is the common, as this value ensures the end-effector’s
 orientation remains unchanged if only J₃ and J₂ move.
- 
+
 See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
+
+## Visualization
+
+Visualization primarily serves to verify that your parameters, meshes, tool, and base setup are correct. Using Bevy, the
+visualization will display the robot (mounted on its base and equipped with the tool), various environment objects, and
+a selection of handles to manipulate the robot.
+
+In the visualization window, you can adjust joint positions for forward kinematics or set the tool center point using
+Cartesian coordinates for inverse kinematics. Collision detection is active in both modes, but it functions differently:
+in inverse kinematics, movement is restricted to prevent collisions entirely (the robot will not move if a collision
+would occur). In forward kinematics, collisions are allowed, but colliding robot joints and environment objects will be
+highlighted.
+
+When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
+robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
+real-world robotic movement.
 
 # Example
 
@@ -168,130 +213,138 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.6.0, <2.0.0" 
+rs-opw-kinematics = ">=1.6.0, <2.0.0"
 ```
 
-main.rs:
+Simple "hello world" demonstrating singularity evasion would look more or less like this:
 
 ```Rust
-use std::f64::consts::PI;
-use std::sync::Arc;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose,
-                                          JOINTS_AT_ZERO, CONSTRAINT_CENTERED};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
-use rs_opw_kinematics::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
 fn main() {
+    // Create a robot with built-in parameter set
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
-    println!("Initial joints with singularity J5 = 0: ");
+    println!("\nInitial joints with singularity J5 = 0: ");
     dump_joints(&joints);
 
-    println!("Solutions (original angle set is lacking due singularity there: ");
-    let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
-
-    let solutions = robot.inverse(&pose); // Solutions is alias of Vec<Joints>
-    dump_solutions(&solutions);
-
-    println!("Solutions assuming we continue from somewhere close. The 'lost solution' returns");
+    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
     let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
     dump_solutions(&solutions);
-
-    println!("Same pose, all J4+J6 rotation assumed to be previously concentrated on J4 only");
-    let when_continuing_from_j6_0: [f64; 6] = [0.0, 0.11, 0.22, 0.8, 0.1, 0.0];
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-    dump_solutions(&solutions);
-
-    println!("If we do not have the previous position, we can assume we want J4, J6 close to 0.0 \
-    The solution appears and the needed rotation is now equally distributed between J4 and J6.");
-    let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
-    dump_solutions(&solutions);
-
-    let robot = OPWKinematics::new_with_constraints(
-        Parameters::irb2400_10(), Constraints::new(
-            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
-            [PI, PI, 2.0 * PI, PI, PI, PI],
-            BY_PREV,
-        ));
-
-    println!("If we do not have the previous pose yet, we can now ask to prever the pose \
-    closer to the center of constraints.");
-    let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
-    dump_solutions(&solutions);
-
-
-    println!("With constraints, sorted by proximity to the previous pose");
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-    dump_solutions(&solutions);
-
-    let robot = OPWKinematics::new_with_constraints(
-        Parameters::irb2400_10(), Constraints::new(
-            [-0.1, 0.0, 0.0, 0.0, -PI, -PI],
-            [PI, PI, 2.0 * PI, PI, PI, PI],
-            BY_CONSTRAINS,
-        ));
-    println!("With constraints, sorted by proximity to the center of constraints");
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-    dump_solutions(&solutions);
-
-    // This requires YAML library
-    let parameters = Parameters::irb2400_10();
-    println!("Reading:\n{}", &parameters.to_yaml());
-
-    // Jacobian, velocities and forces:
-    let jakobian = rs_opw_kinematics::jakobian::Jacobian::new(&robot, &joints, 1E-6);
-    let desired_velocity_isometry =
-        Isometry3::new(Vector3::new(0.0, 1.0, 0.0),
-                       Vector3::new(0.0, 0.0, 1.0));
-    let joint_velocities = jakobian.velocities(&desired_velocity_isometry);
-    println!("Computed joint velocities: {:?}", joint_velocities.unwrap());
-
-    let desired_force_torque =
-        Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
-                       Vector3::new(0.0, 0.0, 1.234));
-
-    let joint_torques = jakobian.torques(&desired_force_torque);
-    println!("Computed joint torques: {:?}", joint_torques);
-
-    // Robot with the tool, standing on a base:
-    let robot_alone = OPWKinematics::new(Parameters::staubli_tx2_160l());
-
-    // Half meter high pedestal
-    let pedestal = 0.5;
-    let base_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, pedestal).into(),
-        UnitQuaternion::identity(),
-    );
-
-    let robot_with_base = rs_opw_kinematics::tool::Base {
-        robot: Arc::new(robot_alone),
-        base: base_translation,
-    };
-
-    // Tool extends 1 meter in the Z direction, envisioning something like sword
-    let sword = 1.0;
-    let tool_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, sword).into(),
-        UnitQuaternion::identity(),
-    );
-
-    // Create the Tool instance with the transformation
-    let robot_complete = rs_opw_kinematics::tool::Tool {
-        robot: Arc::new(robot_with_base),
-        tool: tool_translation,
-    };
-
-    let tcp_pose: Pose = robot_complete.forward(&joints);
-    println!("The sword tip is at: {:?}", tcp_pose);
 }
 ```
 
-The constants _BY_PREV_ ( = 0.0) and _BY_CONSTRAINTS_ ( = 1.0) are for convenience only. Intermediate values like
-0.6 can also be specified and result in weighted sorting.
+Starting from version 1.6.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
+enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
+and integrating collision checking. Here’s how to create such a robot:
+
+```Rust
+use std::ops::RangeInclusive;
+use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
+use rs_opw_kinematics::joint_body::{CollisionBody};
+use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::{utils, visualization};
+use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+
+
+/// Create the sample robot we will visualize. This function creates
+/// Staubli RX160, using is parameter set.
+/// It loads the joint meshes from .stl files bundles in the test folder
+/// where they are shared under the rights of Apache license (ROS Industrial project).
+/// Four environment objects and tool are also created.
+pub fn create_rx160_robot() -> KinematicsWithShape {
+    // Environment object to collide with.
+    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
+
+    KinematicsWithShape::new(
+        // OPW parameters for Staubli RX 160
+        Parameters {
+            a1: 0.15,
+            a2: 0.0,
+            b: 0.0,
+            c1: 0.55,
+            c2: 0.825,
+            c3: 0.625,
+            c4: 0.11,
+            ..Parameters::new()
+        },
+
+        // Define constraints. Use utils::joints to give them in degrees, not radians.
+        Constraints::new(utils::joints(&[-225., -225., -225., -225., -225., -360.]),
+                         utils::joints(&[225., 225., 225., 225., 225., 360.]),
+                         // Take priority to the previous joint position (0.). Center of constraints can
+                         // also be prioritized by passing BY_CONSTRAINS (1.) or any weighted value                         
+                         BY_PREV),
+
+        // Joint meshes
+        [
+            // If your mesh if offset in .stl file, use Trimesh::transform_vertices,
+            // you may also need Trimesh::scale on some extreme cases.
+            // If your joints or tool consist of multiple meshes, combine these
+            // with Trimesh::append
+
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
+            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl")
+        ],
+
+        // Base link mesh
+        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
+
+        // Base transform, this is where the robot is standing
+        Isometry3::from_parts(
+            Translation3::new(0.4, 0.7, 0.0).into(),
+            UnitQuaternion::identity(),
+        ),
+
+        // Tool mesh
+        load_trimesh_from_stl("src/tests/data/flag.stl"),
+
+        // Tool transform, tip (not base) of the tool. The point past this
+        // transform is known as tool center point (TCP).
+        Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, 0.8).into(),
+            UnitQuaternion::identity(),
+        ),
+
+        // Objects arround the robot, with global transforms for them.
+        vec![
+            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
+            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(-1., 0., 0.) },
+            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
+            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
+        ],
+    )
+}
+```
+
+And here’s how to display a simple GUI to view the robot and verify the accuracy of both forward and inverse kinematics:
+
+```Rust
+fn main() {
+    // The robot itself.
+    let robot = create_rx160_robot();
+
+    // In which position to show the robot on startup
+    let intial_angles = [173., -8., -94., 6., 83., 207.];
+
+    // Boundaries for XYZ drawbars in visualizaiton GUI
+    let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
+
+    visualization::visualize_robot(robot, intial_angles, tcp_box);
+}
+```
+
+The visualization will open a GUI window similar to the one shown in the figure.
 
 # Configuring the solver for your robot
 
@@ -306,17 +359,19 @@ function that sometimes occurs there:
 
 ```Rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
-  println!("Reading:\n{}", &parameters.to_yaml());  
-  let robot = OPWKinematics::new(parameters);
+println!("Reading:\n{}", &parameters.to_yaml());
+let robot = OPWKinematics::new(parameters);
 ```
 
 Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
+
 ```Rust
   let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
-  println!("Reading:\n{}", &parameters.to_yaml());
+println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
-There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+There is also more advanced
+function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/urdf/fn.from_urdf.html)
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
@@ -330,13 +385,17 @@ You can easily check this in the robot documentation or simply looking into the 
 compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
 values. In general, always test in simulator before feeding the output of any software to the physical robot.
 
-# Disabling YAML and URDF readers
+# Disabling filesystem
+
 For security and performance, some users prefer smaller libraries with less dependencies. If YAML and URDF readers
-are not in use, the filesystem access can be completely disabled in your Cargo.toml, importing the library like:
+are not in use and meshes for collision detection are obtained from somewhere else (
+or collision detection is not used), the filesystem access can be completely disabled in your Cargo.toml, importing the
+library like:
 
 rs-opw-kinematics = { version = ">=1.6.0, <2.0.0", default-features = false }
 
-In this case, import of URDF and YAML files will be unaccessible, and used dependencies
+In this case, import of URDF and YAML files will be unaccessible, visualization and
+collision detection will not work either, and used dependencies
 will be limited to the single _nalgebra_ crate.
 
 # Testing
