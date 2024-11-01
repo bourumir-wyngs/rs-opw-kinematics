@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
 use crate::camera_controller::{camera_controller_system, CameraController};
-use crate::robot_body_builder::create_sample_robot;
+use crate::robot_body_builder::create_rx160_robot;
 use rs_opw_kinematics::kinematics_with_shape::{KinematicsWithShape};
 use rs_opw_kinematics::utils;
 
@@ -129,7 +129,7 @@ pub(crate) fn main_method() {
             tcp: [0.0; 6],
         })
         .insert_resource(Robot {
-            kinematics: create_sample_robot(),
+            kinematics: create_rx160_robot(),
             joint_meshes: None,
             tool: None,
             base: None,

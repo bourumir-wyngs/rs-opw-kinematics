@@ -7,6 +7,7 @@ use std::io::BufReader;
 use nalgebra::Point3;
 
 /// Function to load a TriMesh from a PLY file
+#[allow(dead_code)]
 pub fn load_trimesh_from_ply(ply_file_path: &str) -> TriMesh {
     // Open the file
     let file = File::open(ply_file_path)
@@ -64,6 +65,7 @@ pub fn load_trimesh_from_ply(ply_file_path: &str) -> TriMesh {
 }
 
 /// Function to load a TriMesh from an STL file
+#[allow(dead_code)] 
 pub fn load_trimesh_from_stl(stl_file_path: &str) -> TriMesh {
     // Open the STL file
     let file = File::open(stl_file_path)
