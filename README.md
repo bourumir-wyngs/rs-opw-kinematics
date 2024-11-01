@@ -181,56 +181,17 @@ orientation remains unchanged if only J₃ and J₂ move.
 
 See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
 
-## Visualization
+## Collision avoidance
+The new class 
+[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html) 
+combines kinematics and collision checking. It implements the 
+[Kinematics](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, 
+providing both forward and inverse kinematic solutions. During inverse kinematics, any colliding poses are excluded 
+from the solution list.
 
-Visualization primarily serves to verify that your parameters, meshes, tool, and base setup are correct. Using Bevy, the
-visualization will display the robot (mounted on its base and equipped with the tool), various environment objects, and
-a selection of handles to manipulate the robot.
-
-In the visualization window, you can adjust joint positions for forward kinematics or set the tool center point using
-Cartesian coordinates for inverse kinematics. Collision detection is active in both modes, but it functions differently:
-in inverse kinematics, movement is restricted to prevent collisions entirely (the robot will not move if a collision
-would occur). In forward kinematics, collisions are allowed, but colliding robot joints and environment objects will be
-highlighted.
-
-When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
-robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
-real-world robotic movement.
-
-# Example
-
-Cargo.toml:
-
-```toml
-[dependencies]
-rs-opw-kinematics = ">=1.6.0, <2.0.0"
-```
-
-Simple "hello world" demonstrating singularity evasion would look more or less like this:
-
-```Rust
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
-use rs_opw_kinematics::kinematics_impl::OPWKinematics;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
-
-fn main() {
-    // Create a robot with built-in parameter set
-    let robot = OPWKinematics::new(Parameters::irb2400_10());
-    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
-    println!("\nInitial joints with singularity J5 = 0: ");
-    dump_joints(&joints);
-
-    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
-    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
-    dump_solutions(&solutions);
-}
-```
-
-Starting from version 1.6.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
-enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
-and integrating collision checking. Here’s how to create such a robot:
+For collision avoidance, you need to supply meshes for robot joints and, optionally, for the base, tool, 
+and environment objects. The example below demonstrates how to create this structure, complete with tool,
+base and constraints:
 
 ```Rust
 use std::ops::RangeInclusive;
@@ -317,11 +278,15 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 }
 ```
 
-And here’s how to display a simple GUI to view the robot and verify the accuracy of both forward and inverse kinematics:
+## Visualization
+[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
+is also straightforward to visualize, as it fully integrates both the kinematics and 3D meshes representing the robot.
+To display it, simply pass this structure to the built-in function 
+[visualize_robot](https://docs.rs/rs-opw-kinematics/1.6.0/rs_opw_kinematics/visualization/fn.visualize_robot.html):
 
 ```Rust
 fn main() {
-    // The robot itself.
+    // The robot itself (as per example above)
     let robot = create_rx160_robot();
 
     // In which position to show the robot on startup
@@ -334,7 +299,56 @@ fn main() {
 }
 ```
 
-The visualization will open a GUI window similar to the one shown in the figure.
+Visualization primarily serves to verify that your parameters, meshes, tool, and base setup are correct.
+It is not intended as a production feature. Using Bevy, the visualization will display the robot 
+(mounted on its base and equipped with the tool), various environment objects, and a selection of handles to 
+manipulate the robot. 
+
+In the visualization window, you can adjust joint positions for forward kinematics or set the tool center point using
+Cartesian coordinates for inverse kinematics. Collision detection is active in both modes, but it functions differently:
+in inverse kinematics, movement is restricted to prevent collisions entirely (the robot will not move if a collision
+would occur). In forward kinematics, collisions are allowed, but colliding robot joints and environment objects will be
+highlighted.
+
+When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
+robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
+real-world robotic movement.
+
+# Example
+
+Cargo.toml:
+
+```toml
+[dependencies]
+rs-opw-kinematics = ">=1.6.0, <2.0.0"
+```
+
+Simple "hello world" demonstrating singularity evasion would look more or less like this:
+
+```Rust
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
+use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
+
+fn main() {
+    // Create a robot with built-in parameter set
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
+    println!("\nInitial joints with singularity J5 = 0: ");
+    dump_joints(&joints);
+
+    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    dump_solutions(&solutions);
+}
+```
+
+Starting from version 1.6.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
+enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
+and integrating collision checking. Here’s how to create such a robot:
+
 
 # Configuring the solver for your robot
 
