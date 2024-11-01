@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ops::{RangeInclusive};
 use std::time::Instant;
-use bevy::prelude::*;        // Add the **flipped** normal to each vertex's normal (negating the normal)
+use bevy::prelude::*;
 use parry3d::shape::TriMesh;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
@@ -120,7 +120,7 @@ struct Robot {
 }
 
 /// Visualize the given robot, starting from the given initial angles (given in degrees)
-pub fn visualize_robot(robot: KinematicsWithShape, 
+pub fn visualize_robot(robot: KinematicsWithShape,
                        intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
     App::new()
         .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
@@ -266,133 +266,100 @@ fn setup(
 }
 
 /// This function generates a visual representation of each joint of a robot
-/// based on the provided joint angles. The joint shapes are transformeduse rs_opw_kinematics::utils::joints_to_vector6;
-/// according to the kinematic configuration and rendered using Bevy's `PbrBundle`
-/// for materials and lighting.
+/// based on the provided joint angles, rendering each joint shape at its
+/// calculated position and orientation using Bevy's `PbrBundle`.
 ///
 /// # Parameters:
 /// - `commands`: Mutable reference to Bevy's `Commands`, used to issue entity spawn commands.
-/// - `meshes`: Mutable resource containing Bevy's asset storage for meshes.
-/// - `materials`: Mutable resource containing Bevy's asset storage for standard materials.
 /// - `robot`: Reference to the robot's kinematic model and shapes (`KinematicsWithShape`).
-/// - `joint_angles`: Array of 6 f32 values representing the joint angles of the robot in degrees.
+/// - `angles`: Joint angles used to compute forward kinematics for rendering.
 ///
-/// Each joint's shape is transformed and rendered at the correct position and orientation
-/// based on the robot's forward kinematics.
 fn visualize_robot_joints(
     commands: &mut Commands,
     robot: &ResMut<Robot>,
     angles: &Joints,
 ) {
-    // Obtain Bevy-compliate coordinates
+    // Helper function to transform coordinates to Bevy's coordinate system
     fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
-        let translation = &transform.translation.vector;
-        let rotation = &transform.rotation;
-
-        // Migrate to Bevy system of coordinates
-        let translation_vec3 = Vec3::new(translation.x, translation.y, translation.z);
-        let rotation_quat = Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w);
-        let final_rotation = rotation_quat;
-        (translation_vec3, final_rotation)
+        let translation = transform.translation.vector;
+        let rotation = transform.rotation;
+        (
+            Vec3::new(translation.x, translation.y, translation.z),
+            Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w),
+        )
     }
 
-    let positioned_robot = robot.kinematics.positioned_robot(&angles);
+    /// Spawns a `PbrBundle` entity for a joint, with specified mesh, material, translation, and rotation.
+    fn spawn_joint(
+        commands: &mut Commands,
+        mesh: &Handle<Mesh>,
+        material: Handle<StandardMaterial>,
+        pose: &Isometry3<f32>,
+    ) {
+        let (translation, rotation) = as_bevy(&pose);
+        commands.spawn(PbrBundle {
+            mesh: mesh.clone(),
+            material,
+            transform: Transform {
+                translation,
+                rotation,
+                ..default()
+            },
+            ..default()
+        });
+    }
 
-    // Scan for collisions.
+    // Detect collisions between joints
     let start = Instant::now();
-    let mut colliding_segments = HashSet::new();
     let collisions = robot.kinematics.collision_details(&angles);
     println!("Time for collision check: {:?}", start.elapsed());
-    if !collisions.is_empty() {
-        for (x, y) in &collisions {
-            colliding_segments.insert(*x);
-            colliding_segments.insert(*y);
-        }
+
+    let colliding_segments: HashSet<_> =
+        collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
+
+    // Visualize each joint in the robot
+    let positioned_robot = robot.kinematics.positioned_robot(angles);
+    for (j, positioned_joint) in positioned_robot.joints.iter().enumerate() {
+        spawn_joint(commands, &robot.joint_meshes.as_ref().unwrap()[j],
+                    maybe_colliding_material(&robot, &robot.material, &colliding_segments, &j),
+                    &positioned_joint.transform);
     }
 
-    for j in 0..6 {
-        let positioned_joint = &positioned_robot.joints[j];
-        let (translation_vec3, final_rotation) = as_bevy(&positioned_joint.transform);
-
-        commands.spawn(PbrBundle {
-            mesh: robot.joint_meshes.as_ref().unwrap()[j].clone(),
-            material: maybe_colliding_material(&robot, &robot.material,
-                                               &colliding_segments, &j),
-            transform: Transform {
-                translation: translation_vec3,
-                rotation: final_rotation,
-                ..default()
-            },
-            ..default()
-        });
+    // Visualize the tool if present
+    if let (Some(tool), Some(tool_joint)) = (&robot.tool, positioned_robot.tool.as_ref()) {
+        spawn_joint(commands, tool,
+                    maybe_colliding_material(&robot, &robot.tool_material, &colliding_segments, &J_TOOL),
+                    &tool_joint.transform);
     }
 
-
-    if let (Some(tool), Some(tool_joint)) =
-        (&robot.tool, positioned_robot.tool.as_ref()) {
-        let (translation_vec3, final_rotation) =
-            as_bevy(&tool_joint.transform);
-
-        commands.spawn(PbrBundle {
-            mesh: tool.clone(),
-            material: maybe_colliding_material(&robot, &robot.tool_material,
-                                               &colliding_segments, &J_TOOL),
-            transform: Transform {
-                translation: translation_vec3,
-                rotation: final_rotation,
-                ..default()
-            },
-            ..default()
-        });
-    }
-
-    if let (Some(base), Some(base_joint)) =
-        (&robot.base, robot.kinematics.body.base.as_ref()) {
-        let (translation_vec3, final_rotation) =
-            as_bevy(&base_joint.base_pose);
-
-        commands.spawn(PbrBundle {
-            mesh: base.clone(),
-            material: maybe_colliding_material(&robot, &robot.base_material,
-                                               &colliding_segments, &J_BASE),
-            transform: Transform {
-                translation: translation_vec3,
-                rotation: final_rotation,
-                ..default()
-            },
-            ..default()
-        });
+    // Visualize the base if present
+    if let (Some(base), Some(base_joint)) = (&robot.base, robot.kinematics.body.base.as_ref()) {
+        spawn_joint(commands, base,
+                    maybe_colliding_material(&robot, &robot.base_material, &colliding_segments, &J_BASE),
+                    &base_joint.base_pose);
     }
 
     // Add environment objects
-    for i in 0..positioned_robot.environment.len() {
-        let e = positioned_robot.environment[i];
-        let mesh = &robot.environment[i];
-        let (translation_vec3, final_rotation) = as_bevy(&e.pose);
-        commands.spawn(PbrBundle {
-            mesh: mesh.clone(),
-            material: maybe_colliding_material(&robot, &robot.environment_material,
-                                               &colliding_segments, &(ENV_START_IDX + i)),
-            transform: Transform {
-                translation: translation_vec3,
-                rotation: final_rotation,
-                ..default()
-            },
-            ..default()
-        });
+    for (i, environment_joint) in positioned_robot.environment.iter().enumerate() {
+        spawn_joint(commands, &robot.environment[i],
+                    maybe_colliding_material(&robot, &robot.environment_material, &colliding_segments, &(ENV_START_IDX + i)),
+                    &environment_joint.pose);
     }
 }
 
-/// Either return colliding material or some other material
-fn maybe_colliding_material(robot: &ResMut<Robot>,
-                            material: &Option<Handle<StandardMaterial>>,
-                            colliding_segments: &HashSet<usize>,
-                            joint: &usize) -> Handle<StandardMaterial> {
-    if colliding_segments.contains(joint) {
+/// Returns a colliding material if the joint is in `colliding_segments`, otherwise returns the default material.
+fn maybe_colliding_material(
+    robot: &ResMut<Robot>,
+    material: &Option<Handle<StandardMaterial>>,
+    colliding_segments: &HashSet<usize>,
+    joint: &usize,
+) -> Handle<StandardMaterial> {
+    let selected_material = if colliding_segments.contains(joint) {
         &robot.colliding_material
     } else {
         material
-    }.as_ref().unwrap().clone()
+    };
+    selected_material.as_ref().unwrap().clone()
 }
 
 // Update the robot when joint angles change
@@ -459,8 +426,8 @@ fn control_panel(
 
         let tcp_x_range = controls.tcp_box[0].clone();
         let tcp_y_range = controls.tcp_box[1].clone();
-        let tcp_z_range = controls.tcp_box[2].clone();        
-        
+        let tcp_z_range = controls.tcp_box[2].clone();
+
         ui.add_space(10.0);
         ui.label("Tool center point (TCP)");
         ui.add(egui::Slider::new(&mut controls.tcp[0], tcp_x_range).text("X"));

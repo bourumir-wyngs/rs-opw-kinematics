@@ -25,24 +25,35 @@ pub struct RobotBody {
     /// begins.
     pub base: Option<BaseBody>,
 
-    /// A boolean flag indicating whether the collision detection 
-    /// should stop after the first detected collision. When set to `true`, the system will halt 
-    /// detection as soon as one collision is found; otherwise, all potential collisions will be checked.
-    pub detect_first_collision_only: bool,
-
     /// Static objects against that we check the robot does not collide.
     pub collision_environment: Vec<CollisionBody>,
 }
 
 impl RobotBody {
     pub fn detect_collisions(
-        &self, joint_poses: &[Isometry3<f32>; 6],
+        &self, joint_poses: &[Isometry3<f32>; 6], detect_first_collision_only: bool,
     ) -> Vec<(usize, usize)> {
         let mut collisions = Vec::new();
 
+        // Check tool for collision with environment. Base does not need to be
+        // checked as it does not move.
+        if let Some(tool) = &self.tool {
+            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
+                if self.check_collision(
+                    J_TOOL, ENV_START_IDX + env_idx,
+                    &joint_poses[J6], &env_obj.pose,
+                    &tool, &env_obj.mesh,
+                    detect_first_collision_only,
+                    &mut collisions,                    
+                ) {
+                    return collisions;
+                }
+            }
+        }
+
         // Loop through joints and ensure each joint pair is checked only once
         for i in 0..6 {
-            for j in (i + 1)..6 {
+            for j in ((i + 1)..6).rev() { // Start from the tip here
                 if j - i > 1 {   // Skip adjacent joints
                     let joint_1_mesh = &self.joint_meshes[i];
                     let joint_2_mesh = &self.joint_meshes[j];
@@ -51,6 +62,7 @@ impl RobotBody {
                         i, j,
                         &joint_poses[i], &joint_poses[j],
                         &joint_1_mesh, &joint_2_mesh,
+                        detect_first_collision_only,
                         &mut collisions,
                     ) {
                         return collisions;
@@ -64,6 +76,7 @@ impl RobotBody {
                     i, ENV_START_IDX + env_idx,
                     &joint_poses[i], &env_obj.pose,
                     &self.joint_meshes[i], &env_obj.mesh,
+                    detect_first_collision_only,
                     &mut collisions,
                 ) {
                     return collisions;
@@ -76,17 +89,20 @@ impl RobotBody {
                 if let Some(tool) = &self.tool {
                     if self.check_accessory_collisions(i, J_TOOL, tool, joint_poses,
                                                        &joint_poses[J6],
+                                                       detect_first_collision_only,
                                                        &mut collisions) {
                         return collisions;
                     }
                 }
             }
 
-            // Check collisions with `self.base` if it is defined (base is attached to J1)
+            // Check collisions with `self.base` if it is defined
             if i != J1 {
                 if let Some(base) = &self.base {
                     if self.check_accessory_collisions(i, J_BASE, &base.mesh,
-                                                       joint_poses, &base.base_pose, &mut collisions) {
+                                                       joint_poses, &base.base_pose, 
+                                                       detect_first_collision_only,
+                                                       &mut collisions) {
                         return collisions;
                     }
                 }
@@ -99,6 +115,7 @@ impl RobotBody {
                 J_TOOL, J_BASE,
                 &joint_poses[J6], &base.base_pose,
                 &tool, &base.mesh,
+                detect_first_collision_only,
                 &mut collisions,
             ) {
                 return collisions;
@@ -112,6 +129,7 @@ impl RobotBody {
                        i: usize, j: usize,
                        transform_i: &Isometry3<f32>, transform_j: &Isometry3<f32>,
                        shape_i: &TriMesh, shape_j: &TriMesh,
+                       detect_first_collision_only: bool,
                        collisions: &mut Vec<(usize, usize)>,
     ) -> bool {
         let collides = parry3d::query::intersection_test(
@@ -122,7 +140,7 @@ impl RobotBody {
         if collides.expect("Mesh intersection must be supported") {
             // Add collision with ordered indices (lower index first)
             collisions.push((i.min(j), i.max(j)));
-            if self.detect_first_collision_only {
+            if detect_first_collision_only {
                 return true; // Exit if only first collision is needed
             }
         }
@@ -135,28 +153,18 @@ impl RobotBody {
         accessory: &TriMesh,
         joint_poses: &[Isometry3<f32>; 6],
         accessory_pose: &Isometry3<f32>,
+        detect_first_collision_only: bool,        
         collisions: &mut Vec<(usize, usize)>,
     ) -> bool {
         if self.check_collision(
             joint_idx, acc_reporting_code,
             &joint_poses[joint_idx], accessory_pose,
             &self.joint_meshes[joint_idx], &accessory,
+            detect_first_collision_only,
             collisions,
         ) {
             return true;
         }
-
-        // Check the tool against static objects in collision_environment
-        for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-            if self.check_collision(
-                acc_reporting_code, ENV_START_IDX + env_idx,
-                &accessory_pose, &env_obj.pose,
-                &accessory, &env_obj.mesh, collisions,
-            ) {
-                return true;
-            }
-        }
-
         false
     }
 }
@@ -165,11 +173,13 @@ impl RobotBody {
     pub fn collision_details(&self, qs: &Joints, kinematics: &dyn Kinematics) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32)
+        self.detect_collisions(&joint_poses_f32, false)
     }
 
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
-        !self.collision_details(qs, kinematics).is_empty()
+        let joint_poses = kinematics.forward_with_joint_poses(qs);
+        let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
+        !self.detect_collisions(&joint_poses_f32, true).is_empty()
     }
 }
 
@@ -220,11 +230,10 @@ mod tests {
             joint_meshes: joints,
             tool: None,
             base: None,
-            detect_first_collision_only: false,
             collision_environment: vec![],
         };
 
-        let collisions = robot.detect_collisions(&[identity; 6]);
+        let collisions = robot.detect_collisions(&[identity; 6], false);
         assert!(!collisions.is_empty(), "Expected at least one collision, but none were detected.");
 
         // Now expect 4 collisions due to the placement of joint 6

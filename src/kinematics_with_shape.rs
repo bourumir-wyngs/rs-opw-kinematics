@@ -72,7 +72,6 @@ impl KinematicsWithShape {
                     base_pose: base_transform.cast(),
                 }),
                 tool: Some(tool_mesh),
-                detect_first_collision_only: false,
                 collision_environment,
             },
         }

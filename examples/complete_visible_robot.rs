@@ -67,7 +67,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.8).into(),
+            Translation3::new(0.0, 0.0, 0.5).into(),
             UnitQuaternion::identity(),
         ),
         
