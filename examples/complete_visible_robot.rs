@@ -1,13 +1,14 @@
+
 use std::ops::RangeInclusive;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::joint_body::{CollisionBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::{visualization};
 use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
 use rs_opw_kinematics::utils::{dump_solutions};
+
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -16,6 +17,7 @@ use rs_opw_kinematics::utils::{dump_solutions};
 /// shared under the Apache license as part of the ROS Industrial project.
 ///
 /// Additionally, four environment objects and a tool are created for the visualization.
+#[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> KinematicsWithShape {
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
@@ -92,9 +94,10 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 /// The visualization includes control sliders to adjust joint
 /// angles, with real-time updates to the robot’s pose.
 /// This feature is not part of the main library; rather, it is an
-/// example intended to demonstrate functionality and confirm that 
-/// everything works as expected. You can modify this example to test 
+/// example intended to demonstrate functionality and confirm that
+/// everything works as expected. You can modify this example to test
 /// your own robot configuration.
+#[cfg(feature = "collisions")] 
 fn main() {
     // The robot itself.
     let robot = create_rx160_robot();
@@ -117,5 +120,22 @@ fn main() {
     // Boundaries for XYZ drawbars in visualizaiton GUI
     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
 
+    visualize(robot, intial_angles, tcp_box);
+}
+
+#[cfg(not(feature = "collisions"))]
+fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+    println!("Build configuration does not support this example")
+}
+
+#[cfg(feature = "visualization")]
+fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+    use rs_opw_kinematics::{visualization};
     visualization::visualize_robot(robot, intial_angles, tcp_box);
 }
+
+#[cfg(not(feature = "visualization"))]
+fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+    println!("Build configuration does not support visualization")
+}
+
