@@ -29,9 +29,9 @@ impl KinematicsWithShape {
     /// This is important for meshes that are bulky.
     ///
     /// # Parameters
-    /// 
+    ///
     /// * `opw_parameters` - OPW parameters defining this robot
-    /// 
+    ///
     /// * `constraints`: joint constraint limits
     ///
     /// * `joint_meshes` - An array of [`TriMesh; 6`] representing the meshes for each joint's body.
@@ -40,13 +40,16 @@ impl KinematicsWithShape {
     /// * `base_transform` - The transform to apply to the base mesh. This transform brings
     /// the robot into its intended location inside the robotic cell.
     ///
-    /// * `collision_environment` - A vector of collision objects represented by `CollisionBody`, 
-    /// where each object includes a mesh and its transform.
-    ///
     /// * `tool_mesh` - The mesh of the robot's tool, which will also be checked for collisions.
     /// * `tool_transform` - The transform to apply to the tool mesh. It defines the location
     /// of the "action point" of the robot whose location and rotation (pose) is the pose
-    /// for dircect and inverse kinematics calls.
+    /// for direct and inverse kinematics calls.
+    ///
+    /// * `collision_environment` - A vector of collision objects represented by `CollisionBody`, 
+    /// where each object includes a mesh and its transform.
+    ///
+    /// * `first_pose_only` - As collision check may be expensive, check if we need multiple
+    ///  checked solutions if inverse kinematics, or the first (best) is enough
     ///
     /// # Returns
     ///
@@ -60,6 +63,7 @@ impl KinematicsWithShape {
         tool_mesh: TriMesh,
         tool_transform: Isometry3<f64>,
         collision_environment: Vec<CollisionBody>,
+        first_pose_only: bool,
     ) -> Self {
         KinematicsWithShape {
             kinematics: Arc::new(Self::create_robot_with_base_and_tool(
@@ -73,6 +77,7 @@ impl KinematicsWithShape {
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
+                first_pose_only: first_pose_only,
             },
         }
     }
@@ -159,16 +164,17 @@ impl KinematicsWithShape {
             .collect();
 
         // Return the PositionedRobot with all the positioned joints
-        let positioned_tool = if let Some(tool) = self.body.tool.as_ref() {
-            Some(
-                PositionedJoint {
-                    joint_body: tool,
-                    transform: global_transforms[J6], // TCP pose
-                }
-            )
-        } else {
-            None
-        };
+        let positioned_tool =
+            if let Some(tool) = self.body.tool.as_ref() {
+                Some(
+                    PositionedJoint {
+                        joint_body: tool,
+                        transform: global_transforms[J6], // TCP pose
+                    }
+                )
+            } else {
+                None
+            };
 
         // Convert to vector of references
         let referenced_environment =
@@ -184,13 +190,26 @@ impl KinematicsWithShape {
 
 impl KinematicsWithShape {
     /// Remove solutions that are reported as result the robot colliding with self or
-    /// environment. Only retain non-colliding solutions
-    pub fn filter_colliding_solutions(&self, solutions: Solutions) -> Solutions {
-        solutions
-            .into_iter()
-            .filter(|qs| !self.body.collides(qs, self.kinematics.as_ref()))
-            .collect()
+    /// environment. Only retain non-colliding solutions. As the check may be expensive,
+    /// specify if we want to check all solutions, or only the first non-colliding one is
+    /// of interest.
+    fn filter_colliding_solutions(&self, solutions: Solutions, first_pose_only: bool) -> Solutions {
+        if first_pose_only {
+            // Find and return the first non-colliding solution as a singleton vector
+            solutions
+                .into_iter()
+                .find(|qs| !self.body.collides(qs, self.kinematics.as_ref()))
+                .map(|qs| vec![qs]) // Wrap the solution in a vector
+                .unwrap_or_default() // Return an empty vector if no solution is found
+        } else {
+            // Filter out all colliding solutions as before
+            solutions
+                .into_iter()
+                .filter(|qs| !self.body.collides(qs, self.kinematics.as_ref()))
+                .collect()
+        }
     }
+
 
     /// Check for collisions for the given joint position. Both self-collisions and collisions
     /// with environment are checked. This method simply returns true (if collides) or false (if not) 
@@ -211,13 +230,13 @@ impl Kinematics for KinematicsWithShape {
     /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse(&self, pose: &Pose) -> Solutions {
         let solutions = self.kinematics.inverse(pose);
-        self.filter_colliding_solutions(solutions)
+        self.filter_colliding_solutions(solutions, self.body.first_pose_only)
     }
 
     /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
         let solutions = self.kinematics.inverse_continuing(pose, previous);
-        self.filter_colliding_solutions(solutions)
+        self.filter_colliding_solutions(solutions, self.body.first_pose_only)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
@@ -227,13 +246,13 @@ impl Kinematics for KinematicsWithShape {
     /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         let solutions = self.kinematics.inverse_5dof(pose, j6);
-        self.filter_colliding_solutions(solutions)
+        self.filter_colliding_solutions(solutions, self.body.first_pose_only)
     }
 
     /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
         let solutions = self.kinematics.inverse_continuing_5dof(pose, prev);
-        self.filter_colliding_solutions(solutions)
+        self.filter_colliding_solutions(solutions, self.body.first_pose_only)
     }
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {

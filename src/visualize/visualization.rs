@@ -392,7 +392,9 @@ fn update_robot(
 
         // We ask kinematics with shape to do the inverse kinematics.
         // This means, colliding solutions will be discarded.
+        let start = Instant::now();
         let ik = robot.kinematics.inverse_continuing(&pose, &angles);
+        println!("Time for inverse kinematics: {:?}", start.elapsed());
         if ik.len() > 0 {
             for entity in query.iter() {
                 commands.entity(entity).despawn();
@@ -403,9 +405,10 @@ fn update_robot(
             // Update joint angles to match the current position
             controls.joint_angles = utils::to_degrees(&angles);
         } else {
-            println!("No solution for pose {} {} {} rotation {} {} {}",
-                     controls.tcp[0], controls.tcp[1], controls.tcp[2],
-                     controls.tcp[3], controls.tcp[4], controls.tcp[5],
+            println!(
+                "  no solution for pose {:.1} {:.1} {:.1} rotation {:.1} {:.1} {:.1}",
+                controls.tcp[0], controls.tcp[1], controls.tcp[2],
+                controls.tcp[3], controls.tcp[4], controls.tcp[5]
             );
         }
         controls.previous_tcp = controls.tcp.clone();

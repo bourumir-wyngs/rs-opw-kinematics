@@ -274,6 +274,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
         ],
+        true // First good pose only (true) or all poses (false)
     );
 
   // Let's play a bit with this robot now:
