@@ -3,6 +3,7 @@ use {
     // This example only makes sense with collisions feature enabled
     // Visualization can optionally be disabled.
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
+    rs_opw_kinematics::collisions::CollisionBody,
     
     std::ops::RangeInclusive,
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -12,7 +13,7 @@ use {
     rs_opw_kinematics::kinematic_traits::Kinematics,
     rs_opw_kinematics::utils::{dump_solutions}   
 };
-use rs_opw_kinematics::collisions::CollisionBody;
+
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
