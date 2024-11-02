@@ -332,14 +332,15 @@ use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
 
 fn main() {
-    // Create a robot with built-in parameter set
+    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks
     let robot = OPWKinematics::new(Parameters::irb2400_10());
-    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
     println!("\nInitial joints with singularity J5 = 0: ");
     dump_joints(&joints);
 
     println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
-    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
+    // Some previous pose for picking the best solution when infinite number of these exist.
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; 
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
     dump_solutions(&solutions);
 }
@@ -347,7 +348,7 @@ fn main() {
 
 Starting from version 1.6.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
-and integrating collision checking. Here’s how to create such a robot:
+and integrating collision checking. See example _complete_visible_robot_.
 
 
 # Configuring the solver for your robot
@@ -363,15 +364,15 @@ function that sometimes occurs there:
 
 ```Rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
-println!("Reading:\n{}", &parameters.to_yaml());
-let robot = OPWKinematics::new(parameters);
+  println!("Reading:\n{}", &parameters.to_yaml());
+  let robot = OPWKinematics::new(parameters);
 ```
 
 Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
 
 ```Rust
   let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
-println!("Reading:\n{}", &parameters.to_yaml());
+  println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
 There is also more advanced
@@ -387,7 +388,7 @@ Both YAML and URDF readers still try to obtain the parameter c4 that is now dist
 **Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
 compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
-values. In general, always test in simulator before feeding the output of any software to the physical robot.
+values. Use visualization as explained before feeding the output to the physical robot.
 
 # Disabling filesystem
 
