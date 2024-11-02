@@ -4,7 +4,7 @@ use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::joint_body::{CollisionBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::{utils, visualization};
+use rs_opw_kinematics::{visualization};
 use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
 use rs_opw_kinematics::utils::{dump_solutions};
