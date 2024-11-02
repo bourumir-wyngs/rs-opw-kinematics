@@ -151,7 +151,7 @@ fn parse_pose(yaml: &Yaml) -> Result<Pose, String> {
     })
 }
 
-pub(crate) fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance: f64) -> bool {
+pub fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance: f64) -> bool {
     let translation_diff = a.translation.vector - b.translation.vector;
     if translation_diff.norm() > tolerance {
         return false;

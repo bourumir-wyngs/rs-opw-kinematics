@@ -71,16 +71,23 @@ mod tests {
             let kinematics = OPWKinematics::new(parameters.clone());
 
             // This test only checks the final pose so far.
-            let ik = kinematics.forward_with_joint_poses(&case.joints_in_radians())[5];
+            let joints = case.joints_in_radians();
+            let ik = kinematics.forward_with_joint_poses(&joints)[5];
             let pose = test_utils::Pose::from_isometry(&ik);
 
-            if !test_utils::are_isometries_approx_equal(&ik, &case.pose.to_isometry(), 0.00001) {
-                println!("Seems not equal");
+            let case_pose = case.pose.to_isometry();
+            if !test_utils::are_isometries_approx_equal(&ik, &case_pose, 0.00001) {
+                println!("Seems not equal for {}", &case.id);
                 println!("joints: {:?} ", &case.joints);
                 println!("case: {:?} ", &pose);
                 println!("IK  : {:?} ", &case.pose);
                 println!("{}", parameters.to_yaml());
-
+                
+                println!("Checking for tcp-only condition");
+                assert!(test_utils::are_isometries_approx_equal(&case_pose, &kinematics.forward(&joints),0.0001));
+                println!("Passed, checking for tcp-only result");
+                assert!(test_utils::are_isometries_approx_equal(&ik, &kinematics.forward(&joints),0.0001));
+                println!("Passed??!!");
 
                 panic!("Forward kinematics of the primary pose seems not equal");
             }

@@ -33,6 +33,30 @@ pub enum Singularity {
 /// Six rotary joints of the robot with angles in radians. 
 pub type Joints = [f64; 6];
 
+// Define indices for easier reading (numbering in array starts from 0 and this one-off is
+// contra - intuitive)
+#[allow(dead_code)]
+pub const J1: usize = 0;
+#[allow(dead_code)]
+pub const J2: usize = 1;
+#[allow(dead_code)]
+pub const J3: usize = 2;
+#[allow(dead_code)]
+pub const J4: usize = 3;
+#[allow(dead_code)]
+pub const J5: usize = 4;
+#[allow(dead_code)]
+pub const J6: usize = 5;
+
+/// The number for the robot tool in collision report
+pub const J_TOOL: usize = 100;
+
+/// The robot base joint
+pub const J_BASE: usize = 101;
+
+/// Starting index for collision_environment entries in collision pairs
+pub const ENV_START_IDX: usize = 100_000;
+
 /// For providing singularity - proof solution when the previous value is not known.
 /// Joints that take arbitrary angles will take angles as close to 0 as possible:
 /// let solutions = kinematics.inverse_continuing(&pose, &JOINTS_AT_ZERO);

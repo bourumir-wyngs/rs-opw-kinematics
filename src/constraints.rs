@@ -2,6 +2,7 @@
  
 use std::f64::consts::PI;
 use std::f64::INFINITY;
+use std::ops::RangeInclusive;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::utils::deg;
 
@@ -57,6 +58,57 @@ impl Constraints {
         }
     }
 
+    /// Initializes `Constraints` from an array of 6 ranges (`RangeInclusive<f64>`),
+    /// where each range specifies the `from` (start) and `to` (end) values for each joint.
+    /// This is convenience method, where VALUES MUST BE GIVEN IN DEGREES.
+    ///
+    /// # Parameters
+    /// - `ranges`: An array of 6 `RangeInclusive<f64>` values, each representing a range for one joint.
+    ///   - The start of each range is taken as the `from` bound.
+    ///   - The end of each range is taken as the `to` bound.
+    /// - `sorting_weight`: A `f64` value representing the sorting weight for the constraint.
+    ///
+    /// # Returns
+    /// A new instance of `Constraints` with `from`, `to`, `centers`, and `tolerances` calculated
+    /// based on the specified ranges.
+    ///
+    /// # Example
+    /// ```
+    /// use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
+    /// let constraints = Constraints::from_degrees(
+    ///   [0.0..=90.0, 45.0..=135.0, -90.0..=90.0, 0.0..=180.0, -45.0..=45.0, -180.0..=180.0], 
+    ///   BY_PREV);
+    /// ```
+    pub fn from_degrees(ranges: [RangeInclusive<f64>; 6], sorting_weight: f64) -> Self {
+        let from: Joints = [
+            ranges[0].start().to_radians(),
+            ranges[1].start().to_radians(),
+            ranges[2].start().to_radians(),
+            ranges[3].start().to_radians(),
+            ranges[4].start().to_radians(),
+            ranges[5].start().to_radians(),
+        ];
+
+        let to: Joints = [
+            ranges[0].end().to_radians(),
+            ranges[1].end().to_radians(),
+            ranges[2].end().to_radians(),
+            ranges[3].end().to_radians(),
+            ranges[4].end().to_radians(),
+            ranges[5].end().to_radians(),
+        ];
+
+        let (centers, tolerances) = Self::compute_centers(from, to);
+
+        Constraints {
+            from,
+            to,
+            centers,
+            tolerances,
+            sorting_weight,
+        }
+    }
+        
     fn compute_centers(from: Joints, to: Joints) -> (Joints, Joints) {
         let mut centers: Joints = JOINTS_AT_ZERO;
         let mut tolerances: Joints = JOINTS_AT_ZERO;

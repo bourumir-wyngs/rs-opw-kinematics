@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.5.1"
+version = "1.6.0"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -18,19 +18,44 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 nalgebra = "0.33"
 
-# Others are only needed to read YAML or convert from URDF
+
+# Optional dependencies:
+# - yaml-rust2: For reading YAML files.
+# - sxd-document: For reading URDF/XML files
+# - regex: For regex matching in file parsing.
+# - clap: For command-line argument parsing by file processor.
 yaml-rust2 = { version = "0.9", optional = true }
 sxd-document = { version = "0.3", optional = true }
-regex = { version = "1.10.5", optional = true }
+regex = { version = "1.10", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 
-[features]
-default = ["allow_filesystem"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
+# Needed for collision
+parry3d = { version = "0.17", optional = true }
+# Palellization of collision
+rayon = { version = "1.10", optional = true }
 
-# To disable filesystem:
-#rs-opw-kinematics = { version = "1.5.1", default-features = false }
+# For loading meshes, needed for collision and visualization
+ply-rs = { version = "0.1", optional = true }
+stl_io = { version = "0.8", optional = true }
+
+# Needed for visualization. We must disable audio by not including
+bevy = { version = "0.12", default-features = false, features = [
+    "animation", "bevy_scene", "bevy_winit",
+    "bevy_pbr", "bevy_render", "bevy_text", "bevy_ui", "multi-threaded", "hdr",
+    "x11", "wayland", "tonemapping_luts", "default_font",
+], optional = true }
+bevy_egui = { version = "0.23", optional = true }
+
+[features]
+default = ["allow_filesystem", "collisions", "visualization"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs", "stl_io"]
+collisions = ["parry3d", "rayon"]
+visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
+
+# To disable filesystem, collision and visualizatio support:
+# rs-opw-kinematics = { version = "1.6.0", default-features = false }
 
 [dev-dependencies]
-rand = "0.8.5"
+# Some tests include random generator
+rand = "0.8"
 

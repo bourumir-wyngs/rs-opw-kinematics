@@ -6,6 +6,7 @@ use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::constraints::{BY_CONSTRAINS, Constraints};
 
+/// Calculating Jacobian matrices for kinematic analysis.
 fn main() {
     let robot = OPWKinematics::new_with_constraints(
         Parameters::irb2400_10(), Constraints::new(
