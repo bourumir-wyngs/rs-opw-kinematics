@@ -1,5 +1,6 @@
 //! ## Visualization
 //! <img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
+//! 
 //! The [`crate::kinematics_with_shape::KinematicsWithShape`] structure fully integrates kinematics 
 //! with 3D meshes representing the robot, making it straightforward to visualize.
 //! To display the robot, simply pass this structure to the built-in function 
