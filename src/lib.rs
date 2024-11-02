@@ -77,8 +77,13 @@ pub mod parameter_error;
 #[cfg(feature = "allow_filesystem")]
 mod simplify_joint_name;
 
+#[cfg(feature = "collisions")]
 pub mod collisions;
+
+#[cfg(feature = "collisions")]
 pub mod joint_body;
+
+#[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
 #[cfg(feature = "allow_filesystem")]
