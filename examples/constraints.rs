@@ -5,7 +5,6 @@ use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_solutions};
 use rs_opw_kinematics::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 
-/// Limiting the rotation range of robot joints.
 fn main() {
     let robot = OPWKinematics::new_with_constraints(
         Parameters::irb2400_10(), Constraints::new(
