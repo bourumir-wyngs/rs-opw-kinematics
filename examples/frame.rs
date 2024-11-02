@@ -6,6 +6,7 @@ use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 
+/// Using frames, a foundational concept in robotic programming for managing coordinates.
 fn main() {
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     // Shift not too much to have values close to previous

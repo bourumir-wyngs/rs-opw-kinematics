@@ -3,6 +3,7 @@ use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
 
+/// Basic inverse and forward kinematics, including handling of singularities.
 fn main() {
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]

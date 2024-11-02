@@ -1,3 +1,5 @@
+/// Supporting robotic arms with a parallelogram mechanism.
+
 use std::sync::Arc;
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, J2, J3};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;

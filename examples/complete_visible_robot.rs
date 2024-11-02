@@ -9,11 +9,13 @@ use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
 use rs_opw_kinematics::utils::{dump_solutions};
 
-/// Create the sample robot we will visualize. This function creates 
-/// Staubli RX160, using is parameter set. 
-/// It loads the joint meshes from .stl files bundles in the test folder
-/// where they are shared under the rights of Apache license (ROS Industrial project).
-/// Four environment objects and tool are also created.
+/// Creates a sample robot for visualization. This function sets up
+/// a Staubli RX160 robot using its specific parameter set.
+///
+/// Joint meshes are loaded from `.stl` files bundled in the test folder,
+/// shared under the Apache license as part of the ROS Industrial project.
+///
+/// Additionally, four environment objects and a tool are created for the visualization.
 pub fn create_rx160_robot() -> KinematicsWithShape {
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
@@ -85,14 +87,14 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     )
 }
 
-/// This example builds and visualizes complete robot, using Bevy.
-/// The visualization provides control bars to change the joint
-/// angles, the visualization of the robot is updated accordingly.
-/// This visualization is not part of the main library but
-/// rather example intended to show that everything works as 
-/// expected. You can use the modified version to test your own
-/// robot.
-
+/// This example builds and visualizes a complete robot using Bevy.
+///
+/// The visualization includes control sliders to adjust joint
+/// angles, with real-time updates to the robot’s pose.
+/// This feature is not part of the main library; rather, it is an
+/// example intended to demonstrate functionality and confirm that 
+/// everything works as expected. You can modify this example to test 
+/// your own robot configuration.
 fn main() {
     // The robot itself.
     let robot = create_rx160_robot();
