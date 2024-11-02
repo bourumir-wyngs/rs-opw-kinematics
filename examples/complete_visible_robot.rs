@@ -117,7 +117,7 @@ fn main() {
     dump_solutions(&solutions);
 
     if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
-        println!("OOPS!");
+        println!("Collision detected");
     }
 
     // In which position to show the robot on startup
