@@ -200,7 +200,7 @@ base and constraints:
 use std::ops::RangeInclusive;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-use rs_opw_kinematics::joint_body::{CollisionBody};
+use rs_opw_kinematics::collisions::{BaseBody, CollisionBody, RobotBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};

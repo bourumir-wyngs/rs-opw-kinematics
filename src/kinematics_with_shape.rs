@@ -1,9 +1,12 @@
+//! Defines a structure that combines the kinematic model of a robot with its geometrical shape.
+//! This struct provides both the kinematic functionality for computing joint positions and 
+//! the physical structure used for collision detection and other geometric calculations. 
+
 use std::sync::Arc;
 use nalgebra::{Isometry3};
 use parry3d::shape::TriMesh;
-use crate::collisions::RobotBody;
+use crate::collisions::{BaseBody, CollisionBody, RobotBody};
 use crate::constraints::Constraints;
-use crate::joint_body::{BaseBody, CollisionBody};
 use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity, J6};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;

@@ -1,3 +1,5 @@
+//! Functionality for loading Parry TriMesh from STL or PLY files.
+
 use parry3d::shape::TriMesh;
 use ply_rs::parser::Parser;
 use ply_rs::ply::{DefaultElement, Property};

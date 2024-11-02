@@ -1,3 +1,6 @@
+//! Support for parallelogram mechanism some robots have. Like Tool and Base, Parallelogram
+//! both wraps arround some instance of Kinematics and implements Kinematics itself.
+
 use std::sync::Arc;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 

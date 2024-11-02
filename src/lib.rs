@@ -81,9 +81,6 @@ mod simplify_joint_name;
 pub mod collisions;
 
 #[cfg(feature = "collisions")]
-pub mod joint_body;
-
-#[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
 #[cfg(feature = "allow_filesystem")]
@@ -95,7 +92,7 @@ pub mod visualization;
 
 #[path = "visualize/camera_controller.rs"]
 #[cfg(feature = "visualization")]
-pub mod camera_controller;
+mod camera_controller;
 
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
