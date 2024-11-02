@@ -5,8 +5,9 @@ use rs_opw_kinematics::joint_body::{CollisionBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};
+use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
-
+use rs_opw_kinematics::utils::{as_radians, dump_solutions};
 
 /// Create the sample robot we will visualize. This function creates 
 /// Staubli RX160, using is parameter set. 
@@ -36,7 +37,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                          // Take priority to the previous joint position (0.). Center of constraints can
                          // also be prioritized by passing BY_CONSTRAINS (1.) or any weighted value                         
                          BY_PREV),
-        
+
         // Joint meshes
         [
             // If your mesh if offset in .stl file, use Trimesh::transform_vertices,
@@ -51,26 +52,26 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
             load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl")
         ],
-        
+
         // Base link mesh
         load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
-        
+
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.4, 0.7, 0.0).into(),
             UnitQuaternion::identity(),
         ),
-        
+
         // Tool mesh
         load_trimesh_from_stl("src/tests/data/flag.stl"),
-        
+
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 0.5).into(),
             UnitQuaternion::identity(),
         ),
-        
+
         // Objects arround the robot, with global transforms for them.
         vec![
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
@@ -92,6 +93,18 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 fn main() {
     // The robot itself.
     let robot = create_rx160_robot();
+
+    // Do some inverse kinematics to show the concept.
+    let pose = Isometry3::from_parts(
+        Translation3::new(0.0, 0.0, 1.5),
+        UnitQuaternion::identity());
+    
+    let solutions = robot.inverse(&pose);
+    dump_solutions(&solutions);
+    
+    if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
+        println!("OOPS!");
+    }
 
     // In which position to show the robot on startup
     let intial_angles = [173., -8., -94., 6., 83., 207.];

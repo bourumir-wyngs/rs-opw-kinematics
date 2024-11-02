@@ -213,7 +213,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
 
-    KinematicsWithShape::new(
+    let robot = KinematicsWithShape::new(
         // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
@@ -274,7 +274,24 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
         ],
-    )
+    );
+
+  // Let's play a bit with this robot now:
+ 
+  let pose = Isometry3::from_parts(
+    Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above center of the world
+    UnitQuaternion::identity()); // pointing right upwards
+
+  // Collision aware inverse kinematics (colliding solutions discarded)  
+  let solutions = robot.inverse(&pose);
+  dump_solutions(&solutions); // Print solutions in degrees
+  
+  // Collision check against given joint positions
+  if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
+    println!("Collision detected");
+  }  
+  
+  robot
 }
 ```
 
@@ -332,7 +349,7 @@ use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
 
 fn main() {
-    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks
+    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks.
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
     println!("\nInitial joints with singularity J5 = 0: ");
