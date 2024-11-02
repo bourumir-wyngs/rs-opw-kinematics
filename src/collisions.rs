@@ -1,187 +1,201 @@
-use nalgebra::{Isometry3};
+use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::joint_body::{BaseBody, CollisionBody};
 use crate::kinematic_traits::{Joints, Kinematics, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL};
 
+/// Struct representing a collision task for detecting collisions
+/// between two objects with given transforms and shapes.
+struct CollisionTask<'a> {
+    i: usize, // reporting index of the first shape
+    j: usize, // reporting index of the second shape
+    transform_i: &'a Isometry3<f32>,
+    transform_j: &'a Isometry3<f32>,
+    shape_i: &'a TriMesh,
+    shape_j: &'a TriMesh,
+}
+
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
-/// Each joint is represented by a `JointBody`, encapsulating the geometrical shape 
-/// of a joint. This struct also provides functionality for detecting collisions 
-/// between these joints. This structure does not specify the exact pose of the robot,
-/// it is used to build a `PositionedRobot` that does.
 pub struct RobotBody {
-    /// A fixed-size array of 6 `JointBody` instances, each representing 
-    /// the geometrical shape of a joint in the robot.
     pub joint_meshes: [TriMesh; 6],
-
-    /// Optional tool that, if exists, is attached to the last joint. Being JointBody, it can be
-    /// attached with the local transform. It has the same global transform as the joint J6
-    /// (that is usually a small flange only)
     pub tool: Option<TriMesh>,
-
-    /// Optional structure attached to the robot base joint. It has its own global transform
-    /// that brings the robot to the location. This structure includes two transforms,
-    /// one bringing us to the base of the stand supporting the robot (and this is the 
-    /// pose of the stand itself), and then another defining the point where J1 rotating part
-    /// begins.
     pub base: Option<BaseBody>,
-
-    /// Static objects against that we check the robot does not collide.
     pub collision_environment: Vec<CollisionBody>,
 }
 
 impl RobotBody {
-    pub fn detect_collisions(
-        &self, joint_poses: &[Isometry3<f32>; 6], first_collision_only: bool,
-    ) -> Vec<(usize, usize)> {
-        let mut collisions = Vec::new();
-
-        // Check tool for collision with environment. Base does not need to be
-        // checked as it does not move.
-        if let Some(tool) = &self.tool {
-            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                if self.check_collision(
-                    J_TOOL, ENV_START_IDX + env_idx,
-                    &joint_poses[J6], &env_obj.pose,
-                    &tool, &env_obj.mesh,
-                    first_collision_only,
-                    &mut collisions,                    
-                ) {
-                    return collisions;
-                }
-            }
-        }
-
-        // Loop through joints and ensure each joint pair is checked only once
-        for i in 0..6 {
-            for j in ((i + 1)..6).rev() { // Start from the tip here
-                if j - i > 1 {   // Skip adjacent joints
-                    let joint_1_mesh = &self.joint_meshes[i];
-                    let joint_2_mesh = &self.joint_meshes[j];
-
-                    if self.check_collision(
-                        i, j,
-                        &joint_poses[i], &joint_poses[j],
-                        &joint_1_mesh, &joint_2_mesh,
-                        first_collision_only,
-                        &mut collisions,
-                    ) {
-                        return collisions;
-                    }
-                }
-            }
-
-            // Check each joint against static objects in collision_environment
-            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                if self.check_collision(
-                    i, ENV_START_IDX + env_idx,
-                    &joint_poses[i], &env_obj.pose,
-                    &self.joint_meshes[i], &env_obj.mesh,
-                    first_collision_only,
-                    &mut collisions,
-                ) {
-                    return collisions;
-                }
-            }
-
-            // Check collisions with `self.tool` if it is defined (tool is same as J6
-            // and attached to J5)
-            if i != J6 && i != J5 {
-                if let Some(tool) = &self.tool {
-                    if self.check_accessory_collisions(i, J_TOOL, tool, joint_poses,
-                                                       &joint_poses[J6],
-                                                       first_collision_only,
-                                                       &mut collisions) {
-                        return collisions;
-                    }
-                }
-            }
-
-            // Check collisions with `self.base` if it is defined
-            if i != J1 {
-                if let Some(base) = &self.base {
-                    if self.check_accessory_collisions(i, J_BASE, &base.mesh,
-                                                       joint_poses, &base.base_pose,
-                                                       first_collision_only,
-                                                       &mut collisions) {
-                        return collisions;
-                    }
-                }
-            }
-        }
-
-        // Additional check for direct collision between tool and base, if both are defined
-        if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
-            if self.check_collision(
-                J_TOOL, J_BASE,
-                &joint_poses[J6], &base.base_pose,
-                &tool, &base.mesh,
-                first_collision_only,
-                &mut collisions,
-            ) {
-                return collisions;
-            }
-        }
-
-        collisions
-    }
-
-    fn check_collision(&self,
-                       i: usize, j: usize,
-                       transform_i: &Isometry3<f32>, transform_j: &Isometry3<f32>,
-                       shape_i: &TriMesh, shape_j: &TriMesh,
-                       detect_first_collision_only: bool,
-                       collisions: &mut Vec<(usize, usize)>,
-    ) -> bool {
-        let collides = parry3d::query::intersection_test(
-            transform_i, shape_i,
-            transform_j, shape_j
-        );
-
-        if collides.expect("Mesh intersection must be supported") {
-            // Add collision with ordered indices (lower index first)
-            collisions.push((i.min(j), i.max(j)));
-            if detect_first_collision_only {
-                return true; // Exit if only first collision is needed
-            }
-        }
-        false
-    }
-
-    fn check_accessory_collisions(
-        &self, joint_idx: usize,
-        acc_reporting_code: usize,
-        accessory: &TriMesh,
-        joint_poses: &[Isometry3<f32>; 6],
-        accessory_pose: &Isometry3<f32>,
-        detect_first_collision_only: bool,        
-        collisions: &mut Vec<(usize, usize)>,
-    ) -> bool {
-        if self.check_collision(
-            joint_idx, acc_reporting_code,
-            &joint_poses[joint_idx], accessory_pose,
-            &self.joint_meshes[joint_idx], &accessory,
-            detect_first_collision_only,
-            collisions,
-        ) {
-            return true;
-        }
-        false
-    }
-}
-
-impl RobotBody {
+    /// Returns detailed information about all collisions detected in the robot's configuration.
     pub fn collision_details(&self, qs: &Joints, kinematics: &dyn Kinematics) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         self.detect_collisions(&joint_poses_f32, false)
     }
 
+    /// Returns true if any collision is detected in the robot's configuration.
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         !self.detect_collisions(&joint_poses_f32, true).is_empty()
     }
 }
+
+impl RobotBody {
+    
+    /// Parallel version with Rayon
+    fn process_collision_tasks(tasks: Vec<CollisionTask>, first_collision_only: bool) -> Vec<(usize, usize)> {
+        if first_collision_only {
+            // Exit as soon as any collision is found
+            tasks.par_iter()
+                .find_map_any(|task| {
+                    let collides = parry3d::query::intersection_test(
+                        task.transform_i, task.shape_i, task.transform_j, task.shape_j)
+                        .expect("Mesh intersection must be supported");
+                    if collides {
+                        Some((task.i.min(task.j), task.i.max(task.j)))
+                    } else {
+                        None
+                    }
+                })
+                .into_iter() // Converts the Option result to an iterator
+                .collect()
+        } else {
+            // Collect all collisions
+            tasks.par_iter()
+                .filter_map(|task| {
+                    let collides = parry3d::query::intersection_test(
+                        task.transform_i, task.shape_i, task.transform_j, task.shape_j)
+                        .expect("Mesh intersection must be supported");
+                    if collides {
+                        Some((task.i.min(task.j), task.i.max(task.j)))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+    }
+    
+    /// Sequential version
+    fn process_collision_tasks_sequential(tasks: Vec<CollisionTask>, first_collision_only: bool) -> Vec<(usize, usize)> {
+        let mut collisions = Vec::with_capacity(4);
+
+        for task in tasks {
+            if parry3d::query::intersection_test(task.transform_i, task.shape_i, task.transform_j, task.shape_j)
+                .expect("Mesh intersection must be supported")
+            {
+                collisions.push((task.i.min(task.j), task.i.max(task.j)));
+                if first_collision_only {
+                    break;
+                }
+            }
+        }
+
+        collisions
+    }
+
+
+    fn detect_collisions(
+        &self, joint_poses: &[Isometry3<f32>; 6], first_collision_only: bool,
+    ) -> Vec<(usize, usize)> {
+        let mut tasks = Vec::with_capacity(64);
+
+        if let Some(tool) = &self.tool {
+            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
+                tasks.push(CollisionTask {
+                    i: J_TOOL,
+                    j: ENV_START_IDX + env_idx,
+                    transform_i: &joint_poses[J6],
+                    transform_j: &env_obj.pose,
+                    shape_i: &tool,
+                    shape_j: &env_obj.mesh,
+                });
+            }
+        }
+
+        for i in 0..6 {
+            for j in ((i + 1)..6).rev() {
+                if j - i > 1 {
+                    tasks.push(CollisionTask {
+                        i,
+                        j,
+                        transform_i: &joint_poses[i],
+                        transform_j: &joint_poses[j],
+                        shape_i: &self.joint_meshes[i],
+                        shape_j: &self.joint_meshes[j],
+                    });
+                }
+            }
+
+            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
+                tasks.push(CollisionTask {
+                    i,
+                    j: ENV_START_IDX + env_idx,
+                    transform_i: &joint_poses[i],
+                    transform_j: &env_obj.pose,
+                    shape_i: &self.joint_meshes[i],
+                    shape_j: &env_obj.mesh,
+                });
+            }
+
+            if i != J6 && i != J5 {
+                if let Some(tool) = &self.tool {
+                    let accessory_pose = &joint_poses[J6];
+                    tasks.push(CollisionTask {
+                        i,
+                        j: J_TOOL,
+                        transform_i: &joint_poses[i],
+                        transform_j: accessory_pose,
+                        shape_i: &self.joint_meshes[i],
+                        shape_j: &tool,
+                    });
+                }
+            }
+
+            if i != J1 {
+                if let Some(base) = &self.base {
+                    let accessory = &base.mesh;
+                    let accessory_pose = &base.base_pose;
+                    tasks.push(CollisionTask {
+                        i,
+                        j: J_BASE,
+                        transform_i: &joint_poses[i],
+                        transform_j: accessory_pose,
+                        shape_i: &self.joint_meshes[i],
+                        shape_j: &accessory,
+                    });
+                }
+            }
+        }
+
+        if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
+            tasks.push(CollisionTask {
+                i: J_TOOL,
+                j: J_BASE,
+                transform_i: &joint_poses[J6],
+                transform_j: &base.base_pose,
+                shape_i: &tool,
+                shape_j: &base.mesh,
+            });
+        }
+
+        println!("{} collisions to check", tasks.len());
+
+        Self::process_collision_tasks(tasks, first_collision_only)
+    }
+
+    fn check_collision(&self, task: CollisionTask) -> bool {
+        let collides = parry3d::query::intersection_test(
+            task.transform_i, task.shape_i,
+            task.transform_j, task.shape_j,
+        );
+
+        if collides.expect("Mesh intersection must be supported") {
+            return true;
+        }
+        false
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
