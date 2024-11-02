@@ -83,6 +83,8 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
+Since 1.6.0, convenience method exists to specify constraints as ranges in degrees.
+
 ## Jacobian: torgues and velocities
 
 Since 1.3.2, it is possible to obtain
@@ -226,12 +228,13 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             ..Parameters::new()
         },
 
-        // Define constraints. Use utils::joints to give them in degrees, not radians.
-        Constraints::new(utils::joints(&[-225., -225., -225., -225., -225., -360.]),
-                         utils::joints(&[225., 225., 225., 225., 225., 360.]),
-                         // Take priority to the previous joint position (0.). Center of constraints can
-                         // also be prioritized by passing BY_CONSTRAINS (1.) or any weighted value                         
-                         BY_PREV),
+        Constraints::from_degrees(
+          [
+            -225.0..=225.0, -225.0..=225.0, -225.0..=225.0,
+            -225.0..=225.0, -225.0..=225.0, -360.0..=360.0,
+          ],
+          BY_PREV, // Prioritize previous joint position
+        ),
 
         // Joint meshes
         [

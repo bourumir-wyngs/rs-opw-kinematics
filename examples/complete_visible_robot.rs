@@ -7,7 +7,7 @@ use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};
 use rs_opw_kinematics::kinematic_traits::Kinematics;
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
-use rs_opw_kinematics::utils::{as_radians, dump_solutions};
+use rs_opw_kinematics::utils::{dump_solutions};
 
 /// Create the sample robot we will visualize. This function creates 
 /// Staubli RX160, using is parameter set. 
@@ -31,12 +31,14 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             ..Parameters::new()
         },
 
-        // Define constraints. Use utils::joints to give them in degrees, not radians.
-        Constraints::new(utils::joints(&[-225., -225., -225., -225., -225., -360.]),
-                         utils::joints(&[225., 225., 225., 225., 225., 360.]),
-                         // Take priority to the previous joint position (0.). Center of constraints can
-                         // also be prioritized by passing BY_CONSTRAINS (1.) or any weighted value                         
-                         BY_PREV),
+        // Define constraints directly in degrees, converting internally to radians.
+        Constraints::from_degrees(
+            [
+                -225.0..=225.0, -225.0..=225.0, -225.0..=225.0,
+                -225.0..=225.0, -225.0..=225.0, -360.0..=360.0,
+            ],
+            BY_PREV, // Prioritize previous joint position
+        ),
 
         // Joint meshes
         [
@@ -79,7 +81,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
         ],
-        true // First pose only (true) or all poses (false)
+        true, // First pose only (true) or all poses (false)
     )
 }
 
@@ -99,10 +101,10 @@ fn main() {
     let pose = Isometry3::from_parts(
         Translation3::new(0.0, 0.0, 1.5),
         UnitQuaternion::identity());
-    
+
     let solutions = robot.inverse(&pose);
     dump_solutions(&solutions);
-    
+
     if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
         println!("OOPS!");
     }
