@@ -280,7 +280,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
  
   let pose = Isometry3::from_parts(
     Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above center of the world
-    UnitQuaternion::identity()); // pointing right upwards
+    UnitQuaternion::identity()); // with robot tool pointing right upwards
 
   // Collision aware inverse kinematics (colliding solutions discarded)  
   let solutions = robot.inverse(&pose);
