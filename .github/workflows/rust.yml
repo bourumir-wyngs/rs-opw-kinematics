@@ -28,6 +28,12 @@ jobs:
       run: cargo test --no-default-features --verbose
     - name: Run URDF extractor once more
       run: cargo run
+    - name: Build all examples
+      run: cargo build --examples
+    - name: Build all examples no default features
+      run: cargo build --examples --no-default-features
+
+
 
 
 
