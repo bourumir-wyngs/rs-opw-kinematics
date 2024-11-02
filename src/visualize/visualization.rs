@@ -1,3 +1,42 @@
+//! ## Visualization
+//! <img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
+//! The [crate::kinematics_with_shape::KinematicsWithShape] structure fully integrates kinematics 
+//! with 3D meshes representing the robot, making it straightforward to visualize.
+//! To display the robot, simply pass this structure to the built-in function 
+//! [visualize_robot]. Use 
+//!
+//! ```rust
+//! fn main() {
+//!     use std::ops::RangeInclusive;
+//! // Initialize the robot (example usage shown above)
+//!     use rs_opw_kinematics::visualization;
+//!     let robot = create_rx160_robot(); // See complete_visible_robot example how
+//!
+//!     // Define the initial joint angles to display the robot in a specific position
+//!     let initial_angles = [173., -8., -94., 6., 83., 207.];
+//!
+//!     // Define boundaries for XYZ drawbars in the visualization GUI
+//!     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
+//!
+//!     visualization::visualize_robot(robot, initial_angles, tcp_box);
+//! }
+//! ```
+//!
+//! ### Purpose
+//! Visualization serves as a verification tool to ensure that parameters, meshes, tool, and base setup are correct,
+//! rather than as a production feature. Using Bevy, this visualization displays the robot (mounted on its base 
+//! and equipped with the tool), various environment objects, and manipulable handles for the robot.
+//!
+//! ### Features
+//! In the visualization window, joint positions can be adjusted for forward kinematics, or the tool center point 
+//! can be set using Cartesian coordinates for inverse kinematics.
+//!
+//! - **Collision Detection**: Active in both kinematics modes but functions differently:
+//!   - **Inverse Kinematics**: Movement is restricted to avoid collisions entirely (the robot will not move if a 
+//!     collision would occur).
+//!   - **Forward Kinematics**: Collisions are permitted, but colliding robot joints and environment objects are highlighted.
+
+
 use std::collections::HashSet;
 use std::ops::{RangeInclusive};
 use std::time::Instant;
