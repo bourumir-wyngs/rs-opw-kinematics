@@ -7,14 +7,14 @@
 //! To display the robot, simply pass this structure to the built-in function 
 //! [`visualize_robot`].  
 //!
-//! ```rust
+//! ```ignore
 //! fn main() {
 //!     use std::ops::RangeInclusive;
 //!     use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 //!     use rs_opw_kinematics::visualization;
 //! 
 //!     // See `complete_visible_robot example` how to build this structure
-//!     let robot: KinematicsWithShape; 
+//!     let robot: KinematicsWithShape = ...
 //!
 //!     // Define the initial joint angles to display the robot in a specific position
 //!     let initial_angles = [173., -8., -94., 6., 83., 207.];
