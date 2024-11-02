@@ -41,7 +41,7 @@ stl_io = { version = "0.8", optional = true }
 # Needed for visualization. We must disable audio by not including
 bevy = { version = "0.12", default-features = false, features = [
     # Core and standard features
-    "animation", "bevy_scene", "bevy_winit", "bevy_core_pipeline",
+    "animation", "bevy_scene", "bevy_winit", 
     "bevy_pbr", "bevy_render", "bevy_text", "bevy_ui", "multi-threaded", "hdr",
     "x11", "wayland", "tonemapping_luts", "default_font",
 ], optional = true }
