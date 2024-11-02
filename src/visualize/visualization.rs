@@ -4,14 +4,16 @@
 //! The [`crate::kinematics_with_shape::KinematicsWithShape`] structure fully integrates kinematics 
 //! with 3D meshes representing the robot, making it straightforward to visualize.
 //! To display the robot, simply pass this structure to the built-in function 
-//! [`visualize_robot`]. Use 
+//! [`visualize_robot`].  
 //!
 //! ```rust
 //! fn main() {
 //!     use std::ops::RangeInclusive;
-//! // Initialize the robot (example usage shown above)
+//!     use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 //!     use rs_opw_kinematics::visualization;
-//!     let robot = create_rx160_robot(); // See complete_visible_robot example how
+//! 
+//!     // See `complete_visible_robot example` how to build this structure
+//!     let robot: KinematicsWithShape; 
 //!
 //!     // Define the initial joint angles to display the robot in a specific position
 //!     let initial_angles = [173., -8., -94., 6., 83., 207.];
