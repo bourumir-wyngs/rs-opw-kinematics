@@ -1,4 +1,5 @@
 //! Provides visualization window with sliders for angles and pose.
+//! 
 //! <img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
 //! 
 //! The [`crate::kinematics_with_shape::KinematicsWithShape`] structure fully integrates kinematics 
