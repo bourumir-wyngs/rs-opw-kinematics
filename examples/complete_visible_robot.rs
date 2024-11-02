@@ -1,14 +1,15 @@
 
+ 
 use std::ops::RangeInclusive;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-use rs_opw_kinematics::joint_body::{CollisionBody};
-use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::kinematic_traits::Kinematics;
-use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
 use rs_opw_kinematics::utils::{dump_solutions};
 
+#[cfg(feature = "collisions")]
+use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -19,6 +20,9 @@ use rs_opw_kinematics::utils::{dump_solutions};
 /// Additionally, four environment objects and a tool are created for the visualization.
 #[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> KinematicsWithShape {
+    use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+    use rs_opw_kinematics::joint_body::{CollisionBody};
+
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
 
@@ -124,7 +128,7 @@ fn main() {
 }
 
 #[cfg(not(feature = "collisions"))]
-fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+fn main() {
     println!("Build configuration does not support this example")
 }
 
@@ -134,7 +138,7 @@ fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [Rang
     visualization::visualize_robot(robot, intial_angles, tcp_box);
 }
 
-#[cfg(not(feature = "visualization"))]
+#[cfg(all(feature = "collisions", not(feature = "visualization")))]
 fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
     println!("Build configuration does not support visualization")
 }
