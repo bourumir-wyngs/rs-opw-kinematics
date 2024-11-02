@@ -19,19 +19,19 @@ struct CollisionTask<'a> {
 pub struct RobotBody {
     /// Joint meshes, one per joint
     pub joint_meshes: [TriMesh; 6],
-    
+
     /// Tool meshes, optional if the robot has no tool
     pub tool: Option<TriMesh>,
-    
+
     /// Robot base specification
     pub base: Option<BaseBody>,
-    
+
     /// Environment objects arround the robot.
     pub collision_environment: Vec<CollisionBody>,
-    
+
     /// As collision checks are expensive, specify if all possible solutions of inverse 
     /// kinematics are returned, or only non-coliding solution considered best 
-    pub first_pose_only: bool
+    pub first_pose_only: bool,
 }
 
 // Public methods
@@ -51,10 +51,9 @@ impl RobotBody {
     }
 }
 
-const X: &'static str = "Mesh intersection must be supported";
+const SUPPORTED: &'static str = "Mesh intersection should be supported by Parry3d";
 
 impl RobotBody {
-    
     /// Parallel version with Rayon
     fn process_collision_tasks(tasks: Vec<CollisionTask>, first_collision_only: bool) -> Vec<(usize, usize)> {
         if first_collision_only {
@@ -63,7 +62,7 @@ impl RobotBody {
                 .find_map_any(|task| {
                     let collides = parry3d::query::intersection_test(
                         task.transform_i, task.shape_i, task.transform_j, task.shape_j)
-                        .expect(X);
+                        .expect(SUPPORTED);
                     if collides {
                         Some((task.i.min(task.j), task.i.max(task.j)))
                     } else {
@@ -78,7 +77,7 @@ impl RobotBody {
                 .filter_map(|task| {
                     let collides = parry3d::query::intersection_test(
                         task.transform_i, task.shape_i, task.transform_j, task.shape_j)
-                        .expect(X);
+                        .expect(SUPPORTED);
                     if collides {
                         Some((task.i.min(task.j), task.i.max(task.j)))
                     } else {
@@ -88,14 +87,15 @@ impl RobotBody {
                 .collect()
         }
     }
-    
-    /// Sequential version
+
+    /// Sequential version, currently not in use
+    #[allow(dead_code)]
     fn process_collision_tasks_sequential(tasks: Vec<CollisionTask>, first_collision_only: bool) -> Vec<(usize, usize)> {
         let mut collisions = Vec::with_capacity(4);
 
         for task in tasks {
             if parry3d::query::intersection_test(task.transform_i, task.shape_i, task.transform_j, task.shape_j)
-                .expect(X)
+                .expect(SUPPORTED)
             {
                 collisions.push((task.i.min(task.j), task.i.max(task.j)));
                 if first_collision_only {
@@ -135,9 +135,9 @@ impl RobotBody {
         };
 
         // Sum all tasks
-        tool_env_tasks + joint_joint_tasks + joint_env_tasks + 
+        tool_env_tasks + joint_joint_tasks + joint_env_tasks +
             joint_tool_tasks + joint_base_tasks + tool_base_task
-    }    
+    }
 
     fn detect_collisions(
         &self, joint_poses: &[Isometry3<f32>; 6], first_collision_only: bool,
@@ -275,6 +275,7 @@ mod tests {
             tool: None,
             base: None,
             collision_environment: vec![],
+            first_pose_only: false,
         };
 
         let collisions = robot.detect_collisions(&[identity; 6], false);
