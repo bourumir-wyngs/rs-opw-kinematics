@@ -9,7 +9,7 @@ planning.
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
-![Collision detection in visualization](https://bourumir-wyngs.github.io/rs-opw-kinematics/documentation/screenshot.png)
+<img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
 
 # Intro
 
@@ -45,7 +45,8 @@ This library uses seven kinematic parameters (_a1, a2, b, c1, c2, c3_, and _c4_)
 at zero when all joints stick straight up in the air, as seen in the image below. It also assumes that all
 rotations are positive about the base axis of the robot. No other setup is required.
 
-![OPW Diagram](https://bourumir-wyngs.github.io/rs-opw-kinematics/documentation/opw.gif)
+<img src="https://camo.githubusercontent.com/a60affbc3f6b93896f6e3c46e320ec0d36eb22b81c85cf8242dc0e315147c0ec/68747470733a2f2f626f7572756d69722d77796e67732e6769746875622e696f2f72732d6f70772d6b696e656d61746963732f646f63756d656e746174696f6e2f6f70772e676966" alt="OPW Kinematics GIF" width="300"/>
+
 <!-- ![OPW Diagram](documentation/opw.gif) -->
 
 To use the library, fill out an `opw_kinematics::Parameters` data structure with the appropriate values for the 7
