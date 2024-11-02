@@ -162,6 +162,8 @@ struct Robot {
 }
 
 /// Visualize the given robot, starting from the given initial angles (given in degrees)
+/// The sliders for specifying the tool center point location with take the boundaries
+/// from the tcp_box (given in meters). Bevy will be used for visualization.
 pub fn visualize_robot(robot: KinematicsWithShape,
                        intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
     App::new()
