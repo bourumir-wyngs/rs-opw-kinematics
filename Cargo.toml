@@ -31,7 +31,7 @@ clap = { version = "4.5", features = ["derive"], optional = true }
 
 # Needed for collision
 parry3d = { version = "0.17", optional = true }
-# Palellization
+# Palellization of collision
 rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
