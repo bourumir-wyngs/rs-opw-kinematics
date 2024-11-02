@@ -13,7 +13,7 @@ repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 readme = "README.md"
 
 [badges]
-maintenance = { status = "actively-developed" }
+maintenance = { status = "actively-developed" } 
 
 [dependencies]
 nalgebra = "0.33"
