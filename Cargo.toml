@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.6.0"
+version = "1.7.0"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -59,3 +59,5 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # Some tests include random generator
 rand = "0.8"
 
+# New horizons
+pathfinding = "3.0"
