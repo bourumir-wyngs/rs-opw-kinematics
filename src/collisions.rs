@@ -88,7 +88,8 @@ impl RobotBody {
 
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
     /// 'to' or into 'from'. This is required for planning algorithms like A*. We can do 
-    ///  less collision checks as we only need to check the joint branch of the robot we moved.     
+    ///  less collision checks as we only need to check the joint branch of the robot we moved.
+    ///  Offset generation is accelerated via Rayon.     
     pub(crate) fn non_colliding_offsets(
         &self,
         initial: &Joints,
@@ -118,7 +119,7 @@ impl RobotBody {
                 let skip_indices: HashSet<usize> = (0..joint_index).collect();
 
                 // Detect collisions, skipping specified indices
-                if self.detect_collisions_with_skips(&joint_poses_f32, false, &skip_indices).is_empty() {
+                if self.detect_collisions_with_skips(&joint_poses_f32, true, &skip_indices).is_empty() {
                     Some(new_joints) // Return non-colliding configuration
                 } else {
                     None
