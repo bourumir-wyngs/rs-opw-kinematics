@@ -175,35 +175,24 @@ fn heuristic(current: &JointArray, goal: &JointArray) -> usize {
         .sum()
 }
 
-
-use rayon::prelude::*;
-
 fn generate_neighbors(
     joints: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
 ) -> Vec<(JointArray, usize)> {
     let step_size = 0.1_f64.to_radians();
 
-    // Generate all (index, delta) combinations
-    let neighbor_combinations: Vec<_> = (0..6)
-        .flat_map(|i| vec![(i, -step_size), (i, step_size)])
-        .collect();
+    // Prepare `from` and `to` joint configurations by adding/subtracting the step size
+    let mut from = *joints;
+    let mut to = *joints;
+    for i in 0..6 {
+        from.0[i] -= step_size;
+        to.0[i] += step_size;
+    }
 
-    // Process each combination in parallel, filtering out colliding neighbors
-    neighbor_combinations
-        .par_iter()
-        .filter_map(|&(i, delta)| {
-            let mut new_joints = *joints;
-            new_joints.0[i] += delta;
+    // Use non_colliding_offsets to generate valid, non-colliding neighbors
+    let valid_neighbors = kinematics.non_colliding_offsets(&joints.0, &from.0, &to.0);
 
-            // Check for collision and return neighbor if it's valid
-            // This is the most expensive step due what parallelization works.
-            if !kinematics.collides(&new_joints.0) {
-                Some((new_joints, 1)) // Cost of 1 per move
-            } else {
-                None
-            }
-        })
-        .collect()
+    // Map valid neighbors to the expected output format (JointArray, cost)
+    valid_neighbors.into_iter().map(|j| (JointArray(j), 1)).collect()
 }
 

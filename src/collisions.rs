@@ -96,12 +96,17 @@ impl RobotBody {
         to: &Joints,
         kinematics: &dyn Kinematics,
     ) -> Solutions {
-        let mut solutions = Vec::with_capacity(12);
+        // Generate 12 tasks by tweaking each joint in either direction
+        let tasks: Vec<_> = (0..6)
+            .flat_map(|joint_index| {
+                [from, to].iter().map(move |&target| (joint_index, target)).collect::<Vec<_>>()
+            })
+            .collect();
 
-        // Generate 12 neighbors by tweaking each joint in either direction
-        for joint_index in 0..6 {
-            // Create two possible configurations: one towards 'from', one towards 'to'
-            for target in [from, to].iter() {
+        // Process each task in parallel, filtering out colliding configurations
+        tasks
+            .par_iter()
+            .filter_map(|&(joint_index, target)| {
                 let mut new_joints = *initial;
                 new_joints[joint_index] = target[joint_index];
 
@@ -114,11 +119,12 @@ impl RobotBody {
 
                 // Detect collisions, skipping specified indices
                 if self.detect_collisions_with_skips(&joint_poses_f32, false, &skip_indices).is_empty() {
-                    solutions.push(new_joints); // Add non-colliding configuration
+                    Some(new_joints) // Return non-colliding configuration
+                } else {
+                    None
                 }
-            }
-        }
-        solutions
+            })
+            .collect() // Collect non-colliding configurations into Solutions
     }
 }
 
@@ -215,7 +221,6 @@ impl RobotBody {
         tool_env_tasks + joint_joint_tasks + joint_env_tasks +
             joint_tool_tasks + joint_base_tasks + tool_base_task
     }
-
 
     fn detect_collisions(
         &self, joint_poses: &[Isometry3<f32>; 6], first_collision_only: bool) -> Vec<(usize, usize)> {
