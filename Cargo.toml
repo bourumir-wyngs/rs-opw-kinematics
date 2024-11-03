@@ -44,7 +44,7 @@ bevy = { version = "0.12", default-features = false, features = [
     "bevy_pbr", "bevy_render", "bevy_text", "bevy_ui", "multi-threaded", "hdr",
     "x11", "wayland", "tonemapping_luts", "default_font",
 ], optional = true }
-bevy_egui = { version = "0.23", optional = true }
+bevy_egui = { version = "0.24", optional = true }
 
 [features]
 default = ["allow_filesystem", "collisions", "visualization"]
@@ -59,5 +59,6 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # Some tests include random generator
 rand = "0.8"
 
-# New horizons
-pathfinding = "3.0"
+# A* path planning that in this release is experimental.,
+pathfinding = "4.11"
+
