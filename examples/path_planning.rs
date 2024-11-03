@@ -122,7 +122,7 @@ fn main() {
     let kinematics = Arc::new(create_rx160_robot());
 
     let initial_angles = utils::joints(&[100., -7.44, -92.51, 18.42, 82.23, 189.35]);
-    let final_angles = utils::joints(&[105., -7.44, -92.51, 18.42, 70.23, 189.35]);
+    let final_angles = utils::joints(&[105., -7.44, -82.51, 18.42, 70.23, 188.35]);
     let start = JointArray(initial_angles);
     let end = JointArray(final_angles);
 
@@ -136,7 +136,7 @@ fn main() {
         for (i, joints) in path.iter().enumerate() {
             println!("Step {}: {:?}", i, utils::to_degrees(&joints.0));
         }
-        println!("Path found with cost {}: (Time taken: {:?})", cost, duration);        
+        println!("Path found with cost {}: (Time taken: {:?})", cost, duration);
     } else {
         let duration = start_time.elapsed();
         println!("No collision-free path found. (Time taken: {:?})", duration);
@@ -176,22 +176,34 @@ fn heuristic(current: &JointArray, goal: &JointArray) -> usize {
 }
 
 
+use rayon::prelude::*;
+
 fn generate_neighbors(
     joints: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
 ) -> Vec<(JointArray, usize)> {
-    let mut neighbors = Vec::with_capacity(12);
     let step_size = 0.1_f64.to_radians();
 
-    for i in 0..6 {
-        for &delta in &[-step_size, step_size] {
+    // Generate all (index, delta) combinations
+    let neighbor_combinations: Vec<_> = (0..6)
+        .flat_map(|i| vec![(i, -step_size), (i, step_size)])
+        .collect();
+
+    // Process each combination in parallel, filtering out colliding neighbors
+    neighbor_combinations
+        .par_iter()
+        .filter_map(|&(i, delta)| {
             let mut new_joints = *joints;
             new_joints.0[i] += delta;
 
+            // Check for collision and return neighbor if it's valid
+            // This is the most expensive step due what parallelization works.
             if !kinematics.collides(&new_joints.0) {
-                neighbors.push((new_joints, 1)); // Cost of 1 per move
+                Some((new_joints, 1)) // Cost of 1 per move
+            } else {
+                None
             }
-        }
-    }
-    neighbors
+        })
+        .collect()
 }
+
