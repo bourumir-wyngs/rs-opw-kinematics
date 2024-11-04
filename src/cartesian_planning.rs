@@ -1,19 +1,63 @@
 extern crate nalgebra as na;
-use na::{Isometry3, Vector3, UnitQuaternion};
+
+use std::f64::consts::PI;
+use na::{Isometry3};
 use std::hash::{Hash, Hasher};
-use rayon::prelude::IntoParallelRefIterator;
+use nalgebra::UnitQuaternion;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 
 use rayon::prelude::*;
 
-const GRID_XYZ: f64 = 0.001;  // positional grid cell size
-const GRID_QUAT: f64 = 0.01;  // rotational grid cell size
+const GRID_XYZ: f64 = 0.005;  // positional grid cell size 5 mm
+const GRID_QUAT: f64 = 0.5 * PI / 180.0;  // rotational grid cell size 0.5 degree
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ComplexAlternative {
     pub solutions: Solutions,
     pub pose: Pose,
+}
+
+impl ComplexAlternative {
+    /// Constructs a `ComplexAlternative` from joint angles, using forward kinematics to compute the pose.
+    pub fn from_joints(joints: &Joints, kinematics: &KinematicsWithShape) -> Self {
+        // Compute the pose using forward kinematics
+        let pose = kinematics.forward(joints);
+
+        // Initialize with the computed pose and solutions from inverse kinematics
+        ComplexAlternative {
+            pose,
+            solutions: kinematics.inverse(&pose),
+        }
+    }
+
+    /// Constructs a `ComplexAlternative` directly from a pose, using inverse kinematics to find solutions.
+    pub fn from_pose(pose: &Pose, kinematics: &KinematicsWithShape) -> Self {
+        // Initialize with the provided pose and solutions from inverse kinematics
+        ComplexAlternative {
+            pose: *pose,
+            solutions: kinematics.inverse(pose),
+        }
+    }
+
+    pub fn distance(&self, other: &ComplexAlternative) -> usize {
+        // Calculate the Euclidean distance between translation vectors
+        let translation1 = self.pose.translation.vector;
+        let translation2 = other.pose.translation.vector;
+
+        let dx = translation1.x - translation2.x;
+        let dy = translation1.y - translation2.y;
+        let dz = translation1.z - translation2.z;
+
+        let translation_distance = (dx * dx + dy * dy + dz * dz).sqrt();
+        let rotation_distance = self.pose.rotation.angle_to(&other.pose.rotation);
+
+        // Combine translation and rotation distances, scaling both
+        let total_distance = translation_distance / GRID_XYZ + rotation_distance / GRID_QUAT;
+
+        // Convert the result to usize
+        total_distance as usize
+    }
 }
 
 impl PartialEq for ComplexAlternative {
@@ -50,17 +94,19 @@ pub fn transition_costs(joints1: &Joints, joints2: &Joints) -> f64 {
 }
 
 impl ComplexAlternative {
-    pub fn transition_costs(&self, other: &ComplexAlternative) -> f64 {
-        // Initialize the minimum cost to a large value
-        let mut min_cost = f64::INFINITY;
+    pub fn transition_costs(&self, other: &ComplexAlternative) -> usize {
+        return 1; // This does not work
+        const SCALE_FACTOR: f64 = 1000.0;
+        // Initialize the minimum cost to a large value as usize::MAX
+        let mut min_cost = usize::MAX;
 
         // Iterate over each solution in self and other to find the minimum transition cost
         for joints1 in &self.solutions {
             for joints2 in &other.solutions {
                 // Calculate the transition cost between joints1 and joints2
-                let cost: f64 = joints1.iter()
+                let cost: usize = joints1.iter()
                     .zip(joints2.iter())
-                    .map(|(a, b)| (a - b).abs())
+                    .map(|(a, b)| ((a - b).abs() * SCALE_FACTOR) as usize)
                     .sum();
 
                 // Update the minimum cost if a lower cost is found
@@ -69,85 +115,47 @@ impl ComplexAlternative {
                 }
             }
         }
-
+        println!("Cost {:?}", min_cost);
         min_cost
     }
 
-    pub fn branch_single_threaded(&self, kinematics: &KinematicsWithShape) -> Vec<ComplexAlternative> {
-        let mut branches = Vec::with_capacity(12);
 
-        // Generate a grid of positions around the current pose's translation
-        for dx in (-1..=1).map(|i| i as f64 * GRID_XYZ) {
-            for dy in (-1..=1).map(|i| i as f64 * GRID_XYZ) {
-                for dz in (-1..=1).map(|i| i as f64 * GRID_XYZ) {
-                    let translation = self.pose.translation.vector + na::Vector3::new(dx, dy, dz);
-
-                    // Generate a grid of small rotations around the current rotation quaternion
-                    for dq_x in (-1..=1).map(|i| i as f64 * GRID_QUAT) {
-                        for dq_y in (-1..=1).map(|i| i as f64 * GRID_QUAT) {
-                            for dq_z in (-1..=1).map(|i| i as f64 * GRID_QUAT) {
-                                let rotation = self.pose.rotation
-                                    * na::UnitQuaternion::from_euler_angles(dq_x, dq_y, dq_z);
-
-                                // Create the new pose with the modified translation and rotation
-                                let new_pose = Isometry3::from_parts(
-                                    translation.into(),
-                                    rotation,
-                                );
-
-                                // Create a new ComplexAlternative with the generated solutions and new pose
-                                branches.push(ComplexAlternative {
-                                    // Use kinematics to find solutions for the new pose
-                                    // KinematicsWithShape will only return non-colliding and
-                                    // constraint-compliant solutions
-                                    solutions: kinematics.inverse(&new_pose),
-                                    pose: new_pose,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        branches
-    }
-
-    pub fn branch(&self, kinematics: &KinematicsWithShape) -> Vec<ComplexAlternative> {
-        // Define the grid values for position and orientation without a zero offset
+    pub fn generate_neighbors(&self, kinematics: &KinematicsWithShape) -> Vec<(ComplexAlternative, usize)> {
+        // Define the grid values for position and rotation offsets
         let position_offsets = [-GRID_XYZ, GRID_XYZ];
         let rotation_offsets = [-GRID_QUAT, GRID_QUAT];
 
         // Generate a grid of positions and small rotations in parallel
-        let branches: Vec<ComplexAlternative> = position_offsets
-            .into_par_iter()  // Start the parallel iterator chain
+        let branches: Vec<(ComplexAlternative, usize)> = position_offsets
+            .into_par_iter()
             .flat_map(|dx| {
                 position_offsets.into_par_iter().flat_map(move |dy| {
                     position_offsets.into_par_iter().flat_map(move |dz| {
-                        // Calculate the translation vector with the specified offsets
-                        let translation = self.pose.translation.vector + na::Vector3::new(dx, dy, dz);
-
-                        // Parallelize over the rotation components
                         rotation_offsets.into_par_iter().flat_map(move |dq_x| {
                             rotation_offsets.into_par_iter().flat_map(move |dq_y| {
-                                rotation_offsets.into_par_iter().map(move |dq_z| {
-                                    // Calculate the rotation quaternion with the specified offsets
-                                    let rotation = self.pose.rotation
-                                        * na::UnitQuaternion::from_euler_angles(dq_x, dq_y, dq_z);
-
-                                    // Create the new pose with the modified translation and rotation
-                                    let new_pose = Isometry3::from_parts(translation.into(), rotation);
-
-                                    // Generate solutions using kinematics.inverse. 
-                                    // This method only returns non-coliding solutions.
-                                    ComplexAlternative {
-                                        
-                                        solutions: kinematics.inverse(&new_pose),
-                                        pose: new_pose,
+                                rotation_offsets.into_par_iter().filter_map(move |dq_z| {
+                                    let xyz_offset = na::Vector3::new(dx, dy, dz);
+                                    let rotation_offset = UnitQuaternion::from_euler_angles(dq_x, dq_y, dq_z);
+                                    let new_pose = Isometry3::from_parts(
+                                        (self.pose.translation.vector + xyz_offset).into(),
+                                        self.pose.rotation * rotation_offset);
+                                    let solutions = kinematics.inverse(&new_pose);
+                                    if solutions.is_empty() {
+                                        // We cannot go there - collision or out of constraints
+                                        None
+                                    } else {
+                                        // Calculate the transition cost
+                                        let alternative =
+                                            ComplexAlternative {
+                                                solutions: solutions,
+                                                pose: new_pose,
+                                            };
+                                        let cost = self.transition_costs(&alternative);
+                                        Some((alternative, cost))
                                     }
                                 })
                             })
-                        }).collect::<Vec<_>>()  // Collect inner loop results into a Vec for each (dx, dy, dz)
+                        })
                     })
                 })
             })
@@ -155,34 +163,34 @@ impl ComplexAlternative {
 
         branches
     }
-
-    pub fn is_goal(current: &ComplexAlternative, goal: &ComplexAlternative) -> bool {
-        // Define tolerance constants for position and orientation differences
-        const GRID_XYZ: f64 = 0.001;  // tolerance for positional differences
-        const GRID_QUAT: f64 = 0.01;  // tolerance for rotational differences
-
-        // Check if translations fall within the positional tolerance (GRID_XYZ)
-        let current_translation = current.pose.translation.vector;
-        let goal_translation = goal.pose.translation.vector;
-
-        let translation_diff = (current_translation - goal_translation).abs();
-        if translation_diff.x > GRID_XYZ || translation_diff.y > GRID_XYZ || translation_diff.z > GRID_XYZ {
-            return false;
-        }
-
-        // Check if rotations fall within the orientation tolerance (GRID_QUAT)
-        // We use the angle difference between the two rotation quaternions here.
-        // Quaternions represent rotation in a way that allows us to compute the angular
-        // difference directly using `angle_to`, which gives the smallest angle between
-        // the orientations represented by `current.pose.rotation` and `goal.pose.rotation`.
-        // If this angle is within the tolerance `GRID_QUAT`, the two rotations are considered equivalent.
-        let rotation_diff = current.pose.rotation.angle_to(&goal.pose.rotation);
-        if rotation_diff > GRID_QUAT {
-            return false;
-        }
-
-        true
-    }
 }
+
+
+pub fn is_goal(current: &ComplexAlternative, goal: &ComplexAlternative) -> bool {
+    const angle_threshold: f64 = 2.0 * GRID_QUAT;
+    const pos_threshold: f64 = 2.0 * GRID_XYZ;
+    const pth_squared: f64 = pos_threshold * pos_threshold;
+
+    // Extract the translation vectors
+    let current_translation = &current.pose.translation.vector;
+    let goal_translation = &goal.pose.translation.vector;
+
+    // Check if translation difference is within threshold
+    let d = current_translation - goal_translation;
+    if d.x * d.x + d.y * d.y + d.z * d.z >= pth_squared {
+        return false;
+    }
+
+    // Calculate the angular difference between the rotations
+    let rotation_diff = current.pose.rotation.angle_to(&goal.pose.rotation);
+
+    // Check if the rotation difference is within the angle threshold
+    if rotation_diff > angle_threshold {
+        return false;
+    }
+
+    true
+}
+
 
 
