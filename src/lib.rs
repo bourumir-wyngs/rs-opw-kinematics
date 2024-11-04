@@ -94,9 +94,12 @@ pub mod visualization;
 #[cfg(feature = "visualization")]
 mod camera_controller;
 
+pub mod cartesian_planning;
+
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
 
 
 
