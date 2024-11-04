@@ -150,7 +150,8 @@ impl ComplexAlternative {
                                                 solutions: solutions,
                                                 pose: new_pose,
                                             };
-                                        let cost = self.transition_costs(&alternative);
+                                        //let cost = self.transition_costs(&alternative);
+                                        let cost = self.distance(&alternative)/4;
                                         Some((alternative, cost))
                                     }
                                 })
