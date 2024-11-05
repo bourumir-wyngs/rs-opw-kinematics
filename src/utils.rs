@@ -1,6 +1,6 @@
 //! Helper functions
 
-use nalgebra::Vector6;
+use nalgebra::{Isometry3, UnitQuaternion, Vector6};
 use crate::kinematic_traits::{Joints, Solutions};
 
 /// Checks the solution for validity. This is only internally needed as all returned
@@ -82,6 +82,20 @@ pub fn dump_joints(joints: &Joints) {
     println!("[{}]", row_str.trim_end());
 }
 
+pub fn dump_pose(isometry: &Isometry3<f64>) {
+    // Extract translation components
+    let translation = isometry.translation.vector;
+
+    // Extract rotation components and convert to Euler angles in radians
+    let rotation: UnitQuaternion<f64> = isometry.rotation;
+
+    // Print translation and rotation
+    println!(
+        "x: {:.5}, y: {:.5}, z: {:.5},  quat: {:.5},{:.5},{:.5},{:.5}",
+        translation.x, translation.y, translation.z, rotation.i, rotation.j, rotation.k, rotation.w
+    );
+}
+
 /// Allows to specify joint values in degrees (converts to radians)
 #[allow(dead_code)]
 pub fn as_radians(degrees: [i32; 6]) -> Joints {
@@ -104,6 +118,18 @@ pub fn vector6_to_joints(v: Vector6<f64>) -> Joints {
 /// Converts ```Joints ([f64; 6])``` to a ```Vector6<f64>```
 pub fn joints_to_vector6(j: Joints) -> nalgebra::Vector6<f64> {
     Vector6::new(j[0], j[1], j[2], j[3], j[4], j[5])
+}
+
+/// Calculates the transition cost between two sets of joint positions, 
+/// weighted by given coefficients (rotating heavy base joints is
+/// more expensive)
+pub fn transition_costs(from: &Joints, to: &Joints, coefficients: &Joints) -> f64 {
+    (from[0] - to[0]).abs() * coefficients[0] +
+        (from[1] - to[1]).abs() * coefficients[1] +
+        (from[2] - to[2]).abs() * coefficients[2] +
+        (from[3] - to[3]).abs() * coefficients[3] +
+        (from[4] - to[4]).abs() * coefficients[4] +
+        (from[5] - to[5]).abs() * coefficients[5]
 }
 
 #[cfg(test)]

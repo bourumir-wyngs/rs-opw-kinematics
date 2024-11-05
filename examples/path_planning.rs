@@ -134,11 +134,10 @@ fn is_goal(current: &JointArray, goal: &JointArray) -> bool {
 }
 
 fn heuristic(current: &JointArray, goal: &JointArray) -> f64 {
-    const SCALE: f64 = 1.0; // Scale to retain precision after rounding
     current
         .iter()
         .zip(goal.iter())
-        .map(|(c, g)| ((c - g).abs().to_degrees() * SCALE) as f64)
+        .map(|(c, g)| (c - g).abs().to_degrees())
         .sum()
 }
 

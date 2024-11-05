@@ -6,10 +6,10 @@ use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 
 use std::time::Instant;
-use rs_opw_kinematics::idastar;
-use rs_opw_kinematics::cartesian_planning::{ComplexAlternative};
-use rs_opw_kinematics::{cartesian_planning, utils};
-use rs_opw_kinematics::idastar::idastar_algorithm;
+use rs_opw_kinematics::cartesian_planning::{CartesianPlanner, ComplexAlternative};
+use rs_opw_kinematics::kinematic_traits::Kinematics;
+use rs_opw_kinematics::utils;
+use rs_opw_kinematics::utils::{dump_pose, dump_solutions, dump_solutions_degrees};
 
 pub fn create_rx160_robot() -> KinematicsWithShape {
     use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
@@ -61,20 +61,6 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     )
 }
 
-pub fn print_pose(isometry: &Isometry3<f64>) {
-    // Extract translation components
-    let translation = isometry.translation.vector;
-
-    // Extract rotation components and convert to Euler angles in radians
-    let rotation: UnitQuaternion<f64> = isometry.rotation;
-
-    // Print translation and rotation
-    println!(
-        "x: {:.5}, y: {:.5}, z: {:.5},  quat: {:.5},{:.5},{:.5},{:.5}",
-        translation.x, translation.y, translation.z, rotation.i, rotation.j, rotation.k, rotation.w
-    );
-}
-
 fn main() {
     let kinematics = Arc::new(create_rx160_robot());
 
@@ -86,47 +72,22 @@ fn main() {
     // Record the start time
     let start_time = Instant::now();
 
+    let planner = CartesianPlanner::default();
+
     // Run path planning
-    if let Some((path, cost)) = plan_path(&start, &end, &kinematics) {
-        // Calculate the duration taken for path planning
-        let duration = start_time.elapsed();
-        for (i, step) in path.iter().enumerate() {
-            print_pose(&step.pose);
-        }
-        println!("Goal:");            
-        print_pose(&end.pose);
-        println!("Path found with cost {}: (Time taken: {:?})", cost, duration);        
-    } else {
-        let duration = start_time.elapsed();
-        println!("No collision-free path found. (Time taken: {:?})", duration);
-    }
+    println!("Starting path planning...");    
+    let path = planner.plan_path(&start, &end, &kinematics);
+    let took = start_time.elapsed();
+    dump_solutions(&path);
+    
+    println!("Start pose:");
+    dump_pose(&start.pose);
+    println!("End pose:");
+    dump_pose(&end.pose);
+    println!("Planned pose:");
+    let last = path.last().unwrap();
+    dump_pose(&kinematics.forward(last));
+    println!("Took {:?}. Joint steps:", took);    
 }
 
-fn plan_path(
-    start: &ComplexAlternative,
-    end: &ComplexAlternative,
-    kinematics: &Arc<KinematicsWithShape>,
-) -> Option<(Vec<ComplexAlternative>, f64)> {
-    println!("Starting path planning...");
-    idastar_algorithm(
-        start,
-        |current| generate_neighbors(current, kinematics),
-        |current| heuristic(current, end),
-        |current| cartesian_planning::is_goal(current, end),
-    )
-}
-
-fn heuristic(current: &ComplexAlternative, goal: &ComplexAlternative) -> f64 {
-    //print_pose(&current.pose);
-    //print_pose(&goal.pose);
-    //println!("***");
-    current.distance(goal)
-}
-
-fn generate_neighbors(
-    current: &ComplexAlternative,
-    kinematics: &Arc<KinematicsWithShape>,
-) -> Vec<(ComplexAlternative, f64)> {
-    current.generate_neighbors(&kinematics)
-}
 
