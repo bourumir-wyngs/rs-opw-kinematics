@@ -1,4 +1,3 @@
-use pathfinding::prelude::{astar, fringe, idastar};
 use std::sync::Arc;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use rs_opw_kinematics::collisions::CollisionBody;
@@ -6,8 +5,8 @@ use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use std::hash::{Hash, Hasher};
-use std::ops::{Index, IndexMut};
 use std::time::Instant;
+use rs_opw_kinematics::idastar::idastar_algorithm;
 use rs_opw_kinematics::utils;
 
 #[derive(Debug, Clone, Copy)]
@@ -22,11 +21,6 @@ impl JointArray {
     /// Returns a mutable iterator over the joint values.
     pub fn iter_mut(&mut self) -> std::slice::IterMut<f64> {
         self.0.iter_mut()
-    }
-
-    /// Safe access to joint values by index with bounds checking.
-    pub fn get(&self, index: usize) -> Option<f64> {
-        self.0.get(index).copied()
     }
 }
 
@@ -50,21 +44,6 @@ impl Hash for JointArray {
             let scaled = (value * SCALE) as i64;
             scaled.hash(state);
         }
-    }
-}
-
-// Implement Index and IndexMut for bracket indexing
-impl Index<usize> for JointArray {
-    type Output = f64;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-impl IndexMut<usize> for JointArray {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
     }
 }
 
@@ -147,9 +126,9 @@ fn plan_path(
     start: &JointArray,
     end: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
-) -> Option<(Vec<JointArray>, usize)> {
+) -> Option<(Vec<JointArray>, f64)> {
     println!("Starting path planning...");
-    idastar(
+    idastar_algorithm(
         start,
         |current| generate_neighbors(current, kinematics),
         |current| heuristic(current, end),
@@ -166,19 +145,19 @@ fn is_goal(current: &JointArray, goal: &JointArray) -> bool {
     is
 }
 
-fn heuristic(current: &JointArray, goal: &JointArray) -> usize {
-    const SCALE: f64 = 10000.0; // Scale to retain precision after rounding
+fn heuristic(current: &JointArray, goal: &JointArray) -> f64 {
+    const SCALE: f64 = 1.0; // Scale to retain precision after rounding
     current
         .iter()
         .zip(goal.iter())
-        .map(|(c, g)| ((c - g).abs().to_degrees() * SCALE).round() as usize)
+        .map(|(c, g)| ((c - g).abs().to_degrees() * SCALE) as f64)
         .sum()
 }
 
 fn generate_neighbors(
     joints: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
-) -> Vec<(JointArray, usize)> {
+) -> Vec<(JointArray, f64)> {
     let step_size = 0.1_f64.to_radians();
 
     // Prepare `from` and `to` joint configurations by adding/subtracting the step size
@@ -193,6 +172,10 @@ fn generate_neighbors(
     let valid_neighbors = kinematics.non_colliding_offsets(&joints.0, &from.0, &to.0);
 
     // Map valid neighbors to the expected output format (JointArray, cost)
-    valid_neighbors.into_iter().map(|j| (JointArray(j), 1)).collect()
+    valid_neighbors.into_iter().map(|j| {
+        let new_joints = JointArray(j);
+        let cost = heuristic(joints, &new_joints);
+        (new_joints, cost / 8.0) // Need a di
+    }).collect()
 }
 

@@ -45,6 +45,7 @@ bevy = { version = "0.12", default-features = false, features = [
     "x11", "wayland", "tonemapping_luts", "default_font",
 ], optional = true }
 bevy_egui = { version = "0.24", optional = true }
+num-traits = "0.2.19"
 
 [features]
 default = ["allow_filesystem", "collisions", "visualization"]
@@ -59,6 +60,4 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # Some tests include random generator
 rand = "0.8"
 
-# A* path planning that in this release is experimental.,
-pathfinding = "4.11"
 

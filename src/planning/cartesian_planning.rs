@@ -1,6 +1,7 @@
 extern crate nalgebra as na;
 
 use std::f64::consts::PI;
+use std::f64::INFINITY;
 use na::{Isometry3};
 use std::hash::{Hash, Hasher};
 use nalgebra::UnitQuaternion;
@@ -40,7 +41,7 @@ impl ComplexAlternative {
         }
     }
 
-    pub fn distance(&self, other: &ComplexAlternative) -> usize {
+    pub fn distance(&self, other: &ComplexAlternative) -> f64 {
         // Calculate the Euclidean distance between translation vectors
         let translation1 = self.pose.translation.vector;
         let translation2 = other.pose.translation.vector;
@@ -53,10 +54,10 @@ impl ComplexAlternative {
         let rotation_distance = self.pose.rotation.angle_to(&other.pose.rotation);
 
         // Combine translation and rotation distances, scaling both
-        let total_distance = translation_distance / GRID_XYZ + rotation_distance / GRID_QUAT;
+        let total_distance = translation_distance + rotation_distance;
 
         // Convert the result to usize
-        total_distance as usize
+        total_distance
     }
 }
 
@@ -94,19 +95,17 @@ pub fn transition_costs(joints1: &Joints, joints2: &Joints) -> f64 {
 }
 
 impl ComplexAlternative {
-    pub fn transition_costs(&self, other: &ComplexAlternative) -> usize {
-        return 1; // This does not work
-        const SCALE_FACTOR: f64 = 1000.0;
+    pub fn transition_costs(&self, other: &ComplexAlternative) -> f64 {
         // Initialize the minimum cost to a large value as usize::MAX
-        let mut min_cost = usize::MAX;
+        let mut min_cost = f64::INFINITY;
 
         // Iterate over each solution in self and other to find the minimum transition cost
         for joints1 in &self.solutions {
             for joints2 in &other.solutions {
                 // Calculate the transition cost between joints1 and joints2
-                let cost: usize = joints1.iter()
+                let cost: f64 = joints1.iter()
                     .zip(joints2.iter())
-                    .map(|(a, b)| ((a - b).abs() * SCALE_FACTOR) as usize)
+                    .map(|(a, b)| (a - b).abs() )
                     .sum();
 
                 // Update the minimum cost if a lower cost is found
@@ -120,13 +119,13 @@ impl ComplexAlternative {
     }
 
 
-    pub fn generate_neighbors(&self, kinematics: &KinematicsWithShape) -> Vec<(ComplexAlternative, usize)> {
+    pub fn generate_neighbors(&self, kinematics: &KinematicsWithShape) -> Vec<(ComplexAlternative, f64)> {
         // Define the grid values for position and rotation offsets
         let position_offsets = [-GRID_XYZ, GRID_XYZ];
         let rotation_offsets = [-GRID_QUAT, GRID_QUAT];
 
         // Generate a grid of positions and small rotations in parallel
-        let branches: Vec<(ComplexAlternative, usize)> = position_offsets
+        let branches: Vec<(ComplexAlternative, f64)> = position_offsets
             .into_par_iter()
             .flat_map(|dx| {
                 position_offsets.into_par_iter().flat_map(move |dy| {
@@ -151,7 +150,7 @@ impl ComplexAlternative {
                                                 pose: new_pose,
                                             };
                                         //let cost = self.transition_costs(&alternative);
-                                        let cost = self.distance(&alternative)/4;
+                                        let cost = self.distance(&alternative)/4.;
                                         Some((alternative, cost))
                                     }
                                 })

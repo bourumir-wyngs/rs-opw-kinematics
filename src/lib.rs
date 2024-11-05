@@ -94,7 +94,12 @@ pub mod visualization;
 #[cfg(feature = "visualization")]
 mod camera_controller;
 
+
+#[path = "planning/cartesian_planning.rs"]
 pub mod cartesian_planning;
+
+#[path = "planning/idastar.rs"]
+pub mod idastar;
 
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
