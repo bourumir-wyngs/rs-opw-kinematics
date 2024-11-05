@@ -4,7 +4,6 @@ use rs_opw_kinematics::collisions::CollisionBody;
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use std::hash::{Hash, Hasher};
 use std::time::Instant;
 use rs_opw_kinematics::idastar::idastar_algorithm;
 use rs_opw_kinematics::utils;
@@ -35,17 +34,6 @@ impl PartialEq for JointArray {
 }
 
 impl Eq for JointArray {}
-
-// Implement Hash for JointArray
-impl Hash for JointArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        const SCALE: f64 = 0.001;
-        for &value in &self.0 {
-            let scaled = (value * SCALE) as i64;
-            scaled.hash(state);
-        }
-    }
-}
 
 pub fn create_rx160_robot() -> KinematicsWithShape {
     use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
