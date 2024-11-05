@@ -1,7 +1,6 @@
 extern crate nalgebra as na;
 
 use std::f64::consts::PI;
-use std::f64::INFINITY;
 use na::{Isometry3};
 use std::hash::{Hash, Hasher};
 use nalgebra::UnitQuaternion;
@@ -167,9 +166,9 @@ impl ComplexAlternative {
 
 
 pub fn is_goal(current: &ComplexAlternative, goal: &ComplexAlternative) -> bool {
-    const angle_threshold: f64 = 2.0 * GRID_QUAT;
-    const pos_threshold: f64 = 2.0 * GRID_XYZ;
-    const pth_squared: f64 = pos_threshold * pos_threshold;
+    const ANGLE_THRESHOLD: f64 = 2.0 * GRID_QUAT;
+    const POS_THRESHOLD: f64 = 2.0 * GRID_XYZ;
+    const PTH_SQUARED: f64 = POS_THRESHOLD * POS_THRESHOLD;
 
     // Extract the translation vectors
     let current_translation = &current.pose.translation.vector;
@@ -177,7 +176,7 @@ pub fn is_goal(current: &ComplexAlternative, goal: &ComplexAlternative) -> bool 
 
     // Check if translation difference is within threshold
     let d = current_translation - goal_translation;
-    if d.x * d.x + d.y * d.y + d.z * d.z >= pth_squared {
+    if d.x * d.x + d.y * d.y + d.z * d.z >= PTH_SQUARED {
         return false;
     }
 
@@ -185,7 +184,7 @@ pub fn is_goal(current: &ComplexAlternative, goal: &ComplexAlternative) -> bool 
     let rotation_diff = current.pose.rotation.angle_to(&goal.pose.rotation);
 
     // Check if the rotation difference is within the angle threshold
-    if rotation_diff > angle_threshold {
+    if rotation_diff > ANGLE_THRESHOLD {
         return false;
     }
 
