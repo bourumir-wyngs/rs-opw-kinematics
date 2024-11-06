@@ -17,6 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
+rand = "0.8" # Now is needed for path planner
 
 
 # Optional dependencies:
@@ -58,6 +59,7 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 
 [dev-dependencies]
 # Some tests include random generator
-rand = "0.8"
+
+kdtree = "0.7.0"
 
 
