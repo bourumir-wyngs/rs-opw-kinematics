@@ -17,6 +17,7 @@ use {
 #[derive(Debug, Clone, Copy)]
 pub struct JointArray(pub [f64; 6]);
 
+
 impl JointArray {
     /// Returns an iterator over the joint values.
     pub fn iter(&self) -> std::slice::Iter<f64> {
@@ -42,6 +43,7 @@ impl PartialEq for JointArray {
     }
 }
 
+#[cfg(feature = "collisions")]
 impl Hash for JointArray {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for value in self.0 {
