@@ -304,7 +304,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
 ## Path planning
 There are currently few path planning libraries available in Rust. Instead of incorporating them directly into our project
-and "wrapping around" them, we decided to explore the complexity of integrating these libraries as external dependencies
+and writing the code arround, we decided to explore the complexity of integrating these libraries as external dependencies
 (referenced only in examples). This approach allowed us to identify key "pain points" that complicate the integration of
 external path planners.
 
