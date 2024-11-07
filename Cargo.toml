@@ -61,5 +61,5 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # Some tests include random generator
 
 kdtree = "0.7.0"
-
+rrt = "0.7.0"
 

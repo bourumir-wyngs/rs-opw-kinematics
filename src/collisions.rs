@@ -97,12 +97,13 @@ impl RobotBody {
         to: &Joints,
         kinematics: &dyn Kinematics,
     ) -> Solutions {
-        // Generate 12 tasks by tweaking each joint in either direction
-        let tasks: Vec<_> = (0..6)
-            .flat_map(|joint_index| {
-                [from, to].iter().map(move |&target| (joint_index, target)).collect::<Vec<_>>()
-            })
-            .collect();
+        // Generate 12 tasks by tweaking each joint in either direction        
+        let mut tasks = Vec::with_capacity(12);
+        for joint_index in 0..6 {
+            for &target in &[from, to] {
+                tasks.push((joint_index, target));
+            }
+        }
 
         // Process each task in parallel, filtering out colliding configurations
         tasks

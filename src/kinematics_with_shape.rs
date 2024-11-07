@@ -223,8 +223,8 @@ impl KinematicsWithShape {
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
     /// 'to' or into 'from'. This is required for planning algorithms like A*. We can do 
     ///  less collision checks as we only need to check the joint branch of the robot we moved. 
-    pub (crate) fn non_colliding_offsets(&self, joints: &Joints, from: &Joints, to: &Joints) -> Solutions {
-        self.body.non_colliding_offsets(joints, from, to, self.kinematics.as_ref())
+    pub fn non_colliding_offsets(&self, joints: &Joints, from: &Joints, to: &Joints) -> Solutions {
+        self.body.non_colliding_offsets(joints, from, to,  self.kinematics.as_ref())
     }
 
     /// Provide details about he collision, who with whom collides.
@@ -263,6 +263,10 @@ impl Kinematics for KinematicsWithShape {
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
         let solutions = self.kinematics.inverse_continuing_5dof(pose, prev);
         self.remove_collisions(solutions, self.body.first_pose_only)
+    }
+
+    fn constraints(&self) -> &Option<Constraints> {
+        self.kinematics.constraints()
     }
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {

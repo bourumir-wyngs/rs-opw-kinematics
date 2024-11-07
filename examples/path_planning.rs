@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use rs_opw_kinematics::collisions::CollisionBody;
@@ -5,8 +7,10 @@ use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use std::time::Instant;
+use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 use rs_opw_kinematics::idastar::idastar_algorithm;
 use rs_opw_kinematics::utils;
+use rs_opw_kinematics::utils::dump_joints;
 
 #[derive(Debug, Clone, Copy)]
 pub struct JointArray(pub [f64; 6]);
@@ -26,10 +30,24 @@ impl JointArray {
 // Implement PartialEq and Eq for comparison
 impl PartialEq for JointArray {
     fn eq(&self, other: &Self) -> bool {
-        const EPSILON: f64 = 0.001;
-        self.iter()
-            .zip(other.iter())
-            .all(|(a, b)| (a - b).abs() < EPSILON)
+        let epsilon: f64 = 0.01_f64.to_radians();
+        for (a, b) in self.iter().zip(other.iter()) {
+            if (a - b).abs() > epsilon {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Hash for JointArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let epsilon: f64 = 1_f64.to_radians();
+
+        for value in self.0 {  
+            let rounded = (value / epsilon).round() as i64;
+            rounded.hash(state);
+        }
     }
 }
 
@@ -88,8 +106,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 fn main() {
     let kinematics = Arc::new(create_rx160_robot());
 
-    let initial_angles = utils::joints(&[100., -7.44, -92.51, 18.42, 82.23, 189.35]);
-    let final_angles = utils::joints(&[105., -7.44, -82.51, 18.42, 70.23, 188.35]);
+    // Only J1 is different, but the robot must raise the head up to come over obstacles.
+    let initial_angles = utils::joints(&[-120., -90., -92.51, 18.42, 82.23, 189.35]);
+    let final_angles = utils::joints(&[40., -90., -92.51, 18.42, 82.23, 189.35]);
     let start = JointArray(initial_angles);
     let end = JointArray(final_angles);
 
@@ -116,16 +135,17 @@ fn plan_path(
     kinematics: &Arc<KinematicsWithShape>,
 ) -> Option<(Vec<JointArray>, f64)> {
     println!("Starting path planning...");
+    let mut explored: HashSet<JointArray> = HashSet::with_capacity(1000);
     idastar_algorithm(
         start,
-        |current| generate_neighbors(current, kinematics),
+        |current| generate_neighbors(current, end, kinematics, & mut explored),
         |current| heuristic(current, end),
         |current| is_goal(current, end),
     )
 }
 
 fn is_goal(current: &JointArray, goal: &JointArray) -> bool {
-    let threshold: f64 = 0.2_f64.to_radians();
+    let threshold: f64 = 10_f64.to_radians();
     let is = current
         .iter()
         .zip(goal.iter())
@@ -141,28 +161,83 @@ fn heuristic(current: &JointArray, goal: &JointArray) -> f64 {
         .sum()
 }
 
+/// Add the step where all joints rotate directly towards the goal.
+fn compute_ahead(current: &[f64; 6], goal: &[f64; 6], step_size: f64) -> [f64; 6] {
+    // Compute the direction vector from 'current' to 'goal'
+    let mut direction = [0.0; 6];
+    let mut distance = 0.0;
+
+    for i in 0..6 {
+        direction[i] = goal[i] - current[i];
+        distance += direction[i].powi(2);
+    }
+
+    // Calculate the Euclidean distance between 'current' and 'goal'
+    distance = distance.sqrt();
+
+    // Avoid division by zero if 'current' and 'goal' are the same
+    if distance == 0.0 {
+        return current.clone();
+    }
+
+    // Scale the direction vector by 'step_size' / 'distance'
+    let scale = step_size / distance;
+    let mut ahead = [0.0; 6];
+
+    for i in 0..6 {
+        ahead[i] = current[i] + direction[i] * scale;
+    }
+
+    ahead
+}
+
+
 fn generate_neighbors(
-    joints: &JointArray,
+    current: &JointArray,
+    goal: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
+    explored: &mut HashSet<JointArray>,
 ) -> Vec<(JointArray, f64)> {
-    let step_size = 0.1_f64.to_radians();
+    dump_joints(&current.0);
+    let step_size = 10_f64.to_radians();
+
+
+    // Map valid neighbors to the expected output format (JointArray, cost)
+    let mut neighbors = Vec::new();
+    if false {
+        let ahead = compute_ahead(&current.0, &goal.0, step_size);
+        if !kinematics.collides(&ahead) {
+            neighbors.push(
+                (JointArray {
+                    0: ahead
+                },
+                 0.)); // Promote this direction as preferred
+        }
+    }
 
     // Prepare `from` and `to` joint configurations by adding/subtracting the step size
-    let mut from = *joints;
-    let mut to = *joints;
+    let mut from = *current;
+    let mut to = *current;
     for i in 0..6 {
         from.0[i] -= step_size;
         to.0[i] += step_size;
     }
 
     // Use non_colliding_offsets to generate valid, non-colliding neighbors
-    let valid_neighbors = kinematics.non_colliding_offsets(&joints.0, &from.0, &to.0);
-
-    // Map valid neighbors to the expected output format (JointArray, cost)
-    valid_neighbors.into_iter().map(|j| {
-        let new_joints = JointArray(j);
-        let cost = heuristic(joints, &new_joints);
-        (new_joints, cost / 8.0) // Need a di
-    }).collect()
+    let valid_offset_neighbors = kinematics.non_colliding_offsets(&current.0, &from.0, &to.0);
+    for joints in valid_offset_neighbors {
+        let new_joints = JointArray(joints);
+        if !explored.contains(&new_joints) {
+            dump_joints(&new_joints.0);            
+            let cost = heuristic(current, &new_joints);
+            neighbors.push((new_joints, 0.0));
+            explored.insert(new_joints);
+        }
+    }
+    
+    if neighbors.len() == 0 {
+        println!("No neighbors found!");
+    }
+    neighbors
 }
 

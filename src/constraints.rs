@@ -191,46 +191,34 @@ impl Constraints {
 
     /// Generate a random valid angle within the defined constraints for each joint.
     pub fn random_angles(&self) -> Joints {
-        let mut rng = rand::thread_rng();
-        let mut random_angles = [0.0; 6];
-
-        for i in 0..6 {
-            random_angles[i] = self.random_angle_within_bounds(i);
-        }
-
-        random_angles
-    }
-
-    /// Generate a random angle within the normalized bounds for a specific joint.
-    fn random_angle_within_bounds(&self, joint_index: usize) -> f64 {
-        let mut rng = rand::thread_rng();
-        let from = self.from[joint_index];
-        let to = self.to[joint_index];
-        let mut random_angle;
-
-        // If from < to, we can just generate directly.
-        if from < to {
-            random_angle = from + rng.gen_range(0.0..(to - from));
-        } else {
-            // Wrap-around case: generate an angle based on the two segments
-            let range_length = (2.0 * PI - (from - to)).abs();
-            let segment = rng.gen_range(0.0..range_length);
-
-            // Determine which segment to take (before or after the wrap)
-            if segment < (2.0 * PI - from) {
-                random_angle = from + segment; // Within the forward wrap
+        fn random_angle(from: f64, to: f64) -> f64 {
+            let mut rng = rand::thread_rng();
+            let random_angle = if from < to {
+                // Direct generation when `from` is less than `to`
+                from + rng.gen_range(0.0..(to - from))
             } else {
-                random_angle = to + (segment - (2.0 * PI - from)); // After the wrap
-            }
+                // Wrap-around case: generate an angle based on two segments
+                let range_length = (2.0 * PI - (from - to)).abs();
+                let segment = rng.gen_range(0.0..range_length);
+
+                // Determine which segment to take (before or after the wrap)
+                if segment < (2.0 * PI - from) {
+                    from + segment // Within the forward wrap
+                } else {
+                    to + (segment - (2.0 * PI - from)) // After the wrap
+                }
+            };
+            random_angle
         }
 
-        // Ensure the angle is normalized to [0, 2 * PI]
-        random_angle = random_angle % (2.0 * PI);
-        if random_angle < 0.0 {
-            random_angle += 2.0 * PI;
-        }
-
-        random_angle
+        [
+            random_angle(self.from[0], self.to[0]),
+            random_angle(self.from[1], self.to[1]),
+            random_angle(self.from[2], self.to[2]),
+            random_angle(self.from[3], self.to[3]),
+            random_angle(self.from[4], self.to[4]),
+            random_angle(self.from[5], self.to[5]),
+        ]
     }
 }
 
@@ -324,7 +312,7 @@ mod tests {
         let total_samples = 360;
         for _ in 0..total_samples {
             let random_angles = constraints.random_angles();
-            assert!(constraints.compliant(&random_angles), "Random angles should be compliant.");
+            assert!(constraints.compliant(&random_angles));
         }
     }
 
@@ -338,7 +326,7 @@ mod tests {
         let total_samples = 360;
         for _ in 0..total_samples {
             let random_angles = constraints.random_angles();
-            assert!(constraints.compliant(&random_angles), "Random angles should be compliant.");
+            assert!(constraints.compliant(&random_angles));
         }
     }
 }
