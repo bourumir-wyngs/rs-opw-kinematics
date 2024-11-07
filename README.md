@@ -35,7 +35,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
 - Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
-- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt) and [Pathfinding](https://github.com/evenfurther/pathfinding),
+- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt) and [pathfinding](https://github.com/evenfurther/pathfinding),
   examples provided.
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
@@ -308,8 +308,8 @@ and "wrapping around" them, we decided to explore the complexity of integrating 
 (referenced only in examples). This approach allowed us to identify key "pain points" that complicate the integration of
 external path planners.
 
-We provide external support for two libraries, `rrt` and `pathfinder`. Although `rs-opw-kinematics` does not use either
-internally, we include examples demonstrating their usage. The `rrt` and `pathfinding` libraries are listed as 
+We provide external support for two libraries, `rrt` and `pathfinding`. Although `rs-opw-kinematics` does not use either
+internally, we include examples demonstrating their usage. These two libraries are listed as 
 development dependencies in `Cargo.toml`.
 
 ### rrt
