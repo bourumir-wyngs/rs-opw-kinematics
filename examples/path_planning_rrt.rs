@@ -1,9 +1,9 @@
+use rrt::dual_rrt_connect;
+
 use std::time::Instant;
 use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 
-use rrt::dual_rrt_connect;
-
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, JOINTS_AT_ZERO};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
@@ -27,6 +27,8 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             c4: 0.11,
             ..Parameters::new()
         },
+        // Constraints are used also to sample constraint-compliant random positions
+        // as needed by this path planner.
         Constraints::from_degrees(
             [
                 -225.0..=225.0, -225.0..=225.0, -225.0..=225.0,
@@ -70,7 +72,7 @@ fn plan_path(
     goal: Joints,
 ) -> Result<Vec<Vec<f64>>, String> {
     // Define the is_free function to check for collisions
-    let is_free = |joint_angles: &[f64]| -> bool {
+    let collision_free = |joint_angles: &[f64]| -> bool {
         // Convert `&[f64]` to `Joints` by attempting to copy the slice directly into an array
         if let Ok(joints) = <[f64; 6]>::try_from(joint_angles) {
             // Use the `collides` method to check if this joint configuration is in collision
@@ -81,17 +83,16 @@ fn plan_path(
         }
     };
 
-    // Define a random joint configuration generator
+    // Constraint compliant random joint configuration generator. 
     let random_joint_angles = || -> Vec<f64> {
+        // RRT requires vector and we return array so convert
         return kinematics.constraints()
             .expect("Set joint ranges on kinematics").random_angles().to_vec();
     };
 
     // Plan the path with RRT
     dual_rrt_connect(
-        &start,
-        &goal,
-        is_free,
+        &start, &goal, collision_free,
         random_joint_angles, 5_f64.to_radians(), // Step size in joint space
         2000,  // Max iterations
     )
@@ -143,7 +144,7 @@ fn main() {
     println!("Simple example");
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     let goal = utils::joints(&[-120.0, -80.0, -90., 18.42, 82.23, 189.35]);
-    example(start, goal, &kinematics);    
+    example(start, goal, &kinematics);
 }
 
 fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) {

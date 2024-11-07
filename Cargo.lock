@@ -3335,7 +3335,6 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "clap",
- "kdtree",
  "nalgebra",
  "num-traits",
  "parry3d",

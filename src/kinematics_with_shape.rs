@@ -11,7 +11,6 @@ use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity, 
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::tool::{Base, Tool};
-use crate::utils;
 
 /// Struct that combines the kinematic model of a robot with its geometrical shape.
 /// This struct provides both the kinematic functionality for computing joint positions and 
