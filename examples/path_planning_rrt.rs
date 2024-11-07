@@ -1,15 +1,16 @@
-use rrt::dual_rrt_connect;
-
-use std::time::Instant;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
-
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics};
-use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-use rs_opw_kinematics::collisions::CollisionBody;
-use rs_opw_kinematics::{utils};
-use rs_opw_kinematics::utils::{dump_joints};
+#[cfg(feature = "collisions")]
+use {
+    rrt::dual_rrt_connect,
+    std::time::Instant,
+    nalgebra::{Isometry3, Translation3, UnitQuaternion},
+    rs_opw_kinematics::kinematic_traits::{Joints, Kinematics},
+    rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
+    rs_opw_kinematics::parameters::opw_kinematics::Parameters,
+    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::collisions::CollisionBody,
+    rs_opw_kinematics::utils,
+    rs_opw_kinematics::utils::dump_joints,
+};
 
 #[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> KinematicsWithShape {

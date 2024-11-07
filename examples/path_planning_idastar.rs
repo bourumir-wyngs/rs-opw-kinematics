@@ -1,17 +1,18 @@
-// All would run
-use pathfinding::prelude::{astar, fringe, idastar};
-
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use std::time::Instant;
-
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
-use rs_opw_kinematics::collisions::CollisionBody;
-use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils;
+#[cfg(feature = "collisions")]
+use {
+    // All would run
+    pathfinding::prelude::{astar, fringe, idastar},
+    std::collections::HashSet,
+    std::hash::{Hash, Hasher},
+    std::sync::Arc,
+    std::time::Instant,
+    nalgebra::{Isometry3, Translation3, UnitQuaternion},
+    rs_opw_kinematics::collisions::CollisionBody,
+    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
+    rs_opw_kinematics::parameters::opw_kinematics::Parameters,
+    rs_opw_kinematics::utils,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct JointArray(pub [f64; 6]);
@@ -109,10 +110,10 @@ fn plan_path(
     end: &JointArray,
     kinematics: &Arc<KinematicsWithShape>,
 ) -> Option<(Vec<JointArray>, usize)> {
-    // While it works also without tracking with this hash set, it increases 
+    // While it works also without tracking with this hash set, it increases
     // the speed of path planning about three times.
     let mut explored: HashSet<JointArray> = HashSet::with_capacity(1000);
-    // You can try astar, idastar or fringe here. 
+    // You can try astar, idastar or fringe here.
     // All 3 generally work but idastar is the fastest.
     idastar(
         start,
