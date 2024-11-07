@@ -58,6 +58,8 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # rs-opw-kinematics = { version = "1.7.0", default-features = false }
 
 [dev-dependencies]
-# RRT path planning is currently only in example space
+# RRT path planning is currently only in example space.
+# This library is Copyright 2017 Takashi Ogura Apache 2 license.
+# We only use it as development dependency.
 rrt = "0.7.0"
 

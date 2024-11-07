@@ -35,6 +35,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
 - Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
+- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt).
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
@@ -299,6 +300,42 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
   robot
 }
 ```
+
+## Path planning
+This project supports integration of the Rapidly-Exploring Random Tree (RRT) library, specifically 
+[rrt](https://github.com/openrr/rrt), available under the Apache 2.0 license by Takashi Ogura and Mitsuharu Kojima, 
+or a similar RRT library. Although `rs-opw-kinematics` does not use `rrt` internally, we provide an example 
+demonstrating its usage. 
+
+```Rust
+use rrt::dual_rrt_connect;
+fn plan_path(
+  kinematics: &KinematicsWithShape,
+  start: Joints, goal: Joints,
+) -> Result<Vec<Vec<f64>>, String> {
+  let collision_free = |joint_angles: &[f64]| -> bool {
+    let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
+    !kinematics.collides(joints)
+  };
+
+  // Constraint compliant random joint configuration generator. 
+  let random_joint_angles = || -> Vec<f64> {
+    // RRT requires vector and we return array so convert
+    return kinematics.constraints()
+            .expect("Set joint ranges on kinematics").random_angles().to_vec();
+  };
+
+  // Plan the path with RRT
+  dual_rrt_connect(
+    &start, &goal, collision_free,
+    random_joint_angles, 3_f64.to_radians(), // Step size in joint space
+    2000,  // Max iterations
+  )
+}
+```
+See the file examples/path_planning_rrt.rs for how to define the robot and other boilerplate code. The direct output
+will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
+The `rrt` library is listed as a development dependency in `Cargo.toml`.
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)

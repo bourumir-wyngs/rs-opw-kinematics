@@ -68,19 +68,11 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 /// Plans a path from `start` to `goal` joint configuration, using `KinematicsWithShape` for collision checking.
 fn plan_path(
     kinematics: &KinematicsWithShape,
-    start: Joints,
-    goal: Joints,
+    start: Joints, goal: Joints,
 ) -> Result<Vec<Vec<f64>>, String> {
-    // Define the is_free function to check for collisions
     let collision_free = |joint_angles: &[f64]| -> bool {
-        // Convert `&[f64]` to `Joints` by attempting to copy the slice directly into an array
-        if let Ok(joints) = <[f64; 6]>::try_from(joint_angles) {
-            // Use the `collides` method to check if this joint configuration is in collision
-            !kinematics.collides(&joints)
-        } else {
-            // If conversion fails, return false (considered as a collision)
-            false
-        }
+        let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
+        !kinematics.collides(joints)
     };
 
     // Constraint compliant random joint configuration generator. 
@@ -93,7 +85,7 @@ fn plan_path(
     // Plan the path with RRT
     dual_rrt_connect(
         &start, &goal, collision_free,
-        random_joint_angles, 5_f64.to_radians(), // Step size in joint space
+        random_joint_angles, 3_f64.to_radians(), // Step size in joint space
         2000,  // Max iterations
     )
 }
@@ -135,13 +127,13 @@ fn main() {
     // This is pretty tough path that requires to lift the initially low placed
     // tool over the obstacle and then lower again. Direct path is interrupted
     // by obstacle.
-    println!("Tough example");
+    println!("** Tough example **");
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     let goal = utils::joints(&[40.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     example(start, goal, &kinematics);
 
     // Simple short step
-    println!("Simple example");
+    println!("** Simple example **");
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     let goal = utils::joints(&[-120.0, -80.0, -90., 18.42, 82.23, 189.35]);
     example(start, goal, &kinematics);
