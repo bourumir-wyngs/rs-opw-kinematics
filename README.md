@@ -302,10 +302,18 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 ```
 
 ## Path planning
+There are currently few path planning libraries available in Rust. Instead of incorporating them directly into our project
+and "wrapping around" them, we decided to explore the complexity of integrating these libraries as external dependencies
+(referenced only in examples). This approach allowed us to identify key "pain points" that complicate the integration of
+external path planners.
+
+We provide external support for two libraries, `rrt` and `pathfinder`. Although `rs-opw-kinematics` does not use either
+internally, we include examples demonstrating their usage.
+
+### rrt
 This project supports integration of the Rapidly-Exploring Random Tree (RRT) library, specifically 
 [rrt](https://github.com/openrr/rrt), available under the Apache 2.0 license by [Takashi Ogura](https://github.com/otl)
-and Mitsuharu Kojima, or a similar RRT library. Although `rs-opw-kinematics` does not use `rrt` internally, 
-we provide an example demonstrating its usage: 
+and Mitsuharu Kojima, or a similar RRT library: 
 
 ```Rust
 use rrt::dual_rrt_connect;
@@ -333,9 +341,20 @@ fn plan_path(
   )
 }
 ```
+This library required to produce random joint angles within constraints. We made constraints easily
+accessible from the instance of Kinematics, and provided random_angles() methods for them.
+
 See the file examples/path_planning_rrt.rs for how to define the robot and other boilerplate code. The direct output
 will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
 The `rrt` library is listed as a development dependency in `Cargo.toml`.
+
+### pathfinding
+[Pathfinding](https://github.com/evenfurther/pathfinding) by Samuel Tardieu provides A*, IDA* and other comparable algorithms, under Apache 2 or MIT license.
+While these algorithms may also lift the robot hand over obstacle, they may struggle with very complex path. From the other side, the path quality is better. 
+Supporting this group of libraries required to provide the list of neighouring joints that would be 
+constraint-compliant and collision free that was done implementing 
+[non_colliding_offsets]((https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/fn.non_colliding_offsets.html)
+on KinematicsWithShape. You can find example of pathfinding integration in examples/path_planning_idastar.rs .
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)

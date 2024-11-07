@@ -62,4 +62,6 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 # This library is Copyright 2017 Takashi Ogura Apache 2 license.
 # We only use it as development dependency only, for building examples.
 rrt = "0.7.0"
+# A* path planning that in this release is experimental.,
+pathfinding = "4.11"
 

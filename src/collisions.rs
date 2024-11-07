@@ -90,7 +90,7 @@ impl RobotBody {
     /// 'to' or into 'from'. This is required for planning algorithms like A*. We can do 
     ///  less collision checks as we only need to check the joint branch of the robot we moved.
     ///  Offset generation is accelerated via Rayon.     
-    pub(crate) fn non_colliding_offsets(
+    pub fn non_colliding_offsets(
         &self,
         initial: &Joints,
         from: &Joints,
@@ -105,12 +105,19 @@ impl RobotBody {
             }
         }
 
-        // Process each task in parallel, filtering out colliding configurations
+        // Process each task in parallel, filtering out colliding or out of constraints configurations
         tasks
             .par_iter()
             .filter_map(|&(joint_index, target)| {
                 let mut new_joints = *initial;
                 new_joints[joint_index] = target[joint_index];
+
+                // Discard perturbations that go out of constraints.
+                if let Some(constraints) = kinematics.constraints() {
+                    if !constraints.compliant(&new_joints) {
+                        return None;
+                    }
+                }
 
                 // Generate the full joint poses for collision checking
                 let joint_poses = kinematics.forward_with_joint_poses(&new_joints);
@@ -119,11 +126,11 @@ impl RobotBody {
                 // Determine joints that do not require collision checks
                 let skip_indices: HashSet<usize> = (0..joint_index).collect();
 
-                // Detect collisions, skipping specified indices
+                // Detect collisions, skipping specified indices                
                 if self.detect_collisions_with_skips(&joint_poses_f32, true, &skip_indices).is_empty() {
-                    Some(new_joints) // Return non-colliding configuration
+                    return Some(new_joints) // Return non-colliding configuration
                 } else {
-                    None
+                    return None
                 }
             })
             .collect() // Collect non-colliding configurations into Solutions
