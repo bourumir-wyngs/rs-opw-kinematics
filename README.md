@@ -303,9 +303,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
 ## Path planning
 This project supports integration of the Rapidly-Exploring Random Tree (RRT) library, specifically 
-[rrt](https://github.com/openrr/rrt), available under the Apache 2.0 license by Takashi Ogura and Mitsuharu Kojima, 
-or a similar RRT library. Although `rs-opw-kinematics` does not use `rrt` internally, we provide an example 
-demonstrating its usage. 
+[rrt](https://github.com/openrr/rrt), available under the Apache 2.0 license by [Takashi Ogura](https://github.com/otl)
+and Mitsuharu Kojima, or a similar RRT library. Although `rs-opw-kinematics` does not use `rrt` internally, 
+we provide an example demonstrating its usage. 
 
 ```Rust
 use rrt::dual_rrt_connect;
