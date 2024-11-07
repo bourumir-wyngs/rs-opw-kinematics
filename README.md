@@ -313,9 +313,8 @@ internally, we include examples demonstrating their usage. These two libraries a
 development dependencies in `Cargo.toml`.
 
 ### rrt
-This project supports integration of the Rapidly-Exploring Random Tree (RRT) library, specifically 
-[rrt](https://github.com/openrr/rrt), available under the Apache 2.0 license by [Takashi Ogura](https://github.com/otl)
-and Mitsuharu Kojima, or a similar RRT library: 
+The Rapidly-Exploring Random Tree (RRT) library, [rrt](https://github.com/openrr/rrt), is available under the 
+Apache 2.0 license by [Takashi Ogura](https://github.com/otl) and Mitsuharu Kojima. It can be used the following way:
 
 ```Rust
 use rrt::dual_rrt_connect;
