@@ -282,6 +282,7 @@ pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon
 #[cfg(test)]
 mod tests {
     use nalgebra::{Translation3, UnitQuaternion, Vector3};
+    use crate::constraints::Constraints;
     use crate::kinematic_traits::{Pose, Singularity, Solutions};
     use super::*;
 
@@ -327,6 +328,10 @@ mod tests {
 
         fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
             None
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            &None
         }
     }
 

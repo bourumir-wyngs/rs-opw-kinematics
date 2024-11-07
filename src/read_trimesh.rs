@@ -1,6 +1,6 @@
 //! Functionality for loading Parry TriMesh from STL or PLY files.
 
-use parry3d::shape::TriMesh;
+use parry3d::shape::{TriMesh, TriMeshFlags};
 use ply_rs::parser::Parser;
 use ply_rs::ply::{DefaultElement, Property};
 use stl_io::{read_stl};
@@ -63,7 +63,8 @@ pub fn load_trimesh_from_ply(ply_file_path: &str) -> TriMesh {
     }
 
     // Create a TriMesh from vertices and indices
-    TriMesh::new(vertices, indices)
+    TriMesh::with_flags(vertices, indices, 
+                        TriMeshFlags::FIX_INTERNAL_EDGES | TriMeshFlags::MERGE_DUPLICATE_VERTICES)
 }
 
 /// Function to load a TriMesh from an STL file

@@ -15,6 +15,7 @@ use nalgebra::{Isometry3, Point3, Rotation3, Translation3, UnitQuaternion};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
@@ -180,6 +181,10 @@ impl Kinematics for Frame {
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
+    }
+
+    fn constraints(&self) -> &Option<Constraints> {
+        self.robot.constraints()
     }
 }
 

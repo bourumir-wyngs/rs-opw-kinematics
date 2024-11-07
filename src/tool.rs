@@ -46,6 +46,7 @@ extern crate nalgebra as na;
 use std::sync::Arc;
 use na::{Isometry3};
 use nalgebra::{Translation3};
+use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 
 
@@ -112,6 +113,10 @@ impl Kinematics for Tool {
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
     }
+
+    fn constraints(&self) -> &Option<Constraints> {
+        self.robot.constraints()
+    }    
 }
 
 impl Kinematics for Base {
@@ -150,6 +155,10 @@ impl Kinematics for Base {
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
     }
+
+    fn constraints(&self) -> &Option<Constraints> {
+        self.robot.constraints()
+    }    
 }
 
 // Define the Cart (linear axis, prismatic joint) structure that can hold the robot. 

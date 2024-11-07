@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.6.0"
+version = "1.7.0"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -17,6 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
+rand = "0.8" # Now is needed for path planner
 
 
 # Optional dependencies:
@@ -44,7 +45,8 @@ bevy = { version = "0.12", default-features = false, features = [
     "bevy_pbr", "bevy_render", "bevy_text", "bevy_ui", "multi-threaded", "hdr",
     "x11", "wayland", "tonemapping_luts", "default_font",
 ], optional = true }
-bevy_egui = { version = "0.23", optional = true }
+bevy_egui = { version = "0.24", optional = true }
+num-traits = "0.2.19"
 
 [features]
 default = ["allow_filesystem", "collisions", "visualization"]
@@ -53,9 +55,13 @@ collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.6.0", default-features = false }
+# rs-opw-kinematics = { version = "1.7.0", default-features = false }
 
 [dev-dependencies]
-# Some tests include random generator
-rand = "0.8"
+# RRT path planning is currently only in example space.
+# This library is Copyright 2017 Takashi Ogura Apache 2 license.
+# We only use it as development dependency only, for building examples.
+rrt = "0.7.0"
+# A* path planning that in this release is experimental.,
+pathfinding = "4.11"
 

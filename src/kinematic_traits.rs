@@ -4,7 +4,7 @@ extern crate nalgebra as na;
 
 use std::f64::NAN;
 use na::{Isometry3};
-
+use crate::constraints::Constraints;
 
 /// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
 /// ```
@@ -110,6 +110,11 @@ pub trait Kinematics: Send + Sync {
     /// The return value for joint 6 is set based on the previous joint values.
     /// This method is significantly faster
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
+
+    /// Returns constraints under what the solver is operating.
+    /// Constraints are remembered here and can be used for generating random
+    /// joint angles needed by RRT, or say providing limits of sliders in GUI.
+    fn constraints(&self) -> &Option<Constraints>;
     
     /// Detect the singularity. Returns either A type singlularity or None if
     /// no singularity detected.
@@ -165,5 +170,6 @@ pub trait Kinematics: Send + Sync {
     ///   each joint's position and orientation relative to the base frame.
     /// - The final pose (Pose 6) includes the `c4` offset, which accounts for the wrist length.    
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6];
+    
 }
 

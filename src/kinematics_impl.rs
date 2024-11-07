@@ -309,6 +309,10 @@ impl Kinematics for OPWKinematics {
             None
         }
     }
+
+    fn constraints(&self) -> &Option<Constraints> {
+        &self.constraints
+    }
 }
 
 impl OPWKinematics {
