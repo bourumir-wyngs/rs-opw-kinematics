@@ -308,7 +308,8 @@ and "wrapping around" them, we decided to explore the complexity of integrating 
 external path planners.
 
 We provide external support for two libraries, `rrt` and `pathfinder`. Although `rs-opw-kinematics` does not use either
-internally, we include examples demonstrating their usage.
+internally, we include examples demonstrating their usage. The `rrt` and `pathfinding` libraries are listed as 
+development dependencies in `Cargo.toml`.
 
 ### rrt
 This project supports integration of the Rapidly-Exploring Random Tree (RRT) library, specifically 
@@ -346,7 +347,6 @@ accessible from the instance of Kinematics, and provided random_angles() methods
 
 See the file examples/path_planning_rrt.rs for how to define the robot and other boilerplate code. The direct output
 will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
-The `rrt` library is listed as a development dependency in `Cargo.toml`.
 
 ### pathfinding
 [Pathfinding](https://github.com/evenfurther/pathfinding) by Samuel Tardieu provides A*, IDA* and other comparable algorithms, under Apache 2 or MIT license.
