@@ -35,7 +35,8 @@ data for the test suite. This documentation also incorporates the robot diagram 
   of the tool center point (TCP) rather than any part of the robot.
 - 5 DOF inverse kinematics.
 - Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
-- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt).
+- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt) and [Pathfinding](https://github.com/evenfurther/pathfinding),
+  examples provided.
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
