@@ -80,6 +80,7 @@ mod simplify_joint_name;
 #[cfg(feature = "collisions")]
 pub mod collisions;
 
+pub mod cartesian;
 #[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
@@ -97,6 +98,8 @@ mod camera_controller;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
+
 
 
 
