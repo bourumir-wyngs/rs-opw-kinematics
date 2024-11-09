@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use crate::kinematic_traits::{Joints, Kinematics, Pose};
+use crate::kinematics_with_shape::KinematicsWithShape;
 
 /// Class doing Cartesian planning
 struct Cartesian {
@@ -69,7 +70,8 @@ impl Cartesian {
         Vec::new()
     }
 
-    pub fn generate_intermediate_poses(&self,
+    pub fn generate_intermediate_poses(
+        &self,
         start: &Pose,
         end: &Pose,
     ) -> Vec<Pose> {
@@ -86,11 +88,12 @@ impl Cartesian {
         // Calculate the number of steps required for translation and rotation
         let translation_steps = (translation_distance / self.check_step_m).ceil() as usize;
         let rotation_steps = (rotation_angle / self.check_step_rad).ceil() as usize;
+
+        // Choose the greater step count to achieve finer granularity between poses
         let steps = translation_steps.max(rotation_steps).max(1);
 
-        // Calculate incremental translation and rotation per step
+        // Calculate incremental translation and rotation per chosen step count
         let translation_step = translation_diff / steps as f64;
-        let rotation_step = rotation_diff.powf(1.0 / steps as f64);
 
         // Generate each intermediate pose
         for i in 0..=steps {
@@ -110,5 +113,5 @@ impl Cartesian {
         }
 
         poses
-    }    
+    }
 }
