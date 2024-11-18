@@ -48,11 +48,15 @@ bevy = { version = "0.12", default-features = false, features = [
 bevy_egui = { version = "0.24", optional = true }
 num-traits = "0.2.19"
 
+# Needed for stroke planning
+highs = { version = "1.6", optional = true }
+
 [features]
-default = ["allow_filesystem", "collisions", "visualization"]
+default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
+stroke_planning = ["highs", "collisions"]
 
 # To disable filesystem, collision and visualizatio support:
 # rs-opw-kinematics = { version = "1.7.0", default-features = false }

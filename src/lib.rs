@@ -81,6 +81,10 @@ mod simplify_joint_name;
 pub mod collisions;
 
 pub mod cartesian;
+
+#[cfg(feature = "collisions")]
+pub mod path_check;
+
 #[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
@@ -91,6 +95,9 @@ pub mod read_trimesh;
 #[cfg(feature = "visualization")]
 pub mod visualization;
 
+#[cfg(feature = "stroke_planning")]
+pub mod stroke_planner;
+
 #[path = "visualize/camera_controller.rs"]
 #[cfg(feature = "visualization")]
 mod camera_controller;
@@ -98,6 +105,8 @@ mod camera_controller;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
+
 
 
 
