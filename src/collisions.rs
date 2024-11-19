@@ -1,7 +1,7 @@
 //! Implements collision detection
 
 use std::collections::HashSet;
-use nalgebra::Isometry3;
+use nalgebra::{Isometry3, Point3, Vector3};
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::kinematic_traits::{Joints, Kinematics, Solutions, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL};
@@ -334,6 +334,34 @@ impl RobotBody {
     }
 }
 
+
+
+/// Magnify the TriMesh uniformly outward relative to its center of mass.
+/*
+fn magnify_trimesh(mesh: &mut TriMesh, magnification_factor: f32) {
+    // Nested function to calculate the center of mass (centroid)
+    fn calculate_mass_center(mesh: &TriMesh) -> Point3<f32> {
+        let sum: Vector3<f32> = mesh
+            .vertices()
+            .iter()
+            .map(|vertex| vertex.coords)
+            .sum();
+
+        // Calculate the average of the vertex positions and convert to Point3
+        (sum / (mesh.vertices().len() as f32)).into()
+    }
+
+    // Compute the center of mass
+    let center = calculate_mass_center(mesh);
+
+    // Apply magnification to each vertex
+    for vertex in mesh.vertices_mut() {
+        let offset = *vertex - center;
+        let scaled_offset = offset * magnification_factor;
+        *vertex = center + scaled_offset;
+    }
+}
+*/
 
 #[cfg(test)]
 mod tests {

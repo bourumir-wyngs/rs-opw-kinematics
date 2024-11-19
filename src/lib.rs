@@ -95,16 +95,25 @@ pub mod read_trimesh;
 #[cfg(feature = "visualization")]
 pub mod visualization;
 
-#[cfg(feature = "stroke_planning")]
-pub mod stroke_planner;
+#[cfg(feature = "ignore_stroke_planning")]
+mod transition_cost;
 
 #[path = "visualize/camera_controller.rs"]
 #[cfg(feature = "visualization")]
 mod camera_controller;
 
+#[cfg(feature = "stroke_planning")]
+mod chunked_vector;
+
+#[cfg(feature = "stroke_planning")]
+pub mod rrt;
+
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
+
+
+
 
 
 

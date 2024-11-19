@@ -44,7 +44,7 @@ impl<T> ChunkedVec<T> {
 
 
     /// Returns the total number of elements in the `ChunkedVec`.
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.chunks.iter().map(|chunk| chunk.len()).sum()
     }
 
@@ -197,7 +197,7 @@ mod tests {
         for i in 0..10 {
             chunked_vec.push(i);
         }
-        assert_eq!(chunked_vec.size(), 10);
+        assert_eq!(chunked_vec.len(), 10);
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod tests {
         }
 
         // Check total size
-        assert_eq!(chunked_vec.size(), 1000);
+        assert_eq!(chunked_vec.len(), 1000);
 
         // Verify first and last elements
         assert_eq!(*chunked_vec.index(0), 0);
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_empty_chunked_vec_2() {
         let chunked_vec: ChunkedVec<i32> = ChunkedVec::new(3);
-        assert_eq!(chunked_vec.size(), 0);
+        assert_eq!(chunked_vec.len(), 0);
     }
 }
 

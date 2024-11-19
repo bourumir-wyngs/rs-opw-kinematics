@@ -3473,6 +3473,7 @@ version = "1.7.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bitflags 2.6.0",
  "clap",
  "highs",
  "nalgebra",
