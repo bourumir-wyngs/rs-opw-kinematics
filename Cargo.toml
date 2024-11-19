@@ -50,6 +50,7 @@ num-traits = "0.2.19"
 
 # Needed for stroke planning
 highs = { version = "1.6", optional = true }
+bitflags = "2.6.0"
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
