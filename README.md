@@ -348,14 +348,6 @@ accessible from the instance of Kinematics, and provided random_angles() methods
 See the file `examples/path_planning_rrt.rs` for how to define the robot and other boilerplate code. The direct output
 will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
 
-### pathfinding
-[Pathfinding](https://github.com/evenfurther/pathfinding) by Samuel Tardieu provides A*, IDA* and other comparable algorithms, under Apache 2 or MIT license.
-While these algorithms may also lift the robot hand over obstacle, they may struggle with very complex path. From the other side, the path quality is better. 
-Supporting this group of libraries required to provide the list of neighouring joints that would be 
-constraint-compliant and collision free that was done implementing 
-[non_colliding_offsets](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/fn.non_colliding_offsets.html)
-on KinematicsWithShape. You can find example of pathfinding integration in `examples/path_planning_idastar.rs` .
-
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
 is also straightforward to visualize, as it fully integrates both the kinematics and 3D meshes representing the robot.
