@@ -164,6 +164,7 @@ impl Kinematics for OPWKinematics {
     fn forward(&self, joints: &Joints) -> Pose {
         let p = &self.parameters;
 
+        // Apply sign corrections and offsets
         let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
         let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
         let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
@@ -174,43 +175,57 @@ impl Kinematics for OPWKinematics {
         let psi3 = f64::atan2(p.a2, p.c3);
         let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
 
-        let cx1 = p.c2 * f64::sin(q2) + k * f64::sin(q2 + q3 + psi3) + p.a1;
+        // Precompute q23_psi3 for better readability and reuse
+        let q23_psi3 = q2 + q3 + psi3;
+        let sin_q23_psi3 = q23_psi3.sin();
+        let cos_q23_psi3 = q23_psi3.cos();
+
+        let cx1 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
         let cy1 = p.b;
-        let cz1 = p.c2 * f64::cos(q2) + k * f64::cos(q2 + q3 + psi3);
+        let cz1 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
 
         let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
         let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
         let cz0 = cz1 + p.c1;
 
-        // Precompute sines and cosines
-        let (s1, c1) = (q1.sin(), q1.cos());
-        let (s2, c2) = (q2.sin(), q2.cos());
-        let (s3, c3) = (q3.sin(), q3.cos());
-        let (s4, c4) = (q4.sin(), q4.cos());
-        let (s5, c5) = (q5.sin(), q5.cos());
-        let (s6, c6) = (q6.sin(), q6.cos());
+        // Precompute sines and cosines for efficiency
+        let (s1, c1) = q1.sin_cos();
+        let (s2, c2) = q2.sin_cos();
+        let (s3, c3) = q3.sin_cos();
+        let (s4, c4) = q4.sin_cos();
+        let (s5, c5) = q5.sin_cos();
+        let (s6, c6) = q6.sin_cos();
 
+        // Compute rotation matrix r_0c
         let r_0c = Matrix3::new(
             c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
             s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
             -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
         );
 
+        // Compute rotation matrix r_ce
         let r_ce = Matrix3::new(
             c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
             s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
             -s5 * c6, s5 * s6, c5,
         );
 
+        // Compute the final rotation matrix r_oe
         let r_oe = r_0c * r_ce;
 
+        // Calculate the final translation
         let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
+
+        // Convert the rotation matrix to a quaternion
         let rotation = Rotation3::from_matrix_unchecked(r_oe);
 
-        Pose::from_parts(Translation3::from(translation),
-                         UnitQuaternion::from_rotation_matrix(&rotation))
+        // Return the pose combining translation and rotation
+        Pose::from_parts(
+            Translation3::from(translation),
+            UnitQuaternion::from_rotation_matrix(&rotation),
+        )
     }
-
+ 
     fn kinematic_singularity(&self, joints: &Joints) -> Option<Singularity> {
         if is_close_to_multiple_of_pi(joints[J5], SINGULARITY_ANGLE_THR) {
             Some(Singularity::A)
@@ -226,7 +241,7 @@ impl OPWKinematics {
 
         // Adjust to wrist center
         let matrix = pose.rotation.to_rotation_matrix();
-        let translation_vector = pose.translation.vector; // Get the translation vector component
+        let translation_vector = &pose.translation.vector; // Get the translation vector component
         let scaled_z_axis = params.c4 * matrix.transform_vector(&Vector3::z_axis()); // Scale and rotate the z-axis vector
 
         let c = translation_vector - scaled_z_axis;
@@ -324,104 +339,49 @@ impl OPWKinematics {
         let theta5_vii = -theta5_iii;
         let theta5_viii = -theta5_iv;
 
-        let zero_threshold: f64 = 1e-6;
         let theta4_i;
         let theta6_i;
 
-        if theta5_i.abs() < zero_threshold {
-            theta4_i = 0.0;
-            let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
-            let mut rc = Matrix3::zeros(); // Assuming Matrix3::zeros() creates a 3x3 matrix filled with 0.0
+        let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
+        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
+        theta4_i = theta4_iy.atan2(theta4_ix);
 
-            // Set columns of Rc
-            rc.set_column(1, &Vector3::new(-theta1_i.sin(), theta1_i.cos(), 0.0)); // yc
-            rc.set_column(2, &Vector3::new(matrix[(0, 2)], matrix[(1, 2)], matrix[(2, 2)])); // zc = ze
-            rc.set_column(0, &rc.column(1).cross(&rc.column(2))); // xc
-
-            let xec = rc.transpose() * xe;
-            theta6_i = xec[1].atan2(xec[0]);
-        } else {
-            let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
-            let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
-            theta4_i = theta4_iy.atan2(theta4_ix);
-
-            let theta6_iy = matrix[(0, 1)] * s23[0] * cos1[0] + matrix[(1, 1)] * s23[0] * sin1[0] + matrix[(2, 1)] * c23[0];
-            let theta6_ix = -matrix[(0, 0)] * s23[0] * cos1[0] - matrix[(1, 0)] * s23[0] * sin1[0] - matrix[(2, 0)] * c23[0];
-            theta6_i = theta6_iy.atan2(theta6_ix);
-        }
+        let theta6_iy = matrix[(0, 1)] * s23[0] * cos1[0] + matrix[(1, 1)] * s23[0] * sin1[0] + matrix[(2, 1)] * c23[0];
+        let theta6_ix = -matrix[(0, 0)] * s23[0] * cos1[0] - matrix[(1, 0)] * s23[0] * sin1[0] - matrix[(2, 0)] * c23[0];
+        theta6_i = theta6_iy.atan2(theta6_ix);
 
         let theta4_ii;
         let theta6_ii;
 
-        if theta5_ii.abs() < zero_threshold {
-            theta4_ii = 0.0;
-            let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
-            let mut rc = Matrix3::zeros();
+        let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
+        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
+        theta4_ii = theta4_iiy.atan2(theta4_iix);
 
-            // Set columns of Rc
-            rc.set_column(1, &Vector3::new(-theta1_i.sin(), theta1_i.cos(), 0.0)); // yc
-            rc.set_column(2, &Vector3::new(matrix[(0, 2)], matrix[(1, 2)], matrix[(2, 2)])); // zc = ze
-            rc.set_column(0, &rc.column(1).cross(&rc.column(2))); // xc
-
-            let xec = rc.transpose() * xe;
-            theta6_ii = xec[1].atan2(xec[0]);
-        } else {
-            let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
-            let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
-            theta4_ii = theta4_iiy.atan2(theta4_iix);
-
-            let theta6_iiy = matrix[(0, 1)] * s23[1] * cos1[1] + matrix[(1, 1)] * s23[1] * sin1[1] + matrix[(2, 1)] * c23[1];
-            let theta6_iix = -matrix[(0, 0)] * s23[1] * cos1[1] - matrix[(1, 0)] * s23[1] * sin1[1] - matrix[(2, 0)] * c23[1];
-            theta6_ii = theta6_iiy.atan2(theta6_iix);
-        }
+        let theta6_iiy = matrix[(0, 1)] * s23[1] * cos1[1] + matrix[(1, 1)] * s23[1] * sin1[1] + matrix[(2, 1)] * c23[1];
+        let theta6_iix = -matrix[(0, 0)] * s23[1] * cos1[1] - matrix[(1, 0)] * s23[1] * sin1[1] - matrix[(2, 0)] * c23[1];
+        theta6_ii = theta6_iiy.atan2(theta6_iix);
 
         let theta4_iii;
         let theta6_iii;
 
-        if theta5_iii.abs() < zero_threshold {
-            theta4_iii = 0.0;
-            let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
-            let mut rc = Matrix3::zeros();
+        let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
+        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
+        theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
-            // Set columns of Rc
-            rc.set_column(1, &Vector3::new(-theta1_ii.sin(), theta1_ii.cos(), 0.0)); // yc
-            rc.set_column(2, &Vector3::new(matrix[(0, 2)], matrix[(1, 2)], matrix[(2, 2)])); // zc = ze
-            rc.set_column(0, &rc.column(1).cross(&rc.column(2))); // xc
-
-            let xec = rc.transpose() * xe;
-            theta6_iii = xec[1].atan2(xec[0]);
-        } else {
-            let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
-            let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
-            theta4_iii = theta4_iiiy.atan2(theta4_iiix);
-
-            let theta6_iiiy = matrix[(0, 1)] * s23[2] * cos1[2] + matrix[(1, 1)] * s23[2] * sin1[2] + matrix[(2, 1)] * c23[2];
-            let theta6_iiix = -matrix[(0, 0)] * s23[2] * cos1[2] - matrix[(1, 0)] * s23[2] * sin1[2] - matrix[(2, 0)] * c23[2];
-            theta6_iii = theta6_iiiy.atan2(theta6_iiix);
-        }
+        let theta6_iiiy = matrix[(0, 1)] * s23[2] * cos1[2] + matrix[(1, 1)] * s23[2] * sin1[2] + matrix[(2, 1)] * c23[2];
+        let theta6_iiix = -matrix[(0, 0)] * s23[2] * cos1[2] - matrix[(1, 0)] * s23[2] * sin1[2] - matrix[(2, 0)] * c23[2];
+        theta6_iii = theta6_iiiy.atan2(theta6_iiix);
 
         let theta4_iv;
         let theta6_iv;
 
-        if theta5_iv.abs() < zero_threshold {
-            theta4_iv = 0.0;
-            let xe = Vector3::new(matrix[(0, 0)], matrix[(1, 0)], matrix[(2, 0)]);
-            let mut rc = Matrix3::zeros();
-            rc.set_column(1, &Vector3::new(-theta1_ii.sin(), theta1_ii.cos(), 0.0));
-            rc.set_column(2, &Vector3::new(matrix[(0, 2)], matrix[(1, 2)], matrix[(2, 2)]));
-            rc.set_column(0, &rc.column(1).cross(&rc.column(2)));
+        let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
+        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
+        theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
-            let xec = rc.transpose() * xe;
-            theta6_iv = xec[1].atan2(xec[0]);
-        } else {
-            let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
-            let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
-            theta4_iv = theta4_ivy.atan2(theta4_ivx);
-
-            let theta6_ivy = matrix[(0, 1)] * s23[3] * cos1[3] + matrix[(1, 1)] * s23[3] * sin1[3] + matrix[(2, 1)] * c23[3];
-            let theta6_ivx = -matrix[(0, 0)] * s23[3] * cos1[3] - matrix[(1, 0)] * s23[3] * sin1[3] - matrix[(2, 0)] * c23[3];
-            theta6_iv = theta6_ivy.atan2(theta6_ivx);
-        }
+        let theta6_ivy = matrix[(0, 1)] * s23[3] * cos1[3] + matrix[(1, 1)] * s23[3] * sin1[3] + matrix[(2, 1)] * c23[3];
+        let theta6_ivx = -matrix[(0, 0)] * s23[3] * cos1[3] - matrix[(1, 0)] * s23[3] * sin1[3] - matrix[(2, 0)] * c23[3];
+        theta6_iv = theta6_ivy.atan2(theta6_ivx);
 
         let theta4_v = theta4_i + PI;
         let theta4_vi = theta4_ii + PI;
