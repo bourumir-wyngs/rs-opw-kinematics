@@ -6,9 +6,9 @@ use crate::utils::dump_joints;
 
 #[derive(Debug)]
 pub struct RRTPlanner {
-    step_size_joint_space: f64,
-    max_try: usize,
-    debug: bool
+    pub step_size_joint_space: f64,
+    pub max_try: usize,
+    pub debug: bool
 }
 
 impl Default for RRTPlanner {

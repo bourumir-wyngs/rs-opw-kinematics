@@ -1,5 +1,5 @@
 //! Cartesian stroke
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics, Pose};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use bitflags::bitflags;
 use crate::chunked_vector::ChunkedVec;
@@ -13,7 +13,7 @@ use crate::rrt::RRTPlanner;
 pub const DEFAULT_TRANSITION_COSTS: [f64; 6] = [1.2, 1.1, 1.1, 0.9, 0.9, 0.8];
 
 /// Class doing Cartesian planning
-pub(crate) struct Cartesian<'a> {
+pub struct Cartesian<'a> {
     pub robot: &'a KinematicsWithShape,
 
     /// Check step size in meters. Objects and features of the robotic cell smaller 
@@ -28,7 +28,7 @@ pub(crate) struct Cartesian<'a> {
     pub max_transition_cost: f64,
 
     /// Transition cost coefficients (smaller joints are allowed to rotate more)
-    transition_coefficients: Joints,
+    pub transition_coefficients: Joints,
 
     pub rrt: RRTPlanner,
 
@@ -86,6 +86,9 @@ impl Cartesian<'_> {
             return Vec::new();
         }
         let poses = self.with_intermediate_poses(land, &steps, park);
+        if self.debug {
+            println!("Steps with interposes: {}", poses.len());
+        }
 
         strategies
             .par_iter() // Parallel iterator over strategies
@@ -96,9 +99,9 @@ impl Cartesian<'_> {
 
 
     /// Probe the given strategy
-    pub fn probe_strategy(&self, from: &Joints, strategy: &Joints,
+    fn probe_strategy(&self, from: &Joints, strategy: &Joints,
                           poses: &ChunkedVec<AnnotatedPose>) -> Vec<Joints> {
-        let mut trace = Vec::new();
+        let mut trace;
 
         // Plan collision free 'onboarding' from the home position
         match self.rrt.plan_rrt(from, strategy, self.robot) {
@@ -113,7 +116,6 @@ impl Cartesian<'_> {
                 trace.reserve(poses.len() + 2);
                 if self.debug {
                     println!("Onboarding {} steps", trace.len());
-                    return Vec::new();
                 }
             }
             Err(err) => {
@@ -125,6 +127,8 @@ impl Cartesian<'_> {
         }
 
         // 'strategy' does not need to be pushed, start and goal are included in rrt plan.
+        let mut step = 0;
+        let mut substep = 0;
         for pose in poses.iter() {
             let success;
             let previous = trace.last().expect("Should have at least start_from");
@@ -132,7 +136,7 @@ impl Cartesian<'_> {
             let solutions =
                 self.robot.kinematics.inverse_continuing(&pose.pose, previous);
             // Solutions are already sorted best first
-            if let Some(last) = solutions.last() {
+            if let Some(last) = solutions.first() {
                 // Transition and collision checks.
                 if self.transitionable(previous, last) && !self.robot.collides(last) {
                     if self.include_linear_interpolation ||
@@ -141,10 +145,21 @@ impl Cartesian<'_> {
                         trace.push(*last);
                     }
                     success = true;
+                    substep = substep + 1;
+                    if pose.flags.contains(PoseFlags::ORIGINAL) {
+                        substep = 0;
+                        step += 1;
+                    }
                 } else {
+                    if self.debug {
+                        println!("No transition at step {} substep {}", step, substep);
+                    }
                     success = false;
                 }
             } else {
+                if self.debug {
+                    println!("No solutions at step {}", step);
+                }
                 success = false;
             }
             if !success {
@@ -154,7 +169,7 @@ impl Cartesian<'_> {
         trace
     }
 
-    pub fn with_intermediate_poses(&self, land: &Pose, steps: &Vec<Pose>, park: &Pose)
+    fn with_intermediate_poses(&self, land: &Pose, steps: &Vec<Pose>, park: &Pose)
                                    -> ChunkedVec<AnnotatedPose> {
         let mut poses = ChunkedVec::new(10 * steps.len() + 2);
 
@@ -201,12 +216,8 @@ impl Cartesian<'_> {
         poses
     }
 
-    pub fn check_collisions(&self, poses: &mut ChunkedVec<AnnotatedPose>) -> bool {
-        todo!()
-    }
-
     /// Add intermediate poses. start and end poses are not added.
-    pub fn add_intermediate_poses(
+    fn add_intermediate_poses(
         &self,
         start: &Pose,
         end: &Pose,

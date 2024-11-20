@@ -1,7 +1,7 @@
 //! Implements collision detection
 
 use std::collections::HashSet;
-use nalgebra::{Isometry3, Point3, Vector3};
+use nalgebra::{Isometry3};
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use crate::kinematic_traits::{Joints, Kinematics, Solutions, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL};

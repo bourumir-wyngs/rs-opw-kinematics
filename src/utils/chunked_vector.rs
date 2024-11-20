@@ -22,12 +22,12 @@ impl<T> ChunkedVec<T> {
     }
 
     // Sequential iterator over all elements
-    pub fn iter(&self) -> impl Iterator<Item=&T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.chunks.iter().flat_map(|chunk| chunk.iter())
     }
 
     // Parallel iterator over all elements
-    pub fn par_iter(&self) -> impl ParallelIterator<Item=&T>
+    pub fn par_iter(&self) -> impl ParallelIterator<Item = &T>
     where
         T: Sync,
     {
@@ -35,13 +35,12 @@ impl<T> ChunkedVec<T> {
     }
 
     // Parallel iterator over chunks
-    pub fn par_chunks(&self) -> impl ParallelIterator<Item=&Vec<T>>
+    pub fn par_chunks(&self) -> impl ParallelIterator<Item = &Vec<T>>
     where
         T: Sync,
     {
         self.chunks.par_iter()
     }
-
 
     /// Returns the total number of elements in the `ChunkedVec`.
     pub fn len(&self) -> usize {
@@ -85,11 +84,9 @@ impl<T> ChunkedVec<T> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rayon::prelude::*;
 
     #[test]
     fn test_push_and_iter() {
@@ -217,9 +214,8 @@ mod tests {
         for i in 0..10 {
             chunked_vec.push(i);
         }
-        if let value = chunked_vec.get_mut(5) {
-            *value *= 2;
-        }
+        let value = chunked_vec.get_mut(5);
+        *value *= 2;
         assert_eq!(chunked_vec.get(5), &10);
     }
 
@@ -265,4 +261,3 @@ mod tests {
         assert_eq!(chunked_vec.len(), 0);
     }
 }
-
