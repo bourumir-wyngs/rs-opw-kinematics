@@ -55,6 +55,7 @@ pub mod parameters_robots;
 #[cfg(feature = "allow_filesystem")]
 pub mod parameters_from_file;
 
+#[path = "utils/utils.rs"]
 pub mod utils;
 pub mod kinematic_traits;
 pub mod kinematics_impl;
@@ -75,14 +76,17 @@ pub mod urdf;
 pub mod parameter_error;
 
 #[cfg(feature = "allow_filesystem")]
+#[path = "utils/simplify_joint_name.rs"]
 mod simplify_joint_name;
 
 #[cfg(feature = "collisions")]
 pub mod collisions;
 
+#[path = "path_plan/cartesian.rs"]
 pub mod cartesian;
 
 #[cfg(feature = "collisions")]
+#[path = "path_plan/path_check.rs"]
 pub mod path_check;
 
 #[cfg(feature = "collisions")]
@@ -95,17 +99,16 @@ pub mod read_trimesh;
 #[cfg(feature = "visualization")]
 pub mod visualization;
 
-#[cfg(feature = "ignore_stroke_planning")]
-mod transition_cost;
-
 #[path = "visualize/camera_controller.rs"]
 #[cfg(feature = "visualization")]
 mod camera_controller;
 
 #[cfg(feature = "stroke_planning")]
+#[path = "utils/chunked_vector.rs"]
 mod chunked_vector;
 
 #[cfg(feature = "stroke_planning")]
+#[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
 #[cfg(test)]

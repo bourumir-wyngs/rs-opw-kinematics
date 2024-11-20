@@ -4,7 +4,7 @@ use {
     // Visualization can optionally be disabled.
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::collisions::CollisionBody,
-    
+
     std::ops::RangeInclusive,
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
 
