@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.3.2"
+version = "1.3.3"
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs@gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
@@ -29,7 +29,7 @@ default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
 # To disable filesystem:
-#rs-opw-kinematics = { version = "1.3.2", default-features = false }
+#rs-opw-kinematics = { version = "1.3.3", default-features = false }
 
 [dev-dependencies]
 rand = "0.8.5"
