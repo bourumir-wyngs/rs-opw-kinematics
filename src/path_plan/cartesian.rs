@@ -1,18 +1,19 @@
 //! Cartesian stroke
 
-use std::collections::HashSet;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
 use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
+use bevy::a11y::accesskit::Checked;
+use bevy::utils::HashMap;
+use bevy_egui::egui::TextBuffer;
 use bitflags::bitflags;
 use nalgebra::Translation3;
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Formatter;
-use bevy::a11y::accesskit::Checked;
-use bevy::utils::HashMap;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -50,7 +51,7 @@ pub struct Cartesian<'a> {
 
     /// Debug mode for logging
     pub debug: bool,
-    
+
     /// Checked collisions
     pub checked: HashMap<[i16; 6], bool>,
 }
@@ -147,23 +148,37 @@ impl Cartesian<'_> {
         land: &Pose,
         steps: Vec<Pose>,
         park: &Pose,
-    ) -> Vec<Joints> {
+    ) -> Result<Vec<Joints>, String> {
+        // Collision free list
+        self.maybe_collides(from, "onbording point")?;
         let strategies = self.robot.inverse_continuing(land, from);
         if strategies.is_empty() {
-            return Vec::new();
+            return Err("Unable to start from onboarding point".into());
         }
         let poses = self.with_intermediate_poses(land, &steps, park);
         for strategy in &strategies {
             match self.probe_strategy(from, strategy, &poses) {
                 Ok(outcome) => {
-                    return outcome;
+                    return Ok(outcome)
                 }
                 Err(msg) => {
                     // Continue next
                 }
             }
         }
-        Vec::new()
+        Err(format!("No strategy worked out of {} tried", strategies.len()))
+    }
+
+    fn maybe_collides(&mut self, joints: &Joints, note: &str) -> Result<bool, String> {
+        if self.collides(joints) {
+            let msg = format!("{:?} collides", note);
+            if self.debug {
+                println!("{}", msg);
+                dump_joints(joints);
+            }
+            return Err(msg);
+        }
+        Ok(true)
     }
 
     /// Probe the given strategy
@@ -175,12 +190,22 @@ impl Cartesian<'_> {
     ) -> Result<Vec<Joints>, String> {
         let mut trace = self.rrt.plan_rrt(start, strategy, self.robot)?;
         trace.reserve(poses.len());
+        let mut istep = 1;
 
         for step in poses.windows(2) {
             let (from, to) = (&step[0], &step[1]);
             let prev = trace.last().expect("Should have start and strategy points");
+            assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
             if self.collides(prev) {
-                return Err("Colliding waypoint".into());
+                if self.debug {
+                    let msg = format!("Trace step {} (first=1) collides:", istep);
+                    if self.debug {
+                        println!("{}", msg);
+                        dump_joints(prev);
+                        println!("{:?}", from);
+                    }
+                    return Err(msg);
+                }
             }
             match self.step_adaptive_linear_transition(prev, from, to, 0) {
                 Ok(next) => {
@@ -195,7 +220,14 @@ impl Cartesian<'_> {
                     return Err("Failed strategy".into());
                 }
             }
+            if to.flags.contains(PoseFlags::TRACE) {
+                istep += 1;
+            }
         }
+
+        // Check last step that does not get into 'prev' as the loop exits.
+        let last_step = trace.last().expect("Empty trace after planning");
+        self.maybe_collides(last_step, &String::from("last point"))?;
 
         Ok(trace)
     }
@@ -218,10 +250,9 @@ impl Cartesian<'_> {
                 1E-5,
                 1E-5,
             );
-            assert!(!self.collides(starting));
         }
 
-        pub const DIV_RATIO: f64 = 0.5; 
+        pub const DIV_RATIO: f64 = 0.5;
 
         let midpoint = from.interpolate(to, DIV_RATIO);
         let poses = vec![from, &midpoint, to];
@@ -230,6 +261,8 @@ impl Cartesian<'_> {
         let mut prev_pose = from;
         for pose in poses {
             let mut success = false;
+
+            // Not checked for collisions yet
             let solutions = self
                 .robot
                 .kinematics
@@ -237,8 +270,8 @@ impl Cartesian<'_> {
 
             // Solutions are already sorted best first
             for next in &solutions {
-                // Collision check is more expensive so comes next
-                if self.transitionable(&current, next) && !self.collides(next) {
+                // Internal "miniposes" generated through recursion are not checked for collision.
+                if self.transitionable(&current, next) && (depth > 0 || !self.collides(next)) {
                     success = true;
                     current = *next;
                     break; // break out of solutions loop
@@ -259,7 +292,8 @@ impl Cartesian<'_> {
                 // This will result in shorter distance between from and to.
                 let till_middle =
                     self.step_adaptive_linear_transition(starting, from, &midpoint, depth + 1)?;
-                current = self.step_adaptive_linear_transition(&till_middle, &midpoint, to, depth + 1)?;
+                current =
+                    self.step_adaptive_linear_transition(&till_middle, &midpoint, to, depth + 1)?;
             }
             prev_pose = pose;
         }

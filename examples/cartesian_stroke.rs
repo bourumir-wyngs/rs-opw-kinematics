@@ -94,11 +94,11 @@ fn main() {
     
     let steps : Vec<Pose> = [
         pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 138.0]),
-          pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 130.0]),
-          pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 120.0]),
+          //pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 130.0]),
+          //pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 120.0]),
 
-        //pose(&k, [-225.0, -33.02, 134.48, -121.08, 54.82, 191.01]),
-        //pose(&k, [-225.0, 57.23, 21.61, -109.48, 97.50, 148.38])
+        pose(&k, [-225.0, -33.02, 134.48, -121.08, 54.82, 191.01]),
+        pose(&k, [-225.0, 57.23, 21.61, -109.48, 97.50, 148.38])
         
     ].into();
     
@@ -113,7 +113,7 @@ fn main() {
         max_transition_cost: 2_f64.to_radians(), // Maximal transition costs 
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
-        linear_recursion_depth: 4,
+        linear_recursion_depth: 8,
         
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
@@ -132,6 +132,13 @@ fn main() {
     let path = planner.plan(&start, &land, steps, &park);
     println!("Took {:?}", started.elapsed());
     
-    // print trajectory sequence in joints)
-    utils::dump_solutions(&path);
+    match path {
+        Ok(path) => {
+            utils::dump_solutions(&path);
+        },
+        Err(message) => {
+            println!("Failed: {}", message);
+        }
+    }
+    
 }
