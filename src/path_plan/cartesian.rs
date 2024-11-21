@@ -122,12 +122,6 @@ struct Transition {
     solutions: Solutions,
 }
 
-impl fmt::Debug for Transition {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        todo!()
-    }
-}
-
 impl Cartesian<'_> {
     pub fn transitionable(&self, from: &Joints, to: &Joints) -> bool {
         utils::transition_costs(from, to, &self.transition_coefficients) <= self.max_transition_cost
