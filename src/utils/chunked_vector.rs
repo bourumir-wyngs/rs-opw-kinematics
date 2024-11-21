@@ -7,6 +7,15 @@ pub struct ChunkedVec<T> {
 }
 
 impl<T> ChunkedVec<T> {
+    
+    // Return the first element that must exist.
+    // Will panic for empty vector.
+    pub (crate) fn first(&self) -> &T {
+        &self.chunks.first().expect("first() on empty chunked vector")[0]
+    }
+}
+
+impl<T> ChunkedVec<T> {
     pub fn new(chunk_size: usize) -> Self {
         Self {
             chunks: Vec::new(),

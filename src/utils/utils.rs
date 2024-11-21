@@ -134,6 +134,28 @@ pub fn transition_costs(from: &Joints, to: &Joints, coefficients: &Joints) -> f6
     .fold(f64::NEG_INFINITY, |a, &b| a.max(b))
 }
 
+pub fn assert_pose_eq(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
+                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
+    fn bad(ta: &Isometry3<f64>, tb: &Isometry3<f64>) {
+        dump_pose(ta);
+        dump_pose(tb);
+    }
+    
+    let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
+    let angular_distance = ta.rotation.angle_to(&tb.rotation);
+
+    if translation_distance.abs() > distance_tolerance {
+        bad(ta, tb);        
+        panic!("Poses have too different translations");        
+    }
+
+    if angular_distance.abs() > angular_tolerance {
+        bad(ta, tb);
+        panic!("Poses have too different angles");
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::opw_kinematics::*;

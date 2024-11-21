@@ -1,14 +1,14 @@
 //! Cartesian stroke
-
-use crate::chunked_vector::ChunkedVec;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{dump_joints, dump_solutions};
+use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
 use bitflags::bitflags;
+use nalgebra::Translation3;
 use rayon::prelude::*;
 use std::fmt;
+use std::fmt::Formatter;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -55,9 +55,28 @@ bitflags! {
     }
 }
 
+#[derive(Clone, Copy)]
 struct AnnotatedPose {
     pub pose: Pose,
     pub flags: PoseFlags,
+}
+
+impl AnnotatedPose {
+    pub(crate) fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
+        assert!((0.0..=1.0).contains(&p));
+
+        // Interpolate translation (linearly)
+        let self_translation = &self.pose.translation.vector;
+        let other_translation = &other.pose.translation.vector;
+
+        let translation = self_translation.lerp(&other_translation, p);
+        let rotation = self.pose.rotation.slerp(&other.pose.rotation, p);
+
+        AnnotatedPose {
+            pose: Pose::from_parts(Translation3::from(translation), rotation),
+            flags: PoseFlags::LINEAR_INTERPOLATED,
+        }
+    }
 }
 
 impl fmt::Debug for AnnotatedPose {
@@ -96,6 +115,19 @@ impl fmt::Debug for AnnotatedPose {
     }
 }
 
+struct Transition {
+    from: AnnotatedPose,
+    to: AnnotatedPose,
+    previous: Joints,
+    solutions: Solutions,
+}
+
+impl fmt::Debug for Transition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
+}
+
 impl Cartesian<'_> {
     pub fn transitionable(&self, from: &Joints, to: &Joints) -> bool {
         utils::transition_costs(from, to, &self.transition_coefficients) <= self.max_transition_cost
@@ -131,108 +163,105 @@ impl Cartesian<'_> {
     /// Probe the given strategy
     fn probe_strategy(
         &self,
-        from: &Joints,
+        start: &Joints,
         strategy: &Joints,
-        poses: &ChunkedVec<AnnotatedPose>,
+        poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<Joints>, String> {
-        let mut trace = self.rrt.plan_rrt(from, strategy, self.robot)?;
+        let mut trace = self.rrt.plan_rrt(start, strategy, self.robot)?;
+        trace.reserve(poses.len());
 
-        // 'strategy' does not need to be pushed, start and goal are included in rrt plan.
-        let mut step = 0;
-        let mut substep = 0;
-        let mut previous_pose = None;
-        for pose in poses.iter() {
-            if step == 0 && substep == 0 {
-                println!("Starting with {:?}", pose);
-            }
-            let mut success = false;
-            let previous = *trace.last().expect("Should have at least start_from");
-            // Ik without collision checking but with constraint checking.
-            let solutions = self
-                .robot
-                .kinematics
-                .inverse_continuing(&pose.pose, &previous);
-            // Solutions are already sorted best first
-            for last in &solutions {
-                // Transition and collision checks.
-                if !self.robot.collides(last) && self.transitionable(&previous, last) {
+        for step in poses.windows(2) {
+            let (from, to) = (&step[0], &step[1]);
+            let prev = trace.last().expect("Should have start and strategy points");
+            match self.step_adaptive_linear_transition(prev, from, to) {
+                Ok(next) => {
                     if self.include_linear_interpolation
-                        || !pose.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
+                        || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
                     {
-                        // Linear interpolation can be discarded after checking.
-                        trace.push(*last);
-                    }                    
-                    success = true;
-                    self.log_successful_transition(&mut step, &mut substep, pose);                    
-                    previous_pose = Some(pose);
-                    break; // break out of solutions loop
+                        trace.push(next);
+                    }
+                }
+                Err(failed_transition) => {
+                    self.log_failed_transition(&failed_transition);
+                    return Err("Failed strategy".into());
                 }
             }
-
-            if !success {
-                self.log_failed_transition(
-                    &mut step,
-                    &mut substep,
-                    &mut previous_pose,
-                    pose,
-                    &previous,
-                    &solutions,
-                );
-                return Err("Strategy unsuccessful".into()); // This strategy was not successful.
-            }
         }
+
         Ok(trace)
     }
 
-    fn log_successful_transition(&self, step: &mut i32, substep: &mut i32, pose: &AnnotatedPose) {
-        if pose.flags.intersects(PoseFlags::ORIGINAL) {
-            if self.debug {
-                println!(
-                    "{} done with {} substeps. Master transition into step {}",
-                    step,
-                    substep,
-                    *step + 1,
-                );
+    // Transition cartesian way from 'from' into 'to' while assuming 'from'
+    // is represented by 'starting'.
+    // Returns the resolved end pose.
+    fn step_adaptive_linear_transition(
+        &self,
+        starting: &Joints,
+        from: &AnnotatedPose,
+        to: &AnnotatedPose,
+    ) -> Result<Joints, Transition> {
+        assert_pose_eq(
+            &self.robot.kinematics.forward(starting),
+            &from.pose,
+            1E-5,
+            1E-5,
+        );
+
+        let midpoint = from.interpolate(to, 0.5);
+        let poses = vec![from, &midpoint, to];
+
+        let mut current = *starting;
+        let mut prev_pose = &from;
+        for pose in poses.iter() {
+            let mut success = false;
+            let solutions = self
+                .robot
+                .kinematics
+                .inverse_continuing(&pose.pose, &current);
+
+            // Solutions are already sorted best first
+            for next in &solutions {
+                if !self.robot.collides(next) && self.transitionable(&current, next) {
+                    success = true;
+                    current = *next;
+                    break; // break out of solutions loop
+                }
             }
-            *substep = 0;
-            *step += 1;
-        } else {
-            println!("    step {} {}", step, substep);
-            *substep += 1;
+            if !success {
+                return Err(Transition {
+                    from: **prev_pose,
+                    to: **pose,
+                    previous: current,
+                    solutions: solutions,
+                });
+            }
+            prev_pose = pose;
         }
+        Ok(current)
     }
 
-    fn log_failed_transition(
-        &self,
-        step: &mut i32,
-        substep: &mut i32,
-        previous_pose: &mut Option<&AnnotatedPose>,
-        pose: &AnnotatedPose,
-        previous: &Joints,
-        solutions: &Solutions,
-    ) {
+    fn log_failed_transition(&self, transition: &Transition) {
         if !self.debug {
             return;
         }
         println!(
-            "No transition at step {} substep {} with cost below {}:",
-            step,
-            substep,
+            "No transition with cost below {}:",
             self.max_transition_cost.to_degrees()
         );
         println!(
             "   from: {:?} collides {}",
-            previous_pose,
-            self.robot.collides(&previous)
+            transition.from,
+            self.robot.collides(&transition.previous)
         );
-        dump_joints(&previous);
-        println!("   to: {:?}", pose);
+        dump_joints(&transition.previous);
+        println!("   to: {:?}", transition.to);
         println!("   Possible transitions:");
-        for s in solutions {
+        for s in &transition.solutions {
             dump_joints(s);
             println!(
                 "   transition {} collides: {}",
-                utils::transition_costs(&previous, s, &DEFAULT_TRANSITION_COSTS).to_degrees(),
+                utils::transition_costs(&transition.previous, s, &DEFAULT_TRANSITION_COSTS)
+                    .to_degrees(),
                 self.robot.collides(s)
             );
         }
@@ -243,8 +272,8 @@ impl Cartesian<'_> {
         land: &Pose,
         steps: &Vec<Pose>,
         park: &Pose,
-    ) -> ChunkedVec<AnnotatedPose> {
-        let mut poses = ChunkedVec::new(10 * steps.len() + 2);
+    ) -> Vec<AnnotatedPose> {
+        let mut poses = Vec::with_capacity(10 * steps.len() + 2);
 
         // Add the landing pose
         poses.push(AnnotatedPose {
@@ -290,12 +319,7 @@ impl Cartesian<'_> {
     }
 
     /// Add intermediate poses. start and end poses are not added.
-    fn add_intermediate_poses(
-        &self,
-        start: &Pose,
-        end: &Pose,
-        poses: &mut ChunkedVec<AnnotatedPose>,
-    ) {
+    fn add_intermediate_poses(&self, start: &Pose, end: &Pose, poses: &mut Vec<AnnotatedPose>) {
         // Calculate the translation difference and distance
         let translation_diff = end.translation.vector - start.translation.vector;
         let translation_distance = translation_diff.norm();
