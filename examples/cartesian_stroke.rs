@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::vec::Vec;
+use bevy::utils::hashbrown::HashMap;
 #[cfg(feature = "stroke_planning")]
 use {
     rrt::dual_rrt_connect,
@@ -92,11 +94,11 @@ fn main() {
     
     let steps : Vec<Pose> = [
         pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 138.0]),
-        //pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 130.0]),
-        //pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 120.0]),
+          pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 130.0]),
+          pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 120.0]),
 
-        pose(&k, [-225.0, -33.02, 134.48, -121.08, 54.82, 191.01]),
-        pose(&k, [-225.0, 57.23, 21.61, -109.48, 97.50, 148.38])
+        //pose(&k, [-225.0, -33.02, 134.48, -121.08, 54.82, 191.01]),
+        //pose(&k, [-225.0, 57.23, 21.61, -109.48, 97.50, 148.38])
         
     ].into();
     
@@ -104,27 +106,31 @@ fn main() {
     let park = pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 110.0]);
     
     // Creat Cartesian planner
-    let planner = Cartesian {
+    let mut planner = Cartesian {
         robot: &k, // The robot
-        check_step_m: 0.01, // Distance check accuracy in meters (for translation)
-        check_step_rad: 1.0_f64.to_radians(), // Distance check accuracy in radians (for rotation)
-        max_transition_cost: 6.0_f64.to_radians(), // Maximal transition costs 
+        check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
+        check_step_rad: 2.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        max_transition_cost: 2_f64.to_radians(), // Maximal transition costs 
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
+        linear_recursion_depth: 4,
         
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
-            step_size_joint_space: 1.0_f64.to_radians(), // RRT planner step in joint space
+            step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 1000,
             debug: true
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are 
         // included in the output. Otherwise, they are checked, but not included in the output
-        debug: true
+        debug: true,
+        checked: HashMap::with_capacity(1000)
     };
     
     // plan path
-    let path = planner.plan_sequential(&start, &land, steps, &park);
+    let started = Instant::now();
+    let path = planner.plan(&start, &land, steps, &park);
+    println!("Took {:?}", started.elapsed());
     
     // print trajectory sequence in joints)
     utils::dump_solutions(&path);

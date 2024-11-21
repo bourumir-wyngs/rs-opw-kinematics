@@ -1,4 +1,6 @@
 //! Cartesian stroke
+
+use std::collections::HashSet;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
@@ -9,6 +11,8 @@ use nalgebra::Translation3;
 use rayon::prelude::*;
 use std::fmt;
 use std::fmt::Formatter;
+use bevy::a11y::accesskit::Checked;
+use bevy::utils::HashMap;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -32,6 +36,11 @@ pub struct Cartesian<'a> {
     /// Transition cost coefficients (smaller joints are allowed to rotate more)
     pub transition_coefficients: Joints,
 
+    /// If movement between adjacent poses results transition costs over this threshold,
+    /// the Cartesian segment is divided by half, checking boths side separatedly while
+    /// collision checking also the middle segment.
+    pub linear_recursion_depth: usize,
+
     pub rrt: RRTPlanner,
 
     /// If set, linear interpolated poses are included in the output.
@@ -41,6 +50,9 @@ pub struct Cartesian<'a> {
 
     /// Debug mode for logging
     pub debug: bool,
+    
+    /// Checked collisions
+    pub checked: HashMap<[i16; 6], bool>,
 }
 
 bitflags! {
@@ -129,8 +141,8 @@ impl Cartesian<'_> {
 
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
-    pub fn plan_sequential(
-        &self,
+    pub fn plan(
+        &mut self,
         from: &Joints,
         land: &Pose,
         steps: Vec<Pose>,
@@ -156,7 +168,7 @@ impl Cartesian<'_> {
 
     /// Probe the given strategy
     fn probe_strategy(
-        &self,
+        &mut self,
         start: &Joints,
         strategy: &Joints,
         poses: &Vec<AnnotatedPose>,
@@ -167,7 +179,10 @@ impl Cartesian<'_> {
         for step in poses.windows(2) {
             let (from, to) = (&step[0], &step[1]);
             let prev = trace.last().expect("Should have start and strategy points");
-            match self.step_adaptive_linear_transition(prev, from, to) {
+            if self.collides(prev) {
+                return Err("Colliding waypoint".into());
+            }
+            match self.step_adaptive_linear_transition(prev, from, to, 0) {
                 Ok(next) => {
                     if self.include_linear_interpolation
                         || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
@@ -186,27 +201,34 @@ impl Cartesian<'_> {
     }
 
     // Transition cartesian way from 'from' into 'to' while assuming 'from'
-    // is represented by 'starting'.
+    // is represented by 'starting'. All new joint positions are
+    // checked for collision but 'starting' is not checked (parent call must do this)
     // Returns the resolved end pose.
     fn step_adaptive_linear_transition(
-        &self,
+        &mut self,
         starting: &Joints,
         from: &AnnotatedPose,
         to: &AnnotatedPose,
+        depth: usize,
     ) -> Result<Joints, Transition> {
-        assert_pose_eq(
-            &self.robot.kinematics.forward(starting),
-            &from.pose,
-            1E-5,
-            1E-5,
-        );
+        if self.debug {
+            assert_pose_eq(
+                &self.robot.kinematics.forward(starting),
+                &from.pose,
+                1E-5,
+                1E-5,
+            );
+            assert!(!self.collides(starting));
+        }
 
-        let midpoint = from.interpolate(to, 0.5);
+        pub const DIV_RATIO: f64 = 0.5; 
+
+        let midpoint = from.interpolate(to, DIV_RATIO);
         let poses = vec![from, &midpoint, to];
 
         let mut current = *starting;
-        let mut prev_pose = &from;
-        for pose in poses.iter() {
+        let mut prev_pose = from;
+        for pose in poses {
             let mut success = false;
             let solutions = self
                 .robot
@@ -215,23 +237,44 @@ impl Cartesian<'_> {
 
             // Solutions are already sorted best first
             for next in &solutions {
-                if !self.robot.collides(next) && self.transitionable(&current, next) {
+                // Collision check is more expensive so comes next
+                if self.transitionable(&current, next) && !self.collides(next) {
                     success = true;
                     current = *next;
                     break; // break out of solutions loop
                 }
             }
             if !success {
-                return Err(Transition {
-                    from: **prev_pose,
-                    to: **pose,
-                    previous: current,
-                    solutions: solutions,
-                });
+                // Try recursive call. If succeeds, assume as done anyway.
+                if depth >= self.linear_recursion_depth {
+                    return Err(Transition {
+                        from: *prev_pose,
+                        to: *pose,
+                        previous: current,
+                        solutions: solutions,
+                    });
+                }
+
+                // Try to bridge till them middle first, and then from the middle
+                // This will result in shorter distance between from and to.
+                let till_middle =
+                    self.step_adaptive_linear_transition(starting, from, &midpoint, depth + 1)?;
+                current = self.step_adaptive_linear_transition(&till_middle, &midpoint, to, depth + 1)?;
             }
             prev_pose = pose;
         }
         Ok(current)
+    }
+
+    fn collides(&mut self, joints: &Joints) -> bool {
+        // This gives rounding accuracty 0.01 degrees
+        let rounded = joints.map(|x| (x.to_degrees() * 50.0).round() as i16);
+        if let Some(collision) = self.checked.get(&rounded) {
+            return *collision;
+        }
+        let collision = self.robot.collides(joints);
+        self.checked.insert(rounded, collision);
+        collision
     }
 
     fn log_failed_transition(&self, transition: &Transition) {
