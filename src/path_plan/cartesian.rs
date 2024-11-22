@@ -198,7 +198,7 @@ impl Cartesian<'_> {
             assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
             if self.collides(prev) {
                 if self.debug {
-                    let msg = format!("Trace step {} (first=1) collides:", istep);
+                    let msg = format!("Trace step {} [1..n] collides:", istep);
                     if self.debug {
                         println!("{}", msg);
                         dump_joints(prev);
