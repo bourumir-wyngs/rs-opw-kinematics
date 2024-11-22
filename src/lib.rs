@@ -104,10 +104,6 @@ pub mod visualization;
 mod camera_controller;
 
 #[cfg(feature = "stroke_planning")]
-#[path = "utils/chunked_vector.rs"]
-mod chunked_vector;
-
-#[cfg(feature = "stroke_planning")]
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 

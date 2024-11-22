@@ -50,6 +50,10 @@ pub struct Cartesian<'a> {
 
     /// Checked collisions
     pub checked: HashMap<[i16; 6], bool>,
+    
+    /// If true, try joints-joints RRT over invalid poses.
+    /// This may be too slow and not all implementations may want it.
+    pub move_over_invalid_poses: bool
 }
 
 bitflags! {
@@ -154,7 +158,10 @@ impl Cartesian<'_> {
         let poses = self.with_intermediate_poses(land, &steps, park);
         for strategy in &strategies {
             match self.probe_strategy(from, strategy, &poses) {
-                Ok(outcome) => return Ok(outcome),
+                Ok(outcome) => {
+                    self.checked.clear();
+                    return Ok(outcome)
+                },
                 Err(msg) => {
                     if self.debug {
                         println!("Strategy failed: {}", msg);
@@ -162,6 +169,7 @@ impl Cartesian<'_> {
                 }
             }
         }
+        self.checked.clear();
         Err(format!(
             "No strategy worked out of {} tried",
             strategies.len()
@@ -280,6 +288,9 @@ impl Cartesian<'_> {
         window: &mut Windows<AnnotatedPose>,
     ) -> Result<Joints, String> {
         self.log_failed_transition(&failed_transition, istep);
+        if !self.move_over_invalid_poses {
+            return Err("Moving over invalid poses disabled".into());
+        };
 
         // LOOP: Here must be start if the loop
         let mut target_pose = failed_transition.to.clone();
@@ -335,7 +346,6 @@ impl Cartesian<'_> {
                 }
             }
         }
-        Err("Robot reconfiguration not possible".into())
     }
 
     // Transition cartesian way from 'from' into 'to' while assuming 'from'
