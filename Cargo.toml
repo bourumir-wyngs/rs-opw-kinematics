@@ -62,5 +62,6 @@ stroke_planning = ["rrt", "collisions"]
 # To disable filesystem, collision and visualizatio support:
 # rs-opw-kinematics = { version = "1.8.0", default-features = false }
 
-
+[profile.release]
+#debug = true
 

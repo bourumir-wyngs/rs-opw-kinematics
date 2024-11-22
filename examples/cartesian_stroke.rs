@@ -1,18 +1,14 @@
-use std::collections::HashSet;
-use std::vec::Vec;
-use bevy::utils::hashbrown::HashMap;
 #[cfg(feature = "stroke_planning")]
 use {
-    rrt::dual_rrt_connect,
+    std::vec::Vec,
     std::time::Instant,
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
-    rs_opw_kinematics::kinematic_traits::{Joints, Kinematics},
+    rs_opw_kinematics::kinematic_traits::{Kinematics},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::constraints::{Constraints, BY_PREV},
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::utils,
-    rs_opw_kinematics::utils::dump_joints,
 };
 use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
 use rs_opw_kinematics::kinematic_traits::Pose;
@@ -103,11 +99,11 @@ fn main() {
     let park = pose(&k, [-225.0, -27.61, 88.35, -85.42, 44.61, 110.0]);
     
     // Creat Cartesian planner
-    let mut planner = Cartesian {
+    let planner = Cartesian {
         robot: &k, // The robot
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
-        check_step_rad: 2.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
-        max_transition_cost: 2_f64.to_radians(), // Maximal transition costs 
+        check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to parameter above) 
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
         linear_recursion_depth: 8,
@@ -121,15 +117,13 @@ fn main() {
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are 
         // included in the output. Otherwise, they are checked, but not included in the output
         debug: true,
-        checked: HashMap::with_capacity(1000),
-        move_over_invalid_poses: false
     };
     
     // plan path
     let started = Instant::now();
     let path = planner.plan(&start, &land, steps, &park);
-    println!("Took {:?}", started.elapsed());
-    
+    let elapsed = started.elapsed();
+
     match path {
         Ok(path) => {
             utils::dump_solutions(&path);
@@ -138,5 +132,6 @@ fn main() {
             println!("Failed: {}", message);
         }
     }
+    println!("Took {:?}", elapsed);
     
 }
