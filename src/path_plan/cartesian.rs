@@ -9,6 +9,7 @@ use bevy::utils::HashMap;
 use bitflags::bitflags;
 use nalgebra::Translation3;
 use std::fmt;
+use std::slice::Windows;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -204,14 +205,19 @@ impl Cartesian<'_> {
                             previous: *prev,
                             solutions: vec![next],
                         };
-                        match self.reconfigure_robot(&mut trace, &failed_transition, istep) {
+                        match self.reconfigure_robot(
+                            &mut trace,
+                            &failed_transition,
+                            istep,
+                            &mut pairs_iterator,
+                        ) {
                             Ok(next_reconfigured) => {
                                 trace.push(next_reconfigured);
                             }
                             Err(message) => {
                                 return Err(format!(
-                                    "Linear stroke collides and cannot be fixed: {}",
-                                    message
+                                    "Linear stroke collides at step {} and cannot be fixed: {}",
+                                    istep, message
                                 )
                                 .into());
                             }
@@ -225,14 +231,19 @@ impl Cartesian<'_> {
                     }
                 }
                 Err(failed_transition) => {
-                    match self.reconfigure_robot(&mut trace, &failed_transition, istep) {
+                    match self.reconfigure_robot(
+                        &mut trace,
+                        &failed_transition,
+                        istep,
+                        &mut pairs_iterator,
+                    ) {
                         Ok(next_reconfigured) => {
                             trace.push(next_reconfigured);
                         }
                         Err(message) => {
                             return Err(format!(
-                                "Linear stroke does not transit and cannot be fixed: {}",
-                                message
+                                "Linear stroke does not transit at step {} and cannot be fixed: {}",
+                                istep, message
                             )
                             .into());
                         }
@@ -266,37 +277,59 @@ impl Cartesian<'_> {
         trace: &mut Vec<Joints>,
         failed_transition: &Transition,
         istep: i32,
+        window: &mut Windows<AnnotatedPose>,
     ) -> Result<Joints, String> {
         self.log_failed_transition(&failed_transition, istep);
-        if let Some(previous) = trace.last() {
-            // We cannot smoothly continue this stroke. Can we in general visit this position?
-            let solutions = self
-                .robot
-                .inverse_continuing(&failed_transition.to.pose, previous);
-            if solutions.is_empty() {
-                return Err("No non-colliding solutions found".into());
-            } else {
-                println!("Alternative solutions found");
-                dump_solutions(&solutions);
-                for solution in &solutions {
-                    println!("Planning reconfiguration");
-                    dump_joints(previous);
-                    dump_joints(solution);
 
-                    match self.rrt.plan_rrt(previous, solution, self.robot) {
-                        Ok(path) => {
-                            println!("RRT successful:");
-                            for step in &path {
-                                dump_joints(&step);
+        // LOOP: Here must be start if the loop
+        let mut target_pose = failed_transition.to.clone();
+        loop {
+            if let Some(previous) = trace.last() {
+                // We cannot smoothly continue this stroke. Can we in general visit this position?
+                let solutions = self.robot.inverse_continuing(&target_pose.pose, previous);
+                if solutions.is_empty() {
+                    return Err("No non-colliding solutions found".into());
+                } else {
+                    println!("Alternative solutions found");
+                    dump_solutions(&solutions);
+                    for solution in &solutions {
+                        println!("Planning reconfiguration");
+                        dump_joints(previous);
+                        dump_joints(solution);
+
+                        match self.rrt.plan_rrt(previous, solution, self.robot) {
+                            Ok(path) => {
+                                println!("RRT successful:");
+                                for step in &path {
+                                    dump_joints(&step);
+                                }
+
+                                // Add reconfiguration part to trace. Do not add the first
+                                // element as it is the same as from, already present there
+                                trace.extend_from_slice(&path[1..]);
+                                return Ok(*path.last().unwrap());
                             }
-
-                            // Add reconfiguration part to trace. Do not add the first
-                            // element as it is the same as from, already present there
-                            trace.extend_from_slice(&path[1..]);
-                            return Ok(*path.last().unwrap());
-                        }
-                        Err(error_message) => {
-                            println!("RRT not successful: {}", error_message);
+                            Err(error_message) => {
+                                println!("RRT not successful, skipping more poses: {}", error_message);
+                                // If the window is not empty, get the next target_pose
+                                let mut trying_next: Option<&AnnotatedPose> = None;
+                                while let Some(next_pose) = window.next() {
+                                    if !next_pose[1].flags.contains(PoseFlags::LINEAR_INTERPOLATED) {
+                                        // Skip all interpolated poses that come in very minor steps
+                                        trying_next = Some(&next_pose[1]);
+                                        break;
+                                    }
+                                }
+                                if let Some(trying_next) = trying_next {
+                                    println!("Follow-up pose found: {:?}", trying_next);
+                                    target_pose = *trying_next;
+                                    continue; // Repeat the loop with the updated target_pose
+                                } else {
+                                    // If no more poses in the window, exit the loop
+                                    println!("Follow-up pose not found");
+                                    return Err("No more poses to try from the window".into());
+                                }
+                            }
                         }
                     }
                 }
@@ -423,7 +456,7 @@ impl Cartesian<'_> {
 
         // Add the landing pose
         poses.push(AnnotatedPose {
-            pose: land.clone(),
+            pose: *land,
             flags: PoseFlags::LAND,
         });
 
