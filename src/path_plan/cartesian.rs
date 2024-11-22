@@ -60,10 +60,26 @@ bitflags! {
     }
 }
 
+
+/// Joint flags specifying if it is joint-joint or Cartesian move (to this joint, not from)
+bitflags! {
+    #[derive(Clone, Copy)]
+    pub struct JointFlags: u32 {
+        const CARTESIAN = 0b00000001;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct AnnotatedPose {
-    pub pose: Pose,
-    pub flags: PoseFlags,
+    pose: Pose,
+    flags: PoseFlags,
+}
+
+/// Annotated joints specifying if it is joint-joint or Cartesian move (to this joint, not from)
+#[derive(Clone, Copy)]
+pub struct AnnotatedJoints {
+    pub joints: Joints,
+    pub flags: JointFlags
 }
 
 impl AnnotatedPose {
