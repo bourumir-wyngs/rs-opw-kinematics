@@ -14,6 +14,8 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Formatter;
+use std::iter::{Skip, Zip};
+use std::slice::Iter;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -158,15 +160,16 @@ impl Cartesian<'_> {
         let poses = self.with_intermediate_poses(land, &steps, park);
         for strategy in &strategies {
             match self.probe_strategy(from, strategy, &poses) {
-                Ok(outcome) => {
-                    return Ok(outcome)
-                }
+                Ok(outcome) => return Ok(outcome),
                 Err(msg) => {
                     // Continue next
                 }
             }
         }
-        Err(format!("No strategy worked out of {} tried", strategies.len()))
+        Err(format!(
+            "No strategy worked out of {} tried",
+            strategies.len()
+        ))
     }
 
     fn maybe_collides(&mut self, joints: &Joints, note: &str) -> Result<bool, String> {
@@ -192,26 +195,29 @@ impl Cartesian<'_> {
         trace.reserve(poses.len());
         let mut istep = 1;
 
-        for step in poses.windows(2) {
-            let (from, to) = (&step[0], &step[1]);
+        let mut pairs_iterator = poses.iter().zip(poses.iter().skip(1));
+
+        while let Some((from, to)) = pairs_iterator.next() {
             let prev = trace.last().expect("Should have start and strategy points");
             assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
             match self.step_adaptive_linear_transition(prev, from, to, 0) {
                 Ok(next) => {
                     if self.collides(&next) {
-                        if self.debug {
-                            let msg = format!("Trace step {} [1..n] collides:", istep);
-                            if self.debug {
-                                println!("{} when transitioning:", msg);
-                                assert!(!self.collides(prev));
-                                dump_joints(prev);
-                                dump_joints(&next);
-                                println!("{:?}", from);
-                            }
-                        }
-                        return Err("Linear stroke collides".into());                        
+                        let failed_transition = Transition {
+                            from: *from,
+                            to: *to,
+                            previous: *prev,
+                            solutions: vec![next],
+                        };
+                        self.log_failed_transition(&failed_transition, istep);
+                        self.move_over_collision(
+                            &mut trace,
+                            &mut pairs_iterator,
+                            &failed_transition,
+                        );
+                        return Err("Linear stroke collides".into());
                     }
-                    
+
                     if self.include_linear_interpolation
                         || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
                     {
@@ -219,7 +225,8 @@ impl Cartesian<'_> {
                     }
                 }
                 Err(failed_transition) => {
-                    self.log_failed_transition(&failed_transition);
+                    self.log_failed_transition(&failed_transition, istep);
+                    self.move_over_collision(&mut trace, &mut pairs_iterator, &failed_transition);
                     return Err("Failed strategy".into());
                 }
             }
@@ -233,6 +240,20 @@ impl Cartesian<'_> {
         self.maybe_collides(last_step, &String::from("last point"))?;
 
         Ok(trace)
+    }
+
+    /// Move positions that cannot be covered by Cartesian stroke.
+    /// First failed transition is covered by failed_transition, but
+    /// more failing poses may follow. The iterator is pointing right 
+    /// after the pair that produced the failed transition
+    /// This method returns the joints of the position after fixing ('next').
+    /// It adds all fixup (repositioning) code to the trace.
+    fn move_over_collision(
+        &self,
+        trace: &mut Vec<Joints>,
+        pairs_iterator: &mut Zip<Iter<AnnotatedPose>, Skip<Iter<AnnotatedPose>>>,
+        failed_transition: &Transition,
+    ) {
     }
 
     // Transition cartesian way from 'from' into 'to' while assuming 'from'
@@ -315,10 +336,11 @@ impl Cartesian<'_> {
         collision
     }
 
-    fn log_failed_transition(&self, transition: &Transition) {
+    fn log_failed_transition(&self, transition: &Transition, step: i32) {
         if !self.debug {
             return;
         }
+        println!("Step {} from [1..n] failed", step);
         println!(
             "No transition with cost below {}:",
             self.max_transition_cost.to_degrees()
