@@ -5,17 +5,10 @@ use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
 use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
-use bevy::a11y::accesskit::Checked;
 use bevy::utils::HashMap;
-use bevy_egui::egui::TextBuffer;
 use bitflags::bitflags;
 use nalgebra::Translation3;
-use rayon::prelude::*;
-use std::collections::HashSet;
 use std::fmt;
-use std::fmt::Formatter;
-use std::iter::{Skip, Zip};
-use std::slice::Iter;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -162,7 +155,9 @@ impl Cartesian<'_> {
             match self.probe_strategy(from, strategy, &poses) {
                 Ok(outcome) => return Ok(outcome),
                 Err(msg) => {
-                    // Continue next
+                    if self.debug {
+                        println!("Strategy failed: {}", msg);
+                    }
                 }
             }
         }
@@ -195,9 +190,9 @@ impl Cartesian<'_> {
         trace.reserve(poses.len());
         let mut istep = 1;
 
-        let mut pairs_iterator = poses.iter().zip(poses.iter().skip(1));
+        let mut pairs_iterator = poses.windows(2);
 
-        while let Some((from, to)) = pairs_iterator.next() {
+        while let Some([from, to]) = pairs_iterator.next() {
             let prev = trace.last().expect("Should have start and strategy points");
             assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
             match self.step_adaptive_linear_transition(prev, from, to, 0) {
@@ -209,25 +204,39 @@ impl Cartesian<'_> {
                             previous: *prev,
                             solutions: vec![next],
                         };
-                        self.log_failed_transition(&failed_transition, istep);
-                        self.move_over_collision(
-                            &mut trace,
-                            &mut pairs_iterator,
-                            &failed_transition,
-                        );
-                        return Err("Linear stroke collides".into());
-                    }
-
-                    if self.include_linear_interpolation
-                        || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
-                    {
-                        trace.push(next);
+                        match self.reconfigure_robot(&mut trace, &failed_transition, istep) {
+                            Ok(next_reconfigured) => {
+                                trace.push(next_reconfigured);
+                            }
+                            Err(message) => {
+                                return Err(format!(
+                                    "Linear stroke collides and cannot be fixed: {}",
+                                    message
+                                )
+                                .into());
+                            }
+                        }
+                    } else {
+                        if self.include_linear_interpolation
+                            || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
+                        {
+                            trace.push(next);
+                        }
                     }
                 }
                 Err(failed_transition) => {
-                    self.log_failed_transition(&failed_transition, istep);
-                    self.move_over_collision(&mut trace, &mut pairs_iterator, &failed_transition);
-                    return Err("Failed strategy".into());
+                    match self.reconfigure_robot(&mut trace, &failed_transition, istep) {
+                        Ok(next_reconfigured) => {
+                            trace.push(next_reconfigured);
+                        }
+                        Err(message) => {
+                            return Err(format!(
+                                "Linear stroke does not transit and cannot be fixed: {}",
+                                message
+                            )
+                            .into());
+                        }
+                    }
                 }
             }
             if to.flags.contains(PoseFlags::TRACE) {
@@ -242,18 +251,58 @@ impl Cartesian<'_> {
         Ok(trace)
     }
 
-    /// Move positions that cannot be covered by Cartesian stroke.
+    /// Move positions that cannot be covered by Cartesian stroke in the
+    /// current configuration. The position still can be covered if we
+    /// allow arbitrarily large jumps, explicitly reconfiguring robot
+    /// with explicit path planning.
+    ///
     /// First failed transition is covered by failed_transition, but
-    /// more failing poses may follow. The iterator is pointing right 
+    /// more failing poses may follow. The iterator is pointing right
     /// after the pair that produced the failed transition
     /// This method returns the joints of the position after fixing ('next').
     /// It adds all fixup (repositioning) code to the trace.
-    fn move_over_collision(
+    fn reconfigure_robot(
         &self,
         trace: &mut Vec<Joints>,
-        pairs_iterator: &mut Zip<Iter<AnnotatedPose>, Skip<Iter<AnnotatedPose>>>,
         failed_transition: &Transition,
-    ) {
+        istep: i32,
+    ) -> Result<Joints, String> {
+        self.log_failed_transition(&failed_transition, istep);
+        if let Some(previous) = trace.last() {
+            // We cannot smoothly continue this stroke. Can we in general visit this position?
+            let solutions = self
+                .robot
+                .inverse_continuing(&failed_transition.to.pose, previous);
+            if solutions.is_empty() {
+                return Err("No non-colliding solutions found".into());
+            } else {
+                println!("Alternative solutions found");
+                dump_solutions(&solutions);
+                for solution in &solutions {
+                    println!("Planning reconfiguration");
+                    dump_joints(previous);
+                    dump_joints(solution);
+
+                    match self.rrt.plan_rrt(previous, solution, self.robot) {
+                        Ok(path) => {
+                            println!("RRT successful:");
+                            for step in &path {
+                                dump_joints(&step);
+                            }
+
+                            // Add reconfiguration part to trace. Do not add the first
+                            // element as it is the same as from, already present there
+                            trace.extend_from_slice(&path[1..]);
+                            return Ok(*path.last().unwrap());
+                        }
+                        Err(error_message) => {
+                            println!("RRT not successful: {}", error_message);
+                        }
+                    }
+                }
+            }
+        }
+        Err("Robot reconfiguration not possible".into())
     }
 
     // Transition cartesian way from 'from' into 'to' while assuming 'from'
