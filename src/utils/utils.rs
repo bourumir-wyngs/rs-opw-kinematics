@@ -41,7 +41,6 @@ pub fn to_degrees(angles: &Joints) -> [f32; 6] {
 }
 
 /// Print joint values for all solutions, converting radianst to degrees.
-#[allow(dead_code)]
 pub fn dump_solutions(solutions: &Solutions) {
     if solutions.is_empty() {
         println!("No solutions");
@@ -56,7 +55,6 @@ pub fn dump_solutions(solutions: &Solutions) {
     }
 }
 
-#[allow(dead_code)]
 pub fn dump_solutions_degrees(solutions: &Solutions) {
     if solutions.is_empty() {
         println!("No solutions");
@@ -72,7 +70,6 @@ pub fn dump_solutions_degrees(solutions: &Solutions) {
 }
 
 /// Print joint values, converting radianst to degrees.
-#[allow(dead_code)]
 pub fn dump_joints(joints: &Joints) {
     let mut row_str = String::new();
     for joint_idx in 0..6 {
@@ -97,7 +94,6 @@ pub fn dump_pose(isometry: &Isometry3<f64>) {
 }
 
 /// Allows to specify joint values in degrees (converts to radians)
-#[allow(dead_code)]
 pub fn as_radians(degrees: [i32; 6]) -> Joints {
     std::array::from_fn(|i| (degrees[i] as f64).to_radians())
 }

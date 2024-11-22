@@ -126,7 +126,9 @@ fn main() {
 
     match path {
         Ok(path) => {
-            utils::dump_solutions(&path);
+            for joints in path {
+                println!("{:?}", &joints);
+            }
         },
         Err(message) => {
             println!("Failed: {}", message);

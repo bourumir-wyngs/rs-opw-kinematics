@@ -50,36 +50,29 @@ pub struct Cartesian<'a> {
 
 bitflags! {
     #[derive(Clone, Copy)]
-    struct PoseFlags: u32 {
-        const TRACE = 0b00000001;
-        const LINEAR_INTERPOLATED = 0b00000010;
-        const LAND = 0b00000100;
-        const PARK = 0b00001000;
+    pub struct PathFlags: u32 {
+        const CARTESIAN =           0b00000001;
+        const ONBOARDING =          0b00000010;
+        const TRACE =               0b00000100;
+        const LIN_INTERP = 0b00001000;
+        const LAND =                0b00010000;
+        const PARK =                0b00100000;   
 
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
-    }
-}
-
-
-/// Joint flags specifying if it is joint-joint or Cartesian move (to this joint, not from)
-bitflags! {
-    #[derive(Clone, Copy)]
-    pub struct JointFlags: u32 {
-        const CARTESIAN = 0b00000001;
     }
 }
 
 #[derive(Clone, Copy)]
 struct AnnotatedPose {
     pose: Pose,
-    flags: PoseFlags,
+    flags: PathFlags,
 }
 
 /// Annotated joints specifying if it is joint-joint or Cartesian move (to this joint, not from)
 #[derive(Clone, Copy)]
 pub struct AnnotatedJoints {
     pub joints: Joints,
-    pub flags: JointFlags
+    pub flags: PathFlags,
 }
 
 impl AnnotatedPose {
@@ -95,32 +88,33 @@ impl AnnotatedPose {
 
         AnnotatedPose {
             pose: Pose::from_parts(Translation3::from(translation), rotation),
-            flags: PoseFlags::LINEAR_INTERPOLATED,
+            flags: PathFlags::LIN_INTERP,
         }
     }
 }
 
+fn flag_representation(flags: &PathFlags) -> String {
+    const FLAG_MAP: &[(PathFlags, &str)] = &[
+        (PathFlags::LIN_INTERP, "LIN_INTERP"),
+        (PathFlags::LAND, "LAND"),
+        (PathFlags::PARK, "PARK"),
+        (PathFlags::TRACE, "TRACE"),
+        (PathFlags::CARTESIAN, "CARTESIAN"),
+        (PathFlags::ONBOARDING, "ONBOARDING"),        
+    ];
+
+    FLAG_MAP
+        .iter()
+        .filter(|(flag, _)| flags.contains(*flag))
+        .map(|(_, name)| *name)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 impl fmt::Debug for AnnotatedPose {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn flag_representation(flags: &PoseFlags) -> String {
-            const FLAG_MAP: &[(PoseFlags, &str)] = &[
-                (PoseFlags::LINEAR_INTERPOLATED, "LINEAR_INTERPOLATED"),
-                (PoseFlags::LAND, "LAND"),
-                (PoseFlags::PARK, "PARK"),
-                (PoseFlags::TRACE, "TRACE"),
-            ];
-
-            FLAG_MAP
-                .iter()
-                .filter(|(flag, _)| flags.contains(*flag))
-                .map(|(_, name)| *name)
-                .collect::<Vec<_>>()
-                .join(" | ")
-        }
-
         let translation = self.pose.translation.vector;
         let rotation = self.pose.rotation;
-
         write!(
             formatter,
             "{}: [{:.3}, {:.3}, {:.3}], quat {{ w: {:.3}, i: {:.3}, j: {:.3}, k: {:.3} }}",
@@ -132,6 +126,22 @@ impl fmt::Debug for AnnotatedPose {
             rotation.i,
             rotation.j,
             rotation.k
+        )
+    }
+}
+
+impl fmt::Debug for AnnotatedJoints {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: {:.2}, {:.2}, {:.2}, {:.2}, {:.2}, {:.2} ",
+            flag_representation(&self.flags),
+            self.joints[0].to_degrees(),
+            self.joints[1].to_degrees(),
+            self.joints[2].to_degrees(),
+            self.joints[3].to_degrees(),
+            self.joints[4].to_degrees(),
+            self.joints[5].to_degrees(),
         )
     }
 }
@@ -156,7 +166,7 @@ impl Cartesian<'_> {
         land: &Pose,
         steps: Vec<Pose>,
         park: &Pose,
-    ) -> Result<Vec<Joints>, String> {
+    ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
         }
@@ -192,9 +202,24 @@ impl Cartesian<'_> {
         start: &Joints,
         strategy: &Joints,
         poses: &Vec<AnnotatedPose>,
-    ) -> Result<Vec<Joints>, String> {
-        let mut trace = self.rrt.plan_rrt(start, strategy, self.robot)?;
-        trace.reserve(poses.len());
+    ) -> Result<Vec<AnnotatedJoints>, String> {
+        let onboarding = self.rrt.plan_rrt(start, strategy, self.robot)?;
+        let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
+        
+        // Do not take the last value as it is same as 'strategy'
+        for joints in onboarding.iter().take(onboarding.len() - 1) {
+            trace.push(AnnotatedJoints {
+                joints: *joints,
+                flags: PathFlags::ONBOARDING,
+            });
+        }
+        
+        // Push the strategy point, from here the move must be already CARTESIAN
+        trace.push(AnnotatedJoints {
+            joints: *strategy,
+            flags: PathFlags::TRACE | PathFlags::CARTESIAN
+        });
+
         // "Complete" trace with all intermediate poses. Onboarding is not included
         // as rrt planner checks that path itself.
         let mut check_trace = Vec::with_capacity(poses.len());
@@ -204,17 +229,27 @@ impl Cartesian<'_> {
 
         while let Some([from, to]) = pairs_iterator.next() {
             let prev = trace.last().expect("Should have start and strategy points");
-            assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
+            assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
 
-            match self.step_adaptive_linear_transition(prev, from, to, 0) {
+            match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
                 Ok(next) => {
                     // This trace contains all intermediate poses (collision check)
                     check_trace.push(next);
 
                     if self.include_linear_interpolation
-                        || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
+                        || !to.flags.contains(PathFlags::LIN_INTERP)
                     {
-                        trace.push(next);
+                        let flags = if to.flags.contains(PathFlags::PARK) {
+                            // At the end of the stroke, we do not assume CARTESIAN
+                            PathFlags::TRACE | to.flags
+                        } else {
+                            PathFlags::TRACE | PathFlags::CARTESIAN | to.flags
+                        };
+                    
+                        trace.push(AnnotatedJoints {
+                            joints: next,
+                            flags: flags
+                        });
                     }
                 }
                 Err(failed_transition) => {
@@ -226,7 +261,7 @@ impl Cartesian<'_> {
                     .into());
                 }
             }
-            if to.flags.contains(PoseFlags::TRACE) {
+            if to.flags.contains(PathFlags::TRACE) {
                 step += 1;
             }
         }
@@ -347,7 +382,7 @@ impl Cartesian<'_> {
         // Add the landing pose
         poses.push(AnnotatedPose {
             pose: *land,
-            flags: PoseFlags::LAND,
+            flags: PathFlags::LAND,
         });
 
         if !steps.is_empty() {
@@ -358,7 +393,7 @@ impl Cartesian<'_> {
             for i in 0..steps.len() - 1 {
                 poses.push(AnnotatedPose {
                     pose: steps[i].clone(),
-                    flags: PoseFlags::TRACE,
+                    flags: PathFlags::TRACE,
                 });
 
                 self.add_intermediate_poses(&steps[i], &steps[i + 1], &mut poses);
@@ -368,7 +403,7 @@ impl Cartesian<'_> {
             let last = *steps.last().unwrap();
             poses.push(AnnotatedPose {
                 pose: last.clone(),
-                flags: PoseFlags::TRACE,
+                flags: PathFlags::TRACE,
             });
 
             // Add intermediate poses between the last step and park
@@ -381,7 +416,7 @@ impl Cartesian<'_> {
         // Add the parking pose
         poses.push(AnnotatedPose {
             pose: park.clone(),
-            flags: PoseFlags::PARK,
+            flags: PathFlags::PARK,
         });
 
         poses
@@ -421,7 +456,7 @@ impl Cartesian<'_> {
 
             poses.push(AnnotatedPose {
                 pose: intermediate_pose,
-                flags: PoseFlags::LINEAR_INTERPOLATED,
+                flags: PathFlags::LIN_INTERP,
             });
         }
     }

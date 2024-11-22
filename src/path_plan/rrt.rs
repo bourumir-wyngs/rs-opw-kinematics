@@ -66,6 +66,8 @@ impl RRTPlanner {
         })
     }
 
+
+    #[allow(dead_code)]
     fn print_summary(&self, planning_result: &Result<Vec<[f64; 6]>, String>) {
         match planning_result {
             Ok(path) => {
@@ -87,7 +89,7 @@ impl RRTPlanner {
         let spent = started.elapsed();
         let result = self.convert_result(path);
         if self.debug {
-            self.print_summary(&result);
+            // self.print_summary(&result);
             println!("RRT Took {:?}", &spent);
         }
         result
