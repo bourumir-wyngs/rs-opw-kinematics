@@ -196,19 +196,22 @@ impl Cartesian<'_> {
             let (from, to) = (&step[0], &step[1]);
             let prev = trace.last().expect("Should have start and strategy points");
             assert_pose_eq(&from.pose, &self.robot.forward(prev), 1E-5, 1E-5);
-            if self.collides(prev) {
-                if self.debug {
-                    let msg = format!("Trace step {} [1..n] collides:", istep);
-                    if self.debug {
-                        println!("{}", msg);
-                        dump_joints(prev);
-                        println!("{:?}", from);
-                    }
-                    return Err(msg);
-                }
-            }
             match self.step_adaptive_linear_transition(prev, from, to, 0) {
                 Ok(next) => {
+                    if self.collides(&next) {
+                        if self.debug {
+                            let msg = format!("Trace step {} [1..n] collides:", istep);
+                            if self.debug {
+                                println!("{} when transitioning:", msg);
+                                assert!(!self.collides(prev));
+                                dump_joints(prev);
+                                dump_joints(&next);
+                                println!("{:?}", from);
+                            }
+                        }
+                        return Err("Linear stroke collides".into());                        
+                    }
+                    
                     if self.include_linear_interpolation
                         || !to.flags.contains(PoseFlags::LINEAR_INTERPOLATED)
                     {
@@ -271,7 +274,8 @@ impl Cartesian<'_> {
             // Solutions are already sorted best first
             for next in &solutions {
                 // Internal "miniposes" generated through recursion are not checked for collision.
-                if self.transitionable(&current, next) && (depth > 0 || !self.collides(next)) {
+                // Outer calling code is reposible for check if 'current' is collision free
+                if self.transitionable(&current, next) {
                     success = true;
                     current = *next;
                     break; // break out of solutions loop
