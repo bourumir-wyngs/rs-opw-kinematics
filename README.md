@@ -9,8 +9,6 @@ planning.
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
-<img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
-
 # Intro
 
 This work builds upon the 2014 paper titled _An Analytical Solution of the Inverse Kinematics Problem of Industrial
