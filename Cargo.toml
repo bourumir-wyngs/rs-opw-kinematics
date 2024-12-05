@@ -35,8 +35,6 @@ parry3d = { version = "0.17", optional = true }
 # Palellization of collision
 rayon = { version = "1.10", optional = true }
 
-# For loading meshes, needed for collision and visualization
-ply-rs = { version = "0.1", optional = true }
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. We must disable audio by not including
