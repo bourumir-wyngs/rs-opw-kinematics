@@ -5,9 +5,19 @@ use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::utils::dump_joints;
 
 #[derive(Debug)]
+/// Defines the RRT planner that relocates the robot between the two positions in a 
+/// collision free way.
 pub struct RRTPlanner {
+    /// Step size in the joint space (value in Radians). This should be small
+    /// enough to prevent robot colliding with something while moving 
+    /// in possibly less predictable way between the joints. 
     pub step_size_joint_space: f64,
+    
+    /// The "max try" parameter of RRT algorithm, reasonable values
+    /// are in order 1000 ... 4000
     pub max_try: usize,
+    
+    /// Flag to print extra diagnostics if required.
     pub debug: bool
 }
 
@@ -82,6 +92,9 @@ impl RRTPlanner {
         }
     }
 
+    /// Plans collision - free relocation from 'start' into 'goal', using
+    /// provided instance of KinematicsWithShape for both inverse kinematics and
+    /// collision avoidance. 
     pub fn plan_rrt(&self, start: &Joints, goal: &Joints, kinematics: &KinematicsWithShape)
                     -> Result<Vec<Joints>, String> {
         let started = Instant::now();

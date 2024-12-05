@@ -86,10 +86,6 @@ pub mod collisions;
 pub mod cartesian;
 
 #[cfg(feature = "collisions")]
-#[path = "path_plan/path_check.rs"]
-pub mod path_check;
-
-#[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
 #[cfg(feature = "allow_filesystem")]

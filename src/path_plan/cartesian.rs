@@ -37,6 +37,9 @@ pub struct Cartesian<'a> {
     /// collision checking also the middle segment.
     pub linear_recursion_depth: usize,
 
+    /// RRT planner that plans the onboarding part, and may potentially plan other
+    /// parts that involve collision free relocation of the robot, but without
+    /// Cartesian (linear) movement.
     pub rrt: RRTPlanner,
 
     /// If set, linear interpolated poses are included in the output.
@@ -49,15 +52,30 @@ pub struct Cartesian<'a> {
 }
 
 bitflags! {
+    /// Flags that can be set on AnnotatedJoints in the output
     #[derive(Clone, Copy)]
     pub struct PathFlags: u32 {
         const CARTESIAN =           0b00000001;
+        /// Position is part of the movement from the initil ("home") pose to the landing
+        /// pose. It may include very arbitrary joint movements, so Cartesian stroke
+        /// may not work on this part of the trajectory.
         const ONBOARDING =          0b00000010;
+        /// Position directly matches one of the stroke poses given in the input.
         const TRACE =               0b00000100;
+        /// Position is linear interpolation between two poses of the trace. These poses
+        /// are not needed for the robots that have built-in support for Cartesian stroke,
+        /// but may be important for more developed models that only rotate between 
+        /// the given joint positions without guarantees that TCP movement is linear.
         const LIN_INTERP = 0b00001000;
+        /// Position corresponds the starting pose ("land") that is normally little above
+        /// the start of the required trace
         const LAND =                0b00010000;
+        /// Position corresponds the ennding pose ("park") that is normally little above
+        /// the end of the required trace. This is the last pose to include into the 
+        /// output.
         const PARK =                0b00100000;   
-
+        /// Combined flag representing the "original" position, so the one that was
+        /// given in the input. 
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
