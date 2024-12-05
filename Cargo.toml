@@ -52,7 +52,7 @@ collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.7.1", default-features = false }
+# rs-opw-kinematics = { version = "1.7.2", default-features = false }
 
 [dev-dependencies]
 # RRT path planning is currently only in example space.
