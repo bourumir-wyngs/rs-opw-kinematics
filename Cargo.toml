@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.0"
+version = "1.7.2"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -35,8 +35,6 @@ parry3d = { version = "0.17", optional = true }
 # Palellization of collision
 rayon = { version = "1.10", optional = true }
 
-# For loading meshes, needed for collision and visualization
-ply-rs = { version = "0.1", optional = true }
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. We must disable audio by not including
@@ -47,21 +45,20 @@ bevy = { version = "0.12", default-features = false, features = [
 ], optional = true }
 bevy_egui = { version = "0.24", optional = true }
 
-# Needed for stroke planning
-bitflags = "2.6.0"
-# Copyright 2017 Takashi Ogura Apache 2 license.
-rrt = { version = "0.7.0", optional = true }
-
 [features]
-default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs", "stl_io"]
+default = ["allow_filesystem", "collisions", "visualization"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
-stroke_planning = ["rrt", "collisions"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.8.0", default-features = false }
+# rs-opw-kinematics = { version = "1.7.1", default-features = false }
 
-[profile.release]
-#debug = true
+[dev-dependencies]
+# RRT path planning is currently only in example space.
+# This library is Copyright 2017 Takashi Ogura Apache 2 license.
+# We only use it as development dependency only, for building examples.
+rrt = "0.7.0"
+# A* path planning that in this release is experimental.,
+pathfinding = "4.11"
 
