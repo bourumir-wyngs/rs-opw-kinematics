@@ -1,8 +1,6 @@
 //! Functionality for loading Parry TriMesh from STL or PLY files.
 
-use parry3d::shape::{TriMesh, TriMeshFlags};
-use ply_rs::parser::Parser;
-use ply_rs::ply::{DefaultElement, Property};
+use parry3d::shape::{TriMesh};
 use stl_io::{read_stl};
 use std::fs::File;
 use std::io::BufReader;

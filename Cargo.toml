@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.7.1"
+version = "1.7.2"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -47,7 +47,7 @@ bevy_egui = { version = "0.24", optional = true }
 
 [features]
 default = ["allow_filesystem", "collisions", "visualization"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs", "stl_io"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 
