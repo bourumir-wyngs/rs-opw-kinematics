@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use nalgebra::{Isometry3};
 use parry3d::shape::TriMesh;
-use crate::collisions::{BaseBody, CollisionBody, RobotBody};
+use crate::collisions::{BaseBody, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
 use crate::kinematic_traits::{Kinematics, Joints, Solutions, Pose, Singularity, J6};
 use crate::kinematics_impl::OPWKinematics;
@@ -233,6 +233,11 @@ impl KinematicsWithShape {
     pub fn collision_details(&self, joints: &Joints) -> Vec<(usize, usize)> {
         self.body.collision_details(joints, self.kinematics.as_ref())
     }
+
+    pub fn near(&self, joints: &Joints, safety: &SafetyDistances) -> Vec<(usize, usize)> {
+        self.body.near(joints, self.kinematics.as_ref(), safety)
+    }    
+    
 }
 
 impl Kinematics for KinematicsWithShape {

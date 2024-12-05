@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(feature = "collisions")]
 use {
     // This example only makes sense with collisions feature enabled
@@ -13,7 +14,8 @@ use {
     rs_opw_kinematics::kinematic_traits::Kinematics,
     rs_opw_kinematics::utils::{dump_solutions}   
 };
-
+use rs_opw_kinematics::collisions::SafetyDistances;
+use rs_opw_kinematics::kinematic_traits::{J4, J6, J_TOOL};
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -108,6 +110,17 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 fn main() {
     // The robot itself.
     let robot = create_rx160_robot();
+    let safety = SafetyDistances {
+        to_environment: 0.2,
+        to_robot_default: 0.05,
+        special_distances: HashMap::from([
+            // Due construction of this robot, these joints are very close so
+            // special rules are needed for them.
+            ((J4, J_TOOL), 0.02_f32),
+            ((J4, J6), 0.02_f32)
+        ]),
+        first_collision_only: false,
+    };
 
     // Do some inverse kinematics to show the concept.
     let pose = Isometry3::from_parts(
@@ -121,13 +134,18 @@ fn main() {
         println!("Collision detected");
     }
 
+    if !robot.near(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.], &safety).is_empty() {
+        println!("Robot near");
+    }
+    
+
     // In which position to show the robot on startup
     let intial_angles = [173., -8., -94., 6., 83., 207.];
 
     // Boundaries for XYZ drawbars in visualizaiton GUI
     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
 
-    visualize(robot, intial_angles, tcp_box);
+    visualize(robot, intial_angles, tcp_box, &safety);
 }
 
 #[cfg(not(feature = "collisions"))]
@@ -136,13 +154,15 @@ fn main() {
 }
 
 #[cfg(feature = "visualization")]
-fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6],
+             tcp_box: [RangeInclusive<f64>; 3], safety: &SafetyDistances) {
     use rs_opw_kinematics::{visualization};
-    visualization::visualize_robot(robot, intial_angles, tcp_box);
+    visualization::visualize_robot_with_safety(robot, intial_angles, tcp_box, safety);
 }
 
 #[cfg(all(feature = "collisions", not(feature = "visualization")))]
-fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], tcp_box: [RangeInclusive<f64>; 3]) {
+fn visualize(robot: KinematicsWithShape, intial_angles: [f32; 6], 
+             tcp_box: [RangeInclusive<f64>; 3], distances: &SafetyDistances) {
     println!("Build configuration does not support visualization")
 }
 

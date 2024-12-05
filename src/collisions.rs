@@ -114,6 +114,8 @@ pub const TOUCH_ONLY: f32 = 0.0;
 /// Defines tolerance bounds, how far it should be between any part of the robot,
 /// or environment object, or any two parts of the robot. As some robot joints
 /// may come very close together, they may require specialized distances.
+
+#[derive(Clone, Debug)]
 pub struct SafetyDistances {
     /// Allowed distance between robot and environment objects.
     pub to_environment: f32,
@@ -160,10 +162,10 @@ impl SafetyDistances {
         }
     }
 
-    fn standard(first_collision_only: bool) -> SafetyDistances {
+    pub fn standard(first_collision_only: bool) -> SafetyDistances {
         SafetyDistances {
-            to_environment: 0.0,
-            to_robot_default: 0.0,
+            to_environment: TOUCH_ONLY,
+            to_robot_default: TOUCH_ONLY,
             special_distances: HashMap::new(),
             first_collision_only: first_collision_only,
         }
@@ -522,7 +524,7 @@ mod tests {
             first_pose_only: false,
         };
 
-        let collisions = robot.detect_collisions(&[identity; 6], false);
+        let collisions = robot.detect_collisions(&[identity; 6], &SafetyDistances::standard(false));
         assert!(
             !collisions.is_empty(),
             "Expected at least one collision, but none were detected."
