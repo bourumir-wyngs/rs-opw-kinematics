@@ -62,5 +62,7 @@ stroke_planning = ["rrt", "collisions"]
 # rs-opw-kinematics = { version = "1.8.0", default-features = false }
 
 [profile.release]
-#debug = true
 
+[profile.dev]
+opt-level = 3 # For some reason, collision checks are not a bit but 100x slower when not optimized.
+debug = true

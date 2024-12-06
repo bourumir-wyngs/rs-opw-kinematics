@@ -112,10 +112,16 @@ pub const NEVER_COLLIDES: f32 = -1.0;
 /// sufficient).
 pub const TOUCH_ONLY: f32 = 0.0;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CheckMode {
+    FirstCollisionOnly,
+    AllCollsions,
+    NoCheck,
+}
+
 /// Defines tolerance bounds, how far it should be between any part of the robot,
 /// or environment object, or any two parts of the robot. As some robot joints
 /// may come very close together, they may require specialized distances.
-
 #[derive(Clone, Debug)]
 pub struct SafetyDistances {
     /// Allowed distance between robot and environment objects.
@@ -144,8 +150,9 @@ pub struct SafetyDistances {
     /// ```
     pub special_distances: HashMap<(u16, u16), f32>,
 
-    /// If true, only checks till the first collision is found.
-    pub first_collision_only: bool,
+    /// Specifies if either first collision only is required, or all must be checked, or off,
+    /// or "touch only" mode
+    pub mode: CheckMode,
 }
 
 impl SafetyDistances {
@@ -160,8 +167,7 @@ impl SafetyDistances {
         }
         result
     }
-    
-    
+
     /// Returns minimal allowed distance by the specified objects.
     /// The order of objects is not important.
     pub fn min_distance(&self, from: u16, to: u16) -> &f32 {
@@ -176,12 +182,12 @@ impl SafetyDistances {
         }
     }
 
-    pub fn standard(first_collision_only: bool) -> SafetyDistances {
+    pub fn touch_only(mode: CheckMode) -> SafetyDistances {
         SafetyDistances {
             to_environment: TOUCH_ONLY,
             to_robot_default: TOUCH_ONLY,
             special_distances: HashMap::new(),
-            first_collision_only: first_collision_only,
+            mode,
         }
     }
 }
@@ -198,24 +204,23 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32, &self.safety)
+        self.detect_collisions(&joint_poses_f32, &self.safety, None)
     }
 
     /// Returns true if any collision is detected in the robot's configuration.
     /// This method uses default distance limits specified at creation.
     /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
+        if self.safety.mode == CheckMode::NoCheck {
+            return false;
+        }
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         !self
             .detect_collisions(
                 &joint_poses_f32,
-                &SafetyDistances {
-                    to_environment: self.safety.to_environment,
-                    to_robot_default: self.safety.to_robot_default,
-                    special_distances: self.safety.special_distances.clone(),
-                    first_collision_only: true, // Force to true
-                },
+                &self.safety,
+                Some(CheckMode::FirstCollisionOnly),
             )
             .is_empty()
     }
@@ -231,7 +236,7 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32, &safety_distances)
+        self.detect_collisions(&joint_poses_f32, &safety_distances, None)
     }
 
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
@@ -279,7 +284,8 @@ impl RobotBody {
                 if self
                     .detect_collisions_with_skips(
                         &joint_poses_f32,
-                        &SafetyDistances::standard(true),
+                        &self.safety,
+                        &Some(CheckMode::FirstCollisionOnly),
                         &skip_indices,
                     )
                     .is_empty()
@@ -300,8 +306,13 @@ impl RobotBody {
     fn process_collision_tasks(
         tasks: Vec<CollisionTask>,
         safety: &SafetyDistances,
+        override_mode: &Option<CheckMode>,
     ) -> Vec<(u16, u16)> {
-        if safety.first_collision_only {
+        let mode = override_mode.unwrap_or(safety.mode);
+
+        if mode == CheckMode::NoCheck {
+            Vec::new()
+        } else if mode == CheckMode::FirstCollisionOnly {
             // Exit as soon as any collision is found
             tasks
                 .par_iter()
@@ -364,11 +375,12 @@ impl RobotBody {
     fn detect_collisions(
         &self,
         joint_poses: &[Isometry3<f32>; 6],
-        safety_distances: &SafetyDistances,
+        safety: &SafetyDistances,
+        override_mode: Option<CheckMode>,
     ) -> Vec<(usize, usize)> {
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         // Convert to usize
-        self.detect_collisions_with_skips(joint_poses, &safety_distances, &empty_set)
+        self.detect_collisions_with_skips(joint_poses, &safety, &override_mode, &empty_set)
             .iter()
             .map(|&col_pair| (col_pair.0 as usize, col_pair.1 as usize))
             .collect()
@@ -378,6 +390,7 @@ impl RobotBody {
         &self,
         joint_poses: &[Isometry3<f32>; 6],
         safety_distances: &SafetyDistances,
+        override_mode: &Option<CheckMode>,
         skip: &HashSet<usize>,
     ) -> Vec<(u16, u16)> {
         let mut tasks = Vec::with_capacity(self.count_tasks(&skip));
@@ -470,7 +483,7 @@ impl RobotBody {
                 shape_j: &base.mesh,
             });
         }
-        Self::process_collision_tasks(tasks, safety_distances)
+        Self::process_collision_tasks(tasks, safety_distances, override_mode)
     }
 }
 
@@ -547,7 +560,7 @@ mod tests {
             tool: None,
             base: None,
             collision_environment: vec![],
-            safety: SafetyDistances::standard(false)
+            safety: SafetyDistances::touch_only(CheckMode::AllCollsions),
         };
 
         let collisions = robot.detect_collisions(&[identity; 6], &robot.safety);

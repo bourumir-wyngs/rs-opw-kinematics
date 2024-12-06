@@ -2,7 +2,7 @@
 //! This struct provides both the kinematic functionality for computing joint positions and
 //! the physical structure used for collision detection and other geometric calculations.
 
-use crate::collisions::{BaseBody, CollisionBody, RobotBody, SafetyDistances};
+use crate::collisions::{BaseBody, CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions, J6};
 use crate::kinematics_impl::OPWKinematics;
@@ -66,7 +66,7 @@ impl KinematicsWithShape {
         tool_mesh: TriMesh,
         tool_transform: Isometry3<f64>,
         collision_environment: Vec<CollisionBody>,
-        first_pose_only: bool,
+        first_collision_only: bool,
     ) -> Self {
         KinematicsWithShape {
             kinematics: Arc::new(Self::create_robot_with_base_and_tool(
@@ -83,7 +83,12 @@ impl KinematicsWithShape {
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
-                safety: SafetyDistances::standard(first_pose_only),
+                safety: SafetyDistances::touch_only(
+                    if first_collision_only {
+                        CheckMode::FirstCollisionOnly
+                    } else {
+                        CheckMode::AllCollsions
+                    }),
             },
         }
     }
