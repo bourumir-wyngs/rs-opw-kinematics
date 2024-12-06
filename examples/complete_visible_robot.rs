@@ -1,6 +1,5 @@
-use rs_opw_kinematics::collisions::SafetyDistances;
-use rs_opw_kinematics::kinematic_traits::{J4, J6, J_TOOL};
-use std::collections::HashMap;
+use rs_opw_kinematics::collisions::{SafetyDistances, NEVER_COLLIDES};
+use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
 #[cfg(feature = "collisions")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -102,17 +101,26 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                 pose: Isometry3::translation(0., -1., 0.),
             },
         ],
-        SafetyDistances {
-            to_environment: 0.2,    // Robot should not come closer than 20 cm to pillars
-            to_robot_default: 0.05, // No closer than 5 cm to itself.
-            special_distances: HashMap::from([
-                // Due construction of this robot, these joints are very close so
-                // special rules are needed for them.
-                ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
-                ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
-            ]),
-            first_collision_only: false,
-        }, // First pose only (true) or all poses (false, we need this for visualization)
+        if cfg!(debug_assertions) {
+            panic!("*** This example needs RELEASE BUILD to run in acceptable speed, sorry *** ")
+        } else {
+            println!("Release build, distance check active");
+            SafetyDistances {
+                to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
+                to_robot_default: 0.05, // No closer than 5 cm to itself.
+                special_distances: SafetyDistances::distances(&[
+                    // Due construction of this robot, these joints are very close so
+                    // special rules are needed for them.
+                    ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
+                    ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
+                    ((J2, J4), NEVER_COLLIDES),
+                    ((J3, J4), NEVER_COLLIDES),
+                    ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
+                    ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+                ]),
+                first_collision_only: false, // we need to report all for visualization
+            }
+        },
     )
 }
 

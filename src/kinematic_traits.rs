@@ -55,7 +55,7 @@ pub const J_TOOL: usize = 100;
 pub const J_BASE: usize = 101;
 
 /// Starting index for collision_environment entries in collision pairs
-pub const ENV_START_IDX: usize = 100_000;
+pub const ENV_START_IDX: usize = 1000;
 
 /// For providing singularity - proof solution when the previous value is not known.
 /// Joints that take arbitrary angles will take angles as close to 0 as possible:

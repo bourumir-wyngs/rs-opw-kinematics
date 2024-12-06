@@ -45,8 +45,8 @@ pub fn transform_mesh(shape: &TriMesh, local_transform: &Isometry3<f32>) -> TriM
 /// Struct representing a collision task for detecting collisions
 /// between two objects with given transforms and shapes.
 struct CollisionTask<'a> {
-    i: usize, // reporting index of the first shape
-    j: usize, // reporting index of the second shape
+    i: u16, // reporting index of the first shape
+    j: u16, // reporting index of the second shape
     transform_i: &'a Isometry3<f32>,
     transform_j: &'a Isometry3<f32>,
     shape_i: &'a TriMesh,
@@ -54,7 +54,7 @@ struct CollisionTask<'a> {
 }
 
 impl CollisionTask<'_> {
-    fn collides(&self, safety: &SafetyDistances) -> Option<(usize, usize)> {
+    fn collides(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
         let r_min = *safety.min_distance(self.i, self.j);
         let collides = if r_min <= NEVER_COLLIDES {
             false
@@ -99,9 +99,9 @@ pub struct RobotBody {
     pub collision_environment: Vec<CollisionBody>,
 
     /// Defines distances, how far the robot must stay from collision objects.
-    /// Also specifies if we are interested in first collision only (like for path planning) 
+    /// Also specifies if we are interested in first collision only (like for path planning)
     /// or we need a detailed overview (like for diagnostics or visualization)
-    pub safety: SafetyDistances
+    pub safety: SafetyDistances,
 }
 
 /// Constant specifying that robot parts never collide so do not need to be checked
@@ -142,21 +142,34 @@ pub struct SafetyDistances {
     ///       ( (J_TOOL, J5), 0.2) // J5 to tool max 0.2
     ///    ])
     /// ```
-    pub special_distances: HashMap<(usize, usize), f32>,
+    pub special_distances: HashMap<(u16, u16), f32>,
 
     /// If true, only checks till the first collision is found.
     pub first_collision_only: bool,
 }
 
 impl SafetyDistances {
+    // Converts from usize to much more compact and appropriate u16.
+    // In Rust, usize is required for indexing.
+    pub fn distances(pairs: &[((usize, usize), f32)]) -> HashMap<(u16, u16), f32> {
+        let mut result = HashMap::with_capacity(pairs.len());
+
+        for &((a, b), value) in pairs {
+            // Cast `usize` to `u16` and insert into the HashMap
+            result.insert((a as u16, b as u16), value);
+        }
+        result
+    }
+    
+    
     /// Returns minimal allowed distance by the specified objects.
     /// The order of objects is not important.
-    pub fn min_distance(&self, from: usize, to: usize) -> &f32 {
+    pub fn min_distance(&self, from: u16, to: u16) -> &f32 {
         if let Some(r) = self.special_distances.get(&(from, to)) {
             return r;
         } else if let Some(r) = self.special_distances.get(&(to, from)) {
             return r;
-        } else if from >= ENV_START_IDX || to >= ENV_START_IDX {
+        } else if from as usize >= ENV_START_IDX || to as usize >= ENV_START_IDX {
             return &self.to_environment;
         } else {
             return &self.to_robot_default;
@@ -176,7 +189,7 @@ impl SafetyDistances {
 // Public methods
 impl RobotBody {
     /// Returns detailed information about all collisions detected in the robot's configuration.
-    /// This method uses default distance limits specified at creation. 
+    /// This method uses default distance limits specified at creation.
     /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
     pub fn collision_details(
         &self,
@@ -189,18 +202,21 @@ impl RobotBody {
     }
 
     /// Returns true if any collision is detected in the robot's configuration.
-    /// This method uses default distance limits specified at creation. 
+    /// This method uses default distance limits specified at creation.
     /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         !self
-            .detect_collisions(&joint_poses_f32, &SafetyDistances{
-                to_environment: self.safety.to_environment,
-                to_robot_default: self.safety.to_robot_default,
-                special_distances: self.safety.special_distances.clone(),
-                first_collision_only: true, // Force to true
-            })
+            .detect_collisions(
+                &joint_poses_f32,
+                &SafetyDistances {
+                    to_environment: self.safety.to_environment,
+                    to_robot_default: self.safety.to_robot_default,
+                    special_distances: self.safety.special_distances.clone(),
+                    first_collision_only: true, // Force to true
+                },
+            )
             .is_empty()
     }
 
@@ -284,7 +300,7 @@ impl RobotBody {
     fn process_collision_tasks(
         tasks: Vec<CollisionTask>,
         safety: &SafetyDistances,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<(u16, u16)> {
         if safety.first_collision_only {
             // Exit as soon as any collision is found
             tasks
@@ -351,7 +367,11 @@ impl RobotBody {
         safety_distances: &SafetyDistances,
     ) -> Vec<(usize, usize)> {
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
+        // Convert to usize
         self.detect_collisions_with_skips(joint_poses, &safety_distances, &empty_set)
+            .iter()
+            .map(|&col_pair| (col_pair.0 as usize, col_pair.1 as usize))
+            .collect()
     }
 
     fn detect_collisions_with_skips(
@@ -359,15 +379,15 @@ impl RobotBody {
         joint_poses: &[Isometry3<f32>; 6],
         safety_distances: &SafetyDistances,
         skip: &HashSet<usize>,
-    ) -> Vec<(usize, usize)> {
+    ) -> Vec<(u16, u16)> {
         let mut tasks = Vec::with_capacity(self.count_tasks(&skip));
 
         // Check if the tool does not hit anything in the environment
         if let Some(tool) = &self.tool {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 tasks.push(CollisionTask {
-                    i: J_TOOL,
-                    j: ENV_START_IDX + env_idx,
+                    i: J_TOOL as u16,
+                    j: (ENV_START_IDX + env_idx) as u16,
                     transform_i: &joint_poses[J6],
                     transform_j: &env_obj.pose,
                     shape_i: &tool,
@@ -381,8 +401,8 @@ impl RobotBody {
                 // If both joints did not move, we do not need to check
                 if j - i > 1 && !skip.contains(&i) && !skip.contains(&j) {
                     tasks.push(CollisionTask {
-                        i,
-                        j,
+                        i: i as u16,
+                        j: j as u16,
                         transform_i: &joint_poses[i],
                         transform_j: &joint_poses[j],
                         shape_i: &self.joint_meshes[i],
@@ -397,8 +417,8 @@ impl RobotBody {
                 // that also not move.
                 if !skip.contains(&i) {
                     tasks.push(CollisionTask {
-                        i,
-                        j: ENV_START_IDX + env_idx,
+                        i: i as u16,
+                        j: (ENV_START_IDX + env_idx) as u16,
                         transform_i: &joint_poses[i],
                         transform_j: &env_obj.pose,
                         shape_i: &self.joint_meshes[i],
@@ -412,8 +432,8 @@ impl RobotBody {
                 if let Some(tool) = &self.tool {
                     let accessory_pose = &joint_poses[J6];
                     tasks.push(CollisionTask {
-                        i,
-                        j: J_TOOL,
+                        i: i as u16,
+                        j: J_TOOL as u16,
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
@@ -429,8 +449,8 @@ impl RobotBody {
                     let accessory = &base.mesh;
                     let accessory_pose = &base.base_pose;
                     tasks.push(CollisionTask {
-                        i,
-                        j: J_BASE,
+                        i: i as u16,
+                        j: J_BASE as u16,
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
@@ -442,8 +462,8 @@ impl RobotBody {
 
         if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
             tasks.push(CollisionTask {
-                i: J_TOOL,
-                j: J_BASE,
+                i: J_TOOL as u16,
+                j: J_BASE as u16,
                 transform_i: &joint_poses[J6],
                 transform_j: &base.base_pose,
                 shape_i: &tool,
@@ -527,10 +547,10 @@ mod tests {
             tool: None,
             base: None,
             collision_environment: vec![],
-            first_pose_only: false,
+            safety: SafetyDistances::standard(false)
         };
 
-        let collisions = robot.detect_collisions(&[identity; 6], &SafetyDistances::standard(false));
+        let collisions = robot.detect_collisions(&[identity; 6], &robot.safety);
         assert!(
             !collisions.is_empty(),
             "Expected at least one collision, but none were detected."

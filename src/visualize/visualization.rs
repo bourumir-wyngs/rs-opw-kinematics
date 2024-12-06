@@ -547,6 +547,6 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
 
         ui.add_space(10.0);
         ui.label("Safety distance");
-        ui.add(egui::Slider::new(&mut controls.safety_distance, 0.0..=0.1).text("Max"));
+        ui.add(egui::Slider::new(&mut controls.safety_distance, 0.0..=0.5).text("Max"));
     });
 }
