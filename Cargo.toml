@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.7.2"
+version = "1.7.3"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -52,7 +52,7 @@ collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.7.2", default-features = false }
+# rs-opw-kinematics = { version = "1.7.3", default-features = false }
 
 [dev-dependencies]
 # RRT path planning is currently only in example space.
@@ -61,4 +61,10 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 rrt = "0.7.0"
 # A* path planning that in this release is experimental.,
 pathfinding = "4.11"
+
+[profile.release]
+
+[profile.dev]
+opt-level = 3 # For some reason, collision checks are not a bit but 100x slower when not optimized.
+debug = true
 

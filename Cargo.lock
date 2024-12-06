@@ -3405,7 +3405,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.7.2"
+version = "1.7.3"
 dependencies = [
  "bevy",
  "bevy_egui",
