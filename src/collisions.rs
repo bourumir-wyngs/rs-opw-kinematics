@@ -98,9 +98,10 @@ pub struct RobotBody {
     /// Environment objects arround the robot.
     pub collision_environment: Vec<CollisionBody>,
 
-    /// As collision checks are expensive, specify if all possible solutions of inverse
-    /// kinematics are returned, or only non-coliding solution considered best
-    pub first_pose_only: bool,
+    /// Defines distances, how far the robot must stay from collision objects.
+    /// Also specifies if we are interested in first collision only (like for path planning) 
+    /// or we need a detailed overview (like for diagnostics or visualization)
+    pub safety: SafetyDistances
 }
 
 /// Constant specifying that robot parts never collide so do not need to be checked
@@ -175,8 +176,8 @@ impl SafetyDistances {
 // Public methods
 impl RobotBody {
     /// Returns detailed information about all collisions detected in the robot's configuration.
-    /// This method only checks for literally touching objects that limits its application.
-    /// Use ```near``` to check if there are no objects closer than the given distance.
+    /// This method uses default distance limits specified at creation. 
+    /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
     pub fn collision_details(
         &self,
         qs: &Joints,
@@ -184,17 +185,22 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32, &SafetyDistances::standard(false))
+        self.detect_collisions(&joint_poses_f32, &self.safety)
     }
 
     /// Returns true if any collision is detected in the robot's configuration.
-    /// This method only checks for literally touching objects that limits its application.
-    /// Use ```near``` to check if there are no objects closer than the given distance.
+    /// This method uses default distance limits specified at creation. 
+    /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         !self
-            .detect_collisions(&joint_poses_f32, &SafetyDistances::standard(true))
+            .detect_collisions(&joint_poses_f32, &SafetyDistances{
+                to_environment: self.safety.to_environment,
+                to_robot_default: self.safety.to_robot_default,
+                special_distances: self.safety.special_distances.clone(),
+                first_collision_only: true, // Force to true
+            })
             .is_empty()
     }
 

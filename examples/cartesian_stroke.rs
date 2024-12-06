@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(feature = "stroke_planning")]
 use {
     std::vec::Vec,
@@ -11,7 +12,8 @@ use {
     rs_opw_kinematics::utils,
 };
 use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
-use rs_opw_kinematics::kinematic_traits::Pose;
+use rs_opw_kinematics::collisions::SafetyDistances;
+use rs_opw_kinematics::kinematic_traits::{Pose, J4, J6, J_TOOL};
 use rs_opw_kinematics::rrt::RRTPlanner;
 
 #[cfg(feature = "stroke_planning")]
@@ -20,7 +22,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
 
-    KinematicsWithShape::new(
+    KinematicsWithShape::with_safety(
         Parameters {
             a1: 0.15,
             a2: 0.0,
@@ -64,7 +66,17 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) },
         ],
-        true,
+        SafetyDistances {
+            to_environment: 0.05,    // Robot should not come closer than 5 cm to pillars
+            to_robot_default: 0.05, // No closer than 5 cm to itself.
+            special_distances: HashMap::from([
+                // Due construction of this robot, these joints are very close so
+                // special rules are needed for them.
+                ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
+                ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+            ]),
+            first_collision_only: true,
+        }, // First pose only (true, enough for path planning)
     )
 }
 

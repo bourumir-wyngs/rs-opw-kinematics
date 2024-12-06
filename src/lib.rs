@@ -89,6 +89,7 @@ pub mod cartesian;
 pub mod kinematics_with_shape;
 
 #[cfg(feature = "allow_filesystem")]
+#[path = "utils/read_trimesh.rs"]
 pub mod read_trimesh;
 
 #[path = "visualize/visualization.rs"]

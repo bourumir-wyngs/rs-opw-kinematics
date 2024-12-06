@@ -122,8 +122,8 @@ struct RobotControls {
     initial_joint_angles: [f32; 6],    // Initial angles at the start of visualization
     previous_joint_angles: [f32; 6],   // Store previous joint angles here
     previous_tcp: [f64; 6],
-    safety: f32,
-    previous_safety: f32
+    safety_distance: f32,
+    previous_safety_distance: f32
 }
 
 impl RobotControls {
@@ -182,11 +182,12 @@ pub fn visualize_robot(
     intial_angles: [f32; 6],
     tcp_box: [RangeInclusive<f64>; 3],
 ) {
+    let safety = robot.body.safety.clone();
     visualize_robot_with_safety(
         robot,
         intial_angles,
         tcp_box,
-        &SafetyDistances::standard(false),
+        &safety
     )
 }
 
@@ -205,8 +206,8 @@ pub fn visualize_robot_with_safety(
             tcp_box: tcp_box,
             previous_joint_angles: intial_angles.clone(),
             previous_tcp: [0.0; 6],
-            safety: 0.05,
-            previous_safety: 0.0
+            safety_distance: 0.05,
+            previous_safety_distance: 0.0
         })
         .insert_resource(Robot {
             kinematics: robot,
@@ -305,7 +306,7 @@ fn setup(
 
     // Visualize the robot joints with the initial joint values
     let angles = utils::joints(&robot_controls.initial_joint_angles);
-    visualize_robot_joints(&mut commands, & mut robot, &angles, robot_controls.safety);
+    visualize_robot_joints(&mut commands, & mut robot, &angles, robot_controls.safety_distance);
     let cartesian = robot.kinematics.kinematics.forward(&angles);
     robot_controls.set_tcp_from_pose(&cartesian);
 
@@ -460,13 +461,13 @@ fn update_robot(
     mut robot: ResMut<Robot>,
     query: Query<Entity, With<Handle<Mesh>>>, // Query entities with Mesh components
 ) {
-    if controls.safety != controls.previous_safety {
+    if controls.safety_distance != controls.previous_safety_distance {
         for entity in query.iter() {
             commands.entity(entity).despawn();
         }
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety);
-        controls.previous_safety = controls.safety;
+        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        controls.previous_safety_distance = controls.safety_distance;
     } else if controls.joint_angles != controls.previous_joint_angles {
         // Despawn the existing visualized robot joints
         for entity in query.iter() {
@@ -476,14 +477,14 @@ fn update_robot(
         // Revisualize the robot joints with the updated joint angles
         // Visualize each joint of the robot
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety);
+        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
         controls.previous_joint_angles = controls.joint_angles.clone();
 
         // Update the TCP position (this is the end of the tool, not the base)
         let pose = robot.kinematics.kinematics.forward(&angles);
         controls.set_tcp_from_pose(&pose);
         controls.previous_tcp = controls.tcp;
-        controls.previous_safety = controls.safety;        
+        controls.previous_safety_distance = controls.safety_distance;        
     } else if controls.tcp != controls.previous_tcp {
         // Revisualize the robot joints with the updated joint angles
         let angles = utils::joints(&controls.joint_angles);
@@ -499,7 +500,7 @@ fn update_robot(
                 commands.entity(entity).despawn();
             }
             let angles = ik[0];
-            visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety);
+            visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
 
             // Update joint angles to match the current position
             controls.joint_angles = utils::to_degrees(&angles);
@@ -516,7 +517,7 @@ fn update_robot(
         }
         controls.previous_tcp = controls.tcp.clone();
         controls.previous_joint_angles = controls.joint_angles;
-        controls.previous_safety = controls.safety;
+        controls.previous_safety_distance = controls.safety_distance;
     }
 }
 
@@ -546,6 +547,6 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
 
         ui.add_space(10.0);
         ui.label("Safety distance");
-        ui.add(egui::Slider::new(&mut controls.safety, 0.0..=0.1).text("Max"));
+        ui.add(egui::Slider::new(&mut controls.safety_distance, 0.0..=0.1).text("Max"));
     });
 }
