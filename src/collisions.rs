@@ -563,7 +563,7 @@ mod tests {
             safety: SafetyDistances::touch_only(CheckMode::AllCollsions),
         };
 
-        let collisions = robot.detect_collisions(&[identity; 6], &robot.safety);
+        let collisions = robot.detect_collisions(&[identity; 6], &robot.safety, None);
         assert!(
             !collisions.is_empty(),
             "Expected at least one collision, but none were detected."
