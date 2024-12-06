@@ -195,7 +195,23 @@ providing both forward and inverse kinematic solutions. During inverse kinematic
 from the solution list.
 
 For collision avoidance, you need to supply meshes for robot joints and, optionally, for the base, tool, 
-and environment objects. The example below demonstrates how to create this structure, complete with tool,
+and environment objects.
+
+Starting with version 1.8.0, it is now possible to configure a safety distance — the minimum distance to a surface 
+below which a collision is detected. In most real-world scenarios, a robot must maintain a guaranteed clearance from 
+objects it might collide with (including its own parts) rather than simply avoiding surface contact.
+
+If the safety distance is set to zero, collisions are still likely due to the inherent limitations in system accuracy. 
+Setting a zero safety distance is only advisable if the meshes are "inflated" (made larger than their actual size), 
+but achieving this reliably is challenging and requires careful validation. On the other hand, checking for contact 
+rather than maintaining a safety distance is significantly faster.
+
+Safety distances are controlled through [SafetyDistances](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/collisions/struct.SafetyDistances.html) structure as shown in the example below. 
+
+Safety distances can be configured separately for robot-to-robot and robot-to-environment collisions. 
+Shorter distances can be specified for joints that naturally operate in proximity.
+
+The example below demonstrates how to create this structure, complete with tool,
 base and constraints:
 
 ```Rust
@@ -218,7 +234,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
 
-    let robot = KinematicsWithShape::new(
+    let robot = KinematicsWithShape::with_safety(
         // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
@@ -280,7 +296,22 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
         ],
-        true // First good pose only (true) or all poses (false)
+        SafetyDistances {
+          to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
+          to_robot_default: 0.05, // No closer than 5 cm to itself.
+          special_distances: SafetyDistances::distances(&[
+            // Due construction of this robot, these joints are very close so
+            // special rules are needed for them.
+            ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
+            ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
+            ((J2, J4), NEVER_COLLIDES),
+            ((J3, J4), NEVER_COLLIDES),
+            ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
+            ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+          ]),
+          mode: CheckMode::AllCollsions, // we need to report all for visualization
+          // mode: CheckMode::NoCheck, // this is very fast but no collision check
+        },
     );
 
   // Let's play a bit with this robot now:
@@ -347,6 +378,36 @@ accessible from the instance of Kinematics, and provided random_angles() methods
 
 See the file `examples/path_planning_rrt.rs` for how to define the robot and other boilerplate code. The direct output
 will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
+
+## Cartesian stroke
+Producing a robot's movement over the surface of an object performing a task (such as welding, painting, or washing)
+involves more than simply converting a single pose into joint rotations. Such a task requires a series of poses where
+the transitions between poses must often follow a straight-line trajectory. This cannot be assumed when joints undergo
+significant rotations between poses. Additionally, the robot's configurations (defined by joint angles) for adjacent
+poses must blend smoothly without abrupt changes. Abrupt jumps often result from alternative solutions in inverse
+kinematics. While these alternative solutions may provide suitable positions for the tool center point, they can cause
+large joint rotations (e.g., 110 degrees), significantly increasing the risk of collisions.
+
+This means that although alternative solutions exist, the initial configuration at the start of a stroke often
+determines how the stroke progresses. If the trajectory cannot be completed before finishing the stroke, it may still
+be possible to execute the stroke by starting with a different initial configuration.
+
+For this reason, the stroke planning in this library consists of the following steps:
+
+- **Starting from the "home" position and moving to the "landing" position**:  
+  The landing position should be close to the working surface and slightly elevated to allow the robot to move safely
+  into this configuration without risky movements near the surface. This phase is planned using the Rapidly-exploring
+  Random Tree (RRT) algorithm.
+
+- **Executing the stroke**:  
+  The robot transitions from the landing position to the first stroke position, moves between stroke positions, and
+  finally returns to a "parking" position, lifting away from the surface.
+  - All strokes in this phase are Cartesian, even if the steps between stroke points are large.
+  - The planner generates sufficient intermediate poses to ensure the robot avoids collisions during long linear
+    movements and prevents unexpected configuration changes.
+  - These "intermediate" poses are flagged and can be included in the output (for simpler robots) or excluded (for
+    advanced robots capable of executing Cartesian strokes using their built-in software).
+
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)

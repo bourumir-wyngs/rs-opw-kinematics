@@ -81,14 +81,11 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                 pose: Isometry3::translation(0., -1., 0.),
             },
         ],
-        // It runs much slower in development build, we are not sure why.
-        // Distance based check is only enabled in release build. We do not want
-        // the demo to hang when first tried.
         SafetyDistances {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
             to_robot_default: 0.05, // No closer than 5 cm to itself.
             special_distances: SafetyDistances::distances(&[
-                // Due construction of this robot, these joints are very close so
+                // Due construction of this robot, these joints are very close, so
                 // special rules are needed for them.
                 ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
                 ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
@@ -111,14 +108,14 @@ fn main() {
     // Initialize kinematics with your robot's specific parameters
     let k = create_rx160_robot();
 
-    // Starting point, where the robot exists in the beginning of the task.
+    // Starting point, where the robot exists at the beginning of the task.
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
 
     // In production, other poses are normally given in Cartesian, but here they are given
-    // in joints as this way it is easier to craft then in rs-opw-kinematics IDE.
+    // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
 
     // "Landing" pose close to the surface, from where Cartesian landing on the surface
-    // is possible and easy. Robot will change into one of possible alternative configurations
+    // is possible and easy. Robot will change into one of the possible alternative configurations 
     // between start and land.
     let land = pose(&k, [-120.0, -10.0, -92.51, 18.42, 82.23, 189.35]);
 
@@ -137,7 +134,7 @@ fn main() {
         robot: &k,                               // The robot
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
-        max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to parameter above)
+        max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
         linear_recursion_depth: 8,
@@ -149,7 +146,7 @@ fn main() {
             debug: true,
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
-        // included in the output. Otherwise, they are checked, but not included in the output
+        // included in the output. Otherwise, they are checked but not included in the output
         debug: true,
     };
 

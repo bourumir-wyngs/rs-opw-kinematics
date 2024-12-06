@@ -56,8 +56,8 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
         ),
         // Joint meshes
         [
-            // If your mesh if offset in .stl file, use Trimesh::transform_vertices,
-            // you may also need Trimesh::scale on some extreme cases.
+            // If your meshes, if offset in .stl file, use Trimesh::transform_vertices,
+            // you may also need Trimesh::scale in some extreme cases.
             // If your joints or tool consist of multiple meshes, combine these
             // with Trimesh::append
             load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
@@ -82,7 +82,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             Translation3::new(0.0, 0.0, 0.5).into(),
             UnitQuaternion::identity(),
         ),
-        // Objects arround the robot, with global transforms for them.
+        // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody {
                 mesh: monolith.clone(),
@@ -105,7 +105,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
             to_robot_default: 0.05, // No closer than 5 cm to itself.
             special_distances: SafetyDistances::distances(&[
-                // Due construction of this robot, these joints are very close so
+                // Due construction of this robot, these joints are very close, so
                 // special rules are needed for them.
                 ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
                 ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
@@ -144,12 +144,12 @@ fn main() {
     }
 
     // In which position to show the robot on startup
-    let intial_angles = [173., -8., -94., 6., 83., 207.];
+    let initial_angles = [173., -8., -94., 6., 83., 207.];
 
-    // Boundaries for XYZ drawbars in visualizaiton GUI
+    // Boundaries for XYZ draw-bars in visualization GUI
     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
 
-    visualize(robot, intial_angles, tcp_box);
+    visualize(robot, initial_angles, tcp_box);
 }
 
 #[cfg(not(feature = "collisions"))]
@@ -160,17 +160,17 @@ fn main() {
 #[cfg(feature = "visualization")]
 fn visualize(
     robot: KinematicsWithShape,
-    intial_angles: [f32; 6],
+    initial_angles: [f32; 6],
     tcp_box: [RangeInclusive<f64>; 3],
 ) {
     use rs_opw_kinematics::visualization;
-    visualization::visualize_robot(robot, intial_angles, tcp_box);
+    visualization::visualize_robot(robot, initial_angles, tcp_box);
 }
 
 #[cfg(all(feature = "collisions", not(feature = "visualization")))]
 fn visualize(
     robot: KinematicsWithShape,
-    intial_angles: [f32; 6],
+    initial_angles: [f32; 6],
     tcp_box: [RangeInclusive<f64>; 3],
     distances: &SafetyDistances,
 ) {
