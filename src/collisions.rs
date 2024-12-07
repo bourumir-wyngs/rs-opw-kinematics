@@ -137,16 +137,21 @@ pub struct SafetyDistances {
     ///
     /// ```
     ///    use std::collections::HashMap;
-    ///    use rs_opw_kinematics::collisions::NEVER_COLLIDES;
-    ///    use rs_opw_kinematics::kinematic_traits::{J1, J3, J5, J_BASE, J_TOOL};
+    ///    use rs_opw_kinematics::collisions::{SafetyDistances, NEVER_COLLIDES};
+    ///    use rs_opw_kinematics::kinematic_traits::{J1, J2, J3, J4, J5, J6, J_BASE, J_TOOL};
     ///
     ///    // Always specify less numbered joints first, then
     ///    // the tool, then environment objects.
-    ///    HashMap::from([
-    ///       ( (J1, J5), 0.1 ), // J1 to J2 min distance 0.1 m
-    ///       ( (J_BASE, J5), NEVER_COLLIDES), // J5 never collides with the base
-    ///       ( (J_TOOL, J5), 0.2) // J5 to tool max 0.2
-    ///    ])
+    ///     SafetyDistances::distances(&[
+    ///       // Due construction of this robot, these joints are very close, so
+    ///       // special rules are needed for them.
+    ///       ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
+    ///       ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
+    ///       ((J2, J4), NEVER_COLLIDES),
+    ///       ((J3, J4), NEVER_COLLIDES),
+    ///       ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
+    ///       ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+    ///       ])
     /// ```
     pub special_distances: HashMap<(u16, u16), f32>,
 
