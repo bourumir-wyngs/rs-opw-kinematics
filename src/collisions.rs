@@ -182,7 +182,10 @@ impl SafetyDistances {
         }
     }
 
-    pub fn touch_only(mode: CheckMode) -> SafetyDistances {
+    /// Creates the standard instance of safety distances that always uses touch check only
+    /// (no safety margins) but can also disable collision checks completely if you pass
+    /// ```CheckMode::NoCheck``` as parameter.
+    pub fn standard(mode: CheckMode) -> SafetyDistances {
         SafetyDistances {
             to_environment: TOUCH_ONLY,
             to_robot_default: TOUCH_ONLY,
@@ -560,7 +563,7 @@ mod tests {
             tool: None,
             base: None,
             collision_environment: vec![],
-            safety: SafetyDistances::touch_only(CheckMode::AllCollsions),
+            safety: SafetyDistances::standard(CheckMode::AllCollsions),
         };
 
         let collisions = robot.detect_collisions(&[identity; 6], &robot.safety, None);

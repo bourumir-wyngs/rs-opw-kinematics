@@ -131,7 +131,7 @@ fn main() {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k,                               // The robot
+        robot: &k, // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)

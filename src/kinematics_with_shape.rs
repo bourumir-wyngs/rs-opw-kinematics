@@ -83,7 +83,7 @@ impl KinematicsWithShape {
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
-                safety: SafetyDistances::touch_only(
+                safety: SafetyDistances::standard(
                     if first_collision_only {
                         CheckMode::FirstCollisionOnly
                     } else {

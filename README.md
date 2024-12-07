@@ -408,6 +408,54 @@ For this reason, the stroke planning in this library consists of the following s
   - These "intermediate" poses are flagged and can be included in the output (for simpler robots) or excluded (for
     advanced robots capable of executing Cartesian strokes using their built-in software).
 
+You will find the complete code in cartesian_stroke.rs between examples. 
+
+```Rust
+    let planner = Cartesian {
+        robot: &k, // The robot, instance of KinematicsWithShape
+        check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
+        check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
+        // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
+        transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
+        linear_recursion_depth: 8,
+
+        // RRT planner that computes the non-Cartesian path from starting position to landing pose
+        rrt: RRTPlanner {
+            step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
+            max_try: 1000,
+            debug: true,
+        },
+        include_linear_interpolation: true, // If true, intermediate Cartesian poses are
+        // included in the output. Otherwise, they are checked but not included in the output
+
+        debug: true, // verbose output to console
+    };
+
+    // plan path
+    let started = Instant::now();
+    // start is Joints, starting position. land and park are landing and parking poses. steps is the vector of poses.
+    let path = planner.plan(&start, &land, steps, &park);
+    let elapsed = started.elapsed();
+
+    match path {
+        Ok(path) => {
+            for joints in path {
+                println!("{:?}", &joints);
+            }
+        }
+        Err(message) => {
+            println!("Failed: {}", message);
+        }
+    }
+    println!("Took {:?}", elapsed);
+```
+
+It is important that while Parry3D can compute distances till collision objects and plan with safety margins,
+it is much slower than simply checking for collisions. Example explains how to create the SafetyDistances
+object that can be used for specifying how collisions should be checked. It is possible to specify the check with 
+safety margin, or just check for collisions, or do not check for collisions at all if we concentrate on path and 
+constraints to be sure everything is collision-free anyway.
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
