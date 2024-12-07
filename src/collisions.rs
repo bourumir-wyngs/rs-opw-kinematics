@@ -151,7 +151,7 @@ pub struct SafetyDistances {
     ///       ((J3, J4), NEVER_COLLIDES),
     ///       ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
     ///       ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
-    ///       ])
+    ///       ]);
     /// ```
     pub special_distances: HashMap<(u16, u16), f32>,
 
