@@ -15,6 +15,7 @@ use {
     rs_opw_kinematics::utils::dump_solutions,
     std::ops::RangeInclusive,
 };
+use rs_opw_kinematics::read_trimesh::load_trimesh_from_ply;
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -74,8 +75,8 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             Translation3::new(0.4, 0.7, 0.0).into(),
             UnitQuaternion::identity(),
         ),
-        // Tool mesh
-        load_trimesh_from_stl("src/tests/data/flag.stl"),
+        // Tool mesh. Load it from .ply file for feature demonstration
+        load_trimesh_from_ply("src/tests/data/flag.ply"),
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(

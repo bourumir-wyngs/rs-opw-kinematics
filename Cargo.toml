@@ -36,6 +36,7 @@ parry3d = { version = "0.17", optional = true }
 rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
+ply-rs-bw = { version = "0.1", optional = true } # patched ply-rs
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
@@ -53,7 +54,7 @@ rrt = { version = "0.7.0", optional = true }
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "stl_io"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs-bw", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["rrt", "collisions"]
