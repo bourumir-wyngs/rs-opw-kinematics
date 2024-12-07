@@ -24,7 +24,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
-- Collision detection (with [Parry](https://parry.rs/)) allows to exclude solutions where robot would collide with
+- Collision detection (with [Parry](https://parry.rs/)) allows excluding solutions where the robot would collide with
   itself or environment objects. It is possible to set guaranteed safety distances between surfaces rather than
   just checking if they touch.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
@@ -33,7 +33,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot. 
 - Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.
-- Jacobian, torgues and velocities
+- Jacobian, torques and velocities
 - 5 DOF inverse kinematics.
 - Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
 
@@ -77,7 +77,7 @@ If you have the OPW robot and not sure how to configure it for this tool, contac
 Since 1.1.0, it is possible to
 set [constraints](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/constraints/index.html) for the joints.
 Robot poses where any of the joints are outside
-the specified constraint range are not included into returned list of solutions. It is also possible to
+the specified constraint range are not included in the returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
 
 Constraints are specified by providing two angles, _from_ and to, for every _joint_. If _from_ < _to_, the valid range
@@ -86,12 +86,12 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 180&deg; are not. If _from_ = 15&deg; and _to_ = 5&deg; (the opposite), values 16&deg;, 17&deg;, 100&deg;, 180&deg;,
 359&deg;, 0&deg;, 1&deg;, 3&deg;, 4&deg; are valid, while 6&deg;, 8&deg;, and 11&deg; are not.
 
-Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with period of 2&pi;, the
+Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with the period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
 Since 1.7.0, convenience method exists to specify constraints as ranges in degrees.
 
-## Jacobian: torgues and velocities
+## Jacobian: torques and velocities
 
 Since 1.3.2, it is possible to obtain
 the [Jacobian](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents
@@ -102,7 +102,7 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [torques](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torgues in Newton meters. For the end effector, it is possible to use either
+or torques in Newton meters. For the end effector, it is possible to use either
 nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
 or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or
 rotations in N m.
@@ -135,7 +135,7 @@ Frame in robotics is most commonly defined by the 3 pairs of points (to and from
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
 Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
-and calculated joint angles for the transformed (shifted and rotated) trajector. See the
+and calculated joint angles for the transformed (shifted and rotated) trajectory. See the
 [frame](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/frame/index.html) documentation for details.
 
 ## Individual link positions
@@ -151,8 +151,8 @@ For tools that are not sensitive to axis rotation (such as welding torches or pa
 requested where the value of joint 6 (which typically controls this rotation) is either inherited from the previous
 position or explicitly specified.
 
-The 5 DOF robot can stil be represented with the same diagram, and has the same parameters. However, joint 6 is assumed
-to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation.
+The 5 DOF robot can still be represented with the same diagram, and has the same parameters. However, joint 6 is assumed
+to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation
 but the rotation around the tool axis is not followed.
 
 Support for 5 DOF robots is now included through an additional 'dof' field in the
@@ -260,7 +260,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
         // Joint meshes
         [
-            // If your mesh if offset in .stl file, use Trimesh::transform_vertices,
+            // If your mesh is offset in .stl file, use Trimesh::transform_vertices,
             // you may also need Trimesh::scale on some extreme cases.
             // If your joints or tool consist of multiple meshes, combine these
             // with Trimesh::append
@@ -292,7 +292,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             UnitQuaternion::identity(),
         ),
 
-        // Objects arround the robot, with global transforms for them.
+        // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
             CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(-1., 0., 0.) },
@@ -320,7 +320,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
   // Let's play a bit with this robot now:
  
   let pose = Isometry3::from_parts(
-    Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above center of the world
+    Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above a center of the world
     UnitQuaternion::identity()); // with robot tool pointing right upwards
 
   // Collision aware inverse kinematics (colliding solutions discarded)  
@@ -338,7 +338,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
 ## Path planning
 There are currently few path planning libraries available in Rust. Instead of incorporating them directly into our project
-and writing the code arround, we decided to explore the complexity of integrating these libraries as external dependencies
+and writing the code around, we decided to explore the complexity of integrating these libraries as external dependencies
 (referenced only in examples). This approach allowed us to identify key "pain points" that complicate the integration of
 external path planners.
 
@@ -474,7 +474,7 @@ fn main() {
     // In which position to show the robot on startup
     let intial_angles = [173., -8., -94., 6., 83., 207.];
 
-    // Boundaries for XYZ drawbars in visualizaiton GUI
+    // Boundaries for XYZ drawbars in visualization GUI
     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
 
     visualization::visualize_robot(robot, intial_angles, tcp_box);
@@ -563,25 +563,25 @@ that takes URDF string rather than the file, provides error handling and much mo
 is constructed from the extracted values.
 
 YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
-not accounted for). The URDF reader has als been extended to support such robots, but joint names must aways be
+not accounted for). The URDF reader has als been extended to support such robots, but joint names must always be
 explicitly provided. Instead of specifying a name for joint 6, the name of the tool center point (TCP) must be given.
-Both YAML and URDF readers still try to obtain the parameter c4 that is now distance from J5 axis till TCP.
+Both YAML and URDF readers still try to get the parameter c4 that is now distance from J5 axis till TCP.
 
-**Important:** The URDF reader assumes a robot with parallel base and spherical wrist and not an arbitrary robot.
+**Important:** The URDF reader assumes a robot with a parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
 compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
 values. Use visualization as explained before feeding the output to the physical robot.
 
 # Disabling filesystem
 
-For security and performance, some users prefer smaller libraries with less dependencies. If YAML and URDF readers
+For security and performance, some users prefer smaller libraries with fewer dependencies. If YAML and URDF readers
 are not in use and meshes for collision detection are obtained from somewhere else (
 or collision detection is not used), the filesystem access can be completely disabled in your Cargo.toml, importing the
 library like:
 
-rs-opw-kinematics = { version = ">=1.7.0, <2.0.0", default-features = false }
+rs-opw-kinematics = { version = ">=1.8.0, <2.0.0", default-features = false }
 
-In this case, import of URDF and YAML files will be unaccessible, visualization and
+In this case, import of URDF and YAML files will be inaccessible, visualization and
 collision detection will not work either, and used dependencies
 will be limited to the single _nalgebra_ crate.
 
