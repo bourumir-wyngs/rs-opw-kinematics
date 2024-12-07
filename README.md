@@ -69,6 +69,9 @@ sign_corrections: [1; 6],
 Note that the offset of the third joint is -90&deg;, bringing the joint from the upright position to parallel with
 the ground at "zero."
 
+If you have the OPW robot and not sure how to configure it for this tool, contact
+<a href="mailto:&#98;&#111;&#117;&#114;&#117;&#109;&#105;&#114;&#46;&#119;&#121;&#110;&#103;&#115;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;">&#98;&#111;&#117;&#114;&#117;&#109;&#105;&#114;&#46;&#119;&#121;&#110;&#103;&#115;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;</a> and we will help with integration.  
+
 ## Constraints
 
 Since 1.1.0, it is possible to
