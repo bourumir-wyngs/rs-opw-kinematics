@@ -9,7 +9,7 @@ planning.
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
-<img src="https://github.com/user-attachments/assets//12105299-e899-4c88-9c20-22a42f677c39" alt="screenshot" width="300"/>
+<img src="https://github.com/user-attachments/assets/64cf952a-93b0-4a69-ba6f-d3e98b1cee25" alt="screenshot" width="300"/>
 
 # Intro
 
