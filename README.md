@@ -9,7 +9,7 @@ planning.
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
-<img src="https://github.com/user-attachments/assets/3a0e6293-519e-455f-bf8b-0ff1090103b1" alt="screenshot" width="300"/>
+<img src="https://github.com/user-attachments/assets//12105299-e899-4c88-9c20-22a42f677c39" alt="screenshot" width="300"/>
 
 # Intro
 
@@ -25,18 +25,18 @@ data for the test suite. This documentation also incorporates the robot diagram 
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
 - Collision detection (with [Parry](https://parry.rs/)) allows to exclude solutions where robot would collide with
-  itself or environment objects.
+  itself or environment objects. It is possible to set guaranteed safety distances between surfaces rather than
+  just checking if they touch.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- Respecting previous joint position helps against unwanted jumps.
-- Jacobian, torgues and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
-  of the tool center point (TCP) rather than any part of the robot.
+  of the tool center point (TCP) rather than any part of the robot. 
+- Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.
+- Jacobian, torgues and velocities
 - 5 DOF inverse kinematics.
 - Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
-- Easily integrates with path finding libraries like [rrt](https://github.com/openrr/rrt) and [pathfinding](https://github.com/evenfurther/pathfinding),
-  examples provided.
+
 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
