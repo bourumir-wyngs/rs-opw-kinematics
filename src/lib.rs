@@ -82,6 +82,7 @@ mod simplify_joint_name;
 #[cfg(feature = "collisions")]
 pub mod collisions;
 
+#[cfg(feature = "stroke_planning")]
 #[path = "path_plan/cartesian.rs"]
 pub mod cartesian;
 
