@@ -92,6 +92,8 @@ constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
 Since 1.7.0, convenience method exists to specify constraints as ranges in degrees.
 
+Please see the [example](examples/constraints.rs).
+
 ## Jacobian: torques and velocities
 
 Since 1.3.2, it is possible to obtain
@@ -111,6 +113,8 @@ rotations in N m.
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent
 overspeed or overtorgue of individual joints.
 
+Please see the [example](examples/jacobian.rs).
+
 ## The tool and the base
 
 Since 1.3.2, robot can be equipped with
@@ -127,6 +131,8 @@ trait, and implement
 this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or
 two tools if the first is a receptacle of the tool changer).
 
+Please see the [example](examples/tool_and_base.rs).
+
 ## The frame
 
 Since 1.7.0 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
@@ -137,7 +143,7 @@ also rotation, or just a single pair is enough if only shift (but not a rotation
 
 Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
 and calculated joint angles for the transformed (shifted and rotated) trajectory. See the
-[frame](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/frame/index.html) documentation for details.
+[frame](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
 ## Individual link positions
 
@@ -188,7 +194,7 @@ The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
 factor of 1.0 is the common, as this value ensures the end-effector’s
 orientation remains unchanged if only J₃ and J₂ move.
 
-See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html).
+See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/parralelogram/struct.Parralelogram.html) and [example](examples/paralellogram.rs).
 
 ## Collision avoidance
 The new class 
@@ -215,8 +221,8 @@ Safety distances are controlled through [SafetyDistances](https://docs.rs/rs-opw
 Safety distances can be configured separately for robot-to-robot and robot-to-environment collisions. 
 Shorter distances can be specified for joints that naturally operate in proximity.
 
-The example below demonstrates how to create this structure, complete with tool,
-base and constraints:
+The code below demonstrates how to create this structure, complete with tool,
+base and constraints (see also[example](examples/complete_visible_robot.rs).:
 
 ```Rust
 use std::ops::RangeInclusive;
@@ -380,7 +386,7 @@ fn plan_path(
 This library required to produce random joint angles within constraints. We made constraints easily
 accessible from the instance of Kinematics, and provided random_angles() methods for them.
 
-See the file `examples/path_planning_rrt.rs` for how to define the robot and other boilerplate code. The direct output
+See the [example](examples/path_planning_rrt.rs). for how to define the robot and other boilerplate code. The direct output
 will be a vector of vectors (not vector of Joints), each representing a step in the trajectory.
 
 ## Cartesian stroke
@@ -460,6 +466,8 @@ it is much slower than simply checking for collisions. Example explains how to c
 object that can be used for specifying how collisions should be checked. It is possible to specify the check with 
 safety margin, or just check for collisions, or do not check for collisions at all if we concentrate on path and 
 constraints to be sure everything is collision-free anyway.
+
+Please see the [example](examples/cartesian_stroke.rs).
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
