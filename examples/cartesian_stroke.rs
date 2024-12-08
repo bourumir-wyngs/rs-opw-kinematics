@@ -1,7 +1,3 @@
-use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
-use rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES};
-use rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL};
-use rs_opw_kinematics::rrt::RRTPlanner;
 #[cfg(feature = "stroke_planning")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -11,6 +7,11 @@ use {
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::utils,
+    rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
+    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
+    rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
+    rs_opw_kinematics::rrt::RRTPlanner,
+    
     std::time::Instant,
     std::vec::Vec,
 };
@@ -99,12 +100,12 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     )
 }
 
-fn pose(kinematics: &KinematicsWithShape, angles_in_degrees: [f32; 6]) -> Pose {
-    kinematics.forward(&utils::joints(&angles_in_degrees))
-}
-
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn main() {
+    fn pose(kinematics: &KinematicsWithShape, angles_in_degrees: [f32; 6]) -> Pose {
+        kinematics.forward(&utils::joints(&angles_in_degrees))
+    }
+    
     // Initialize kinematics with your robot's specific parameters
     let k = create_rx160_robot();
 
@@ -166,4 +167,9 @@ fn main() {
         }
     }
     println!("Took {:?}", elapsed);
+}
+
+#[cfg(not(feature = "stroke_planning"))]
+fn main() {
+    println!("Build configuration does not support this example")
 }

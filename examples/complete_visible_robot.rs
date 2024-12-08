@@ -1,5 +1,3 @@
-use rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES};
-use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
 #[cfg(feature = "collisions")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -13,6 +11,10 @@ use {
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::utils::dump_solutions,
+
+    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
+    rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL},    
+    
     std::ops::RangeInclusive,
 };
 
