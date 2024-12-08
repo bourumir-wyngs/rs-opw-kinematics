@@ -16,6 +16,7 @@ readme = "README.md"
 maintenance = { status = "actively-developed" } 
 
 [dependencies]
+ply-rs = { version = "0.1.3" }
 nalgebra = "0.33"
 rand = "0.8" # Now is needed for path planner
 
