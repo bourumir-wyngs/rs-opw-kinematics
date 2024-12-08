@@ -593,4 +593,4 @@ using independent C++ implementation by [Jmeyer1292/opw_kinematics](https://gith
 testing suite checks if the solutions
 match.
 
-
+[![Dependency Vulnerabilities](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi-hooks.soos.io%2Fapi%2Fshieldsio-badges%3FbadgeType%3DDependencyVulnerabilities%26pid%3D3xxqf0020%26branchName%3D1.8.0)](https://app.soos.io)
