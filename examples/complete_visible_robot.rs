@@ -15,7 +15,7 @@ use {
     rs_opw_kinematics::utils::dump_solutions,
     std::ops::RangeInclusive,
 };
-use rs_opw_kinematics::read_trimesh::load_trimesh_from_ply;
+
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -26,7 +26,7 @@ use rs_opw_kinematics::read_trimesh::load_trimesh_from_ply;
 /// Additionally, four environment objects and a tool are created for the visualization.
 #[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+    use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
 
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");

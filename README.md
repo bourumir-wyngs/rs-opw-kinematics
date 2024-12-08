@@ -226,7 +226,7 @@ use rs_opw_kinematics::collisions::{BaseBody, CollisionBody, RobotBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};
-use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
 
 
 /// Create the sample robot we will visualize. This function creates
@@ -283,9 +283,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             UnitQuaternion::identity(),
         ),
 
-        // Tool mesh
-        load_trimesh_from_stl("src/tests/data/flag.stl"),
-
+        // Tool mesh. Load it from .ply file for feature demonstration (different format)
+        load_trimesh_from_ply("src/tests/data/flag.ply"),
+        
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
