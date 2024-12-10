@@ -1,5 +1,5 @@
 use crate::calipers::largest_fitting_rectangle;
-use geo::{ConcaveHull, ConvexHull, LineString, Point as GeoPoint, Polygon};
+use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
 use parry3d::math::Point as ParryPoint;
 use parry3d::shape::TriMesh;
 
@@ -34,7 +34,6 @@ pub fn yz_bounding_rectangle(mesh: &TriMesh) -> (ParryPoint<f32>, ParryPoint<f32
 mod tests {
     use super::*;
     use crate::read_trimesh::load_trimesh_from_ply;
-    use parry3d::math::Point;
     use parry3d::math::Point as ParryPoint;
     use std::fs::File; // Adjust as needed to import `load_trimesh_from_ply` and `yz_bounding_rectangle`
     use std::io::{self, Write};
