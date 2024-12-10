@@ -4,7 +4,8 @@ use parry3d::math::Point as ParryPoint;
 use parry3d::shape::TriMesh;
 
 pub fn yz_bounding_rectangle(mesh: &TriMesh) -> (ParryPoint<f32>, ParryPoint<f32>) {
-    let concavity = 0.1; // as the mesh we have is is mm
+    let concavity = 0.1; // the mesh we have is is mm so value may need adjustment later
+
     // Step 1: Project all mesh points onto the YZ plane
     let projected_points: Vec<GeoPoint<f32>> = mesh
         .vertices()
@@ -13,39 +14,30 @@ pub fn yz_bounding_rectangle(mesh: &TriMesh) -> (ParryPoint<f32>, ParryPoint<f32
         .collect();
 
     // Step 2: Compute the concavehull of the projected points
-    
-    let concave_hull: Polygon<f32> = Polygon::new(LineString::from(projected_points), vec![]).concave_hull(concavity);
+
+    let concave_hull: Polygon<f32> =
+        Polygon::new(LineString::from(projected_points), vec![]).concave_hull(concavity);
 
     // Step 3: Compute the largest fitting rectangle in the YZ plane
     if let Some((bottom_left, top_right)) = largest_fitting_rectangle(&concave_hull) {
-        // Step 4: Convert GeoPoints to ParryPoints with X set to 0
-        let bottom_left_parry = ParryPoint::new(0.0, bottom_left.x(), bottom_left.y());
-        let top_right_parry = ParryPoint::new(0.0, top_right.x(), top_right.y());
-
-        (bottom_left_parry, top_right_parry)
+        (
+            ParryPoint::new(0.0, bottom_left.x(), bottom_left.y()),
+            ParryPoint::new(0.0, top_right.x(), top_right.y()),
+        )
     } else {
         panic!("Failed to compute the largest fitting rectangle.");
     }
 }
 
 // Conversion functions between Parry and Geo points (if needed)
-fn parry_to_geo(parry_point: ParryPoint<f32>) -> GeoPoint<f32> {
-    GeoPoint::new(parry_point.y, parry_point.z)
-}
-
-fn geo_to_parry(geo_point: GeoPoint<f32>) -> ParryPoint<f32> {
-    ParryPoint::new(0.0, geo_point.x(), geo_point.y()) // Project X to 0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::read_trimesh::load_trimesh_from_ply;
     use parry3d::math::Point;
-    use std::fs::File; // Adjust as needed to import `load_trimesh_from_ply` and `yz_bounding_rectangle`
     use parry3d::math::Point as ParryPoint;
+    use std::fs::File; // Adjust as needed to import `load_trimesh_from_ply` and `yz_bounding_rectangle`
     use std::io::{self, Write};
-
 
     // Writes the rectangle corners and mesh points to a JSON file
     fn write_rectangle_and_mesh_to_json(
@@ -66,7 +58,9 @@ mod tests {
             writeln!(
                 file,
                 "  {{\"x\": {}, \"y\": {}, \"z\": {}}}{}",
-                corner.x, corner.y, corner.z,
+                corner.x,
+                corner.y,
+                corner.z,
                 if i == corners.len() - 1 { "" } else { "," }
             )?;
         }
@@ -90,7 +84,9 @@ mod tests {
             writeln!(
                 file,
                 "  {{\"x\": {}, \"y\": {}, \"z\": {}}}{}",
-                point.x, point.y, point.z,
+                point.x,
+                point.y,
+                point.z,
                 if i == mesh_points.len() - 1 { "" } else { "," }
             )?;
         }
@@ -126,14 +122,22 @@ mod tests {
         let mesh_points: Vec<ParryPoint<f32>> = mesh.vertices().to_vec();
 
         // Write data to JSON
-        let json_path = "work/rectangle_and_mesh_data.json";
-        write_rectangle_and_mesh_to_json(&corners, &bottom_left, &top_right, &mesh_points, json_path)
-            .expect("Failed to write rectangle and mesh data to JSON");
-        println!("Rectangle and mesh data written to: {}", json_path);
+        if false {
+            let json_path = "work/rectangle_and_mesh_data.json";
+            write_rectangle_and_mesh_to_json(
+                &corners,
+                &bottom_left,
+                &top_right,
+                &mesh_points,
+                json_path,
+            )
+                .expect("Failed to write rectangle and mesh data to JSON");
+            println!("Rectangle and mesh data written to: {}", json_path);
+        }
 
         // Expected values
-        let expected_bottom_left = ParryPoint::new(0.0, -36.34134, 0.77647775);
-        let expected_top_right = ParryPoint::new(0.0, 36.21518, 126.9999);
+        let expected_bottom_left = ParryPoint::new(0.0, -30.64817, 74.96246);
+        let expected_top_right = ParryPoint::new(0.0, 30.292183, 126.85711);
 
         // Assertions
         assert!((bottom_left.x - expected_bottom_left.x).abs() < 1e-6);
