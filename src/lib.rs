@@ -105,6 +105,15 @@ mod camera_controller;
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/calipers.rs"]
+pub mod calipers;
+
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/mesh_an.rs"]
+pub mod mesh_an;
+
+
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;

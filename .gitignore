@@ -3,4 +3,5 @@
 
 /src/tests/data/tmp/
 /amb/
-/.run/Run cartesian_stroke.run.xml
+/.run/*.run.xml
+/src/*(copy).ply
