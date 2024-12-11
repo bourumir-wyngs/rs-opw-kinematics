@@ -97,15 +97,28 @@ fn plane_regression(x: &[f32], y: &[f32], z: &[f32]) -> Option<(f32, f32, f32)> 
 
 /// Convert plane coefficients to Isometry3 rotation and translation
 fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f32> {
+
+    fn select_best_arbitrary_vector(z_axis: Vector3<f32>) -> Vector3<f32> {
+        // Compute dot products with the standard basis vectors
+        let dot_x = z_axis.dot(&Vector3::x()).abs();
+        let dot_y = z_axis.dot(&Vector3::y()).abs();
+        let dot_z = z_axis.dot(&Vector3::z()).abs();
+
+        // Select the basis vector with the smallest absolute dot product
+        if dot_x <= dot_y && dot_x <= dot_z {
+            Vector3::x() // Least aligned with z_axis
+        } else if dot_y <= dot_z {
+            Vector3::y()
+        } else {
+            Vector3::z()
+        }
+    }
+    
     // Step 1: Normalize the normal vector (Z-axis of the plane)
     let z_axis = Unit::new_normalize(normal);
 
     // Step 2: Determine an arbitrary perpendicular vector
-    let mut arbitrary_vector = Vector3::x();
-    if z_axis.into_inner().dot(&arbitrary_vector) > 0.99 {
-        // If the normal is close to the X-axis, use a different arbitrary vector
-        arbitrary_vector = Vector3::y();
-    }
+    let arbitrary_vector = select_best_arbitrary_vector(z_axis.into_inner());
 
     // Step 3: Compute the X-axis (perpendicular to Z-axis and arbitrary vector)
     let x_axis = Unit::new_normalize(arbitrary_vector.cross(&z_axis.into_inner()));
@@ -256,6 +269,8 @@ impl Projector {
             );
             return Some(plane_to_isometry(normal, centroid));
         }
+        
+        println!("No regression could be done for {:?}", points);
 
         None
     }
@@ -315,17 +330,17 @@ impl Projector {
         for i in 0..self.check_points {
             let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
             let circle_point = ParryPoint::new(
-                central_point.x + self.radius * angle.cos(),
-                central_point.y,
-                central_point.z + self.radius * angle.sin(),
+                point.x,                
+                point.y + self.radius * angle.cos(),
+                point.z + self.radius * angle.sin(),
             );
 
             if let Some(intersection) = Self::project_point(mesh, &circle_point, 1) {
-                println!("Intersection at angle {}: {:?}", angle, intersection);
+                println!("Intersection at angle {}: {:?}", angle.to_degrees(), intersection);
                 points.push(intersection);
                 valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
             } else {
-                println!("No intersection at angle {}", angle);
+                println!("No intersection at angle {}", angle.to_degrees());
             }
         }
 
@@ -334,29 +349,8 @@ impl Projector {
             println!("Not enough valid points for regression.");
             return None;
         }
-
-        // Step 3: Perform planar regression
-        let normal = Self::compute_plane_normal(&valid_points)?;
-        println!("Plane normal: {:?}", normal);
-
-        // Ensure normal orientation is consistent
-        let normal = if normal.z < 0.0 { -normal } else { normal };
-
-        // Construct the Isometry3 as before
-        let z_axis = Unit::new_normalize(normal);
-        let x_axis = Unit::new_normalize(Vector3::y_axis().cross(&z_axis).into_owned());
-        let y_axis = Unit::new_normalize(z_axis.cross(&x_axis).into_owned());
-
-        let rotation = Rotation3::from_matrix_unchecked(Matrix3::from_columns(&[
-            x_axis.into_inner(),
-            y_axis.into_inner(),
-            z_axis.into_inner(),
-        ]));
-
-        Some(Isometry3::from_parts(
-            central_point.coords.into(),
-            <UnitQuaternion<f32>>::from(rotation),
-        ))
+        
+        Self::compute_plane_isometry(&*valid_points)
     }
 }
 
@@ -455,8 +449,28 @@ mod tests {
         }
     }
 
-    //#[test]
+    #[test]
     fn test_project_circle_into_axis_aligned_cube() {
+        use nalgebra::{Isometry3, Vector3};
+
+        /// Find the angle between the orientation of an Isometry3 and the global X-axis.
+        fn angle_with_x_axis(isometry: &Isometry3<f32>) -> f32 {
+            // Define the global X-axis
+            let x_axis = Vector3::x();
+
+            // Apply the rotation of the isometry to the X-axis
+            let rotated_x = isometry.rotation * x_axis;
+
+            // Compute the dot product of the rotated X-axis and the global X-axis
+            let dot_product = rotated_x.dot(&x_axis);
+
+            // Clamp the dot product to avoid floating-point precision issues
+            let clamped_dot = dot_product.clamp(-1.0, 1.0);
+
+            // Compute the angle in radians
+            clamped_dot.acos().to_degrees()
+        }
+        
         let cube = create_test_cube();
         let test_points = create_test_points();
         let expected_results = create_expected_results();
@@ -489,6 +503,8 @@ mod tests {
 
             let rotation = isometry.rotation;
             let tolerance = 1E-5;
+            
+            println!("Axis X angle {}", angle_with_x_axis(&isometry));
 
             // The rotated X-axis should align with the negative X-axis
             let rotated_x_axis = rotation * Vector3::x();
@@ -557,32 +573,41 @@ mod tests {
         }
 
         #[test]
-        fn test_planes_to_isometry() {
-            // Test 1: XY plane
+        fn test_xy_plane_to_isometry() {
+            // Normal to the XY plane, centroid at origin
             test_plane_to_isometry(
-                Vector3::new(0.0, 0.0, 1.0), // Normal to the XY plane
-                Point3::new(0.0, 0.0, 0.0),  // Centroid at origin
+                Vector3::new(0.0, 0.0, 1.0), // Normal
+                Point3::new(0.0, 0.0, 0.0),  // Centroid
                 "XY plane",
             );
+        }
 
-            // Test 2: XZ plane
+        #[test]
+        fn test_xz_plane_to_isometry() {
+            // Normal to the XZ plane, centroid at origin
             test_plane_to_isometry(
-                Vector3::new(0.0, 1.0, 0.0), // Normal to the XZ plane
-                Point3::new(0.0, 0.0, 0.0),  // Centroid at origin
+                Vector3::new(0.0, 1.0, 0.0), // Normal
+                Point3::new(0.0, 0.0, 0.0),  // Centroid
                 "XZ plane",
             );
+        }
 
-            // Test 3: YZ plane
+        #[test]
+        fn test_yz_plane_to_isometry() {
+            // Normal to the YZ plane, centroid at origin
             test_plane_to_isometry(
-                Vector3::new(1.0, 0.0, 0.0), // Normal to the YZ plane
-                Point3::new(0.0, 0.0, 0.0),  // Centroid at origin
+                Vector3::new(1.0, 0.0, 0.0), // Normal
+                Point3::new(0.0, 0.0, 0.0),  // Centroid
                 "YZ plane",
             );
+        }
 
-            // Test 4: Inclined plane z = x
+        #[test]
+        fn test_inclined_plane_to_isometry() {
+            // Normal to the inclined plane z = x, centroid at (0.5, 0.0, 0.5)
             test_plane_to_isometry(
                 Vector3::new(1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
-                Point3::new(0.5, 0.0, 0.5), // Centroid of the inclined plane
+                Point3::new(0.5, 0.0, 0.5), // Centroid
                 "Inclined plane (z = x)",
             );
         }
@@ -645,7 +670,7 @@ mod tests {
         }
 
         #[test]
-        fn test_compute_planes_to_isometry() {
+        fn test_compute_planes_to_isometry_xy() {
             // Test 1: Points on the XY plane (z = 0)
             test_compute_plane_isometry(
                 &[
@@ -657,7 +682,10 @@ mod tests {
                 Vector3::new(0.0, 0.0, -1.0), // Normal to the XY plane
                 "XY plane",
             );
+        }
 
+        #[test]
+        fn test_compute_planes_to_isometry_xz() {
             // Test 2: Points on the XZ plane (y = 0)
             test_compute_plane_isometry(
                 &[
@@ -669,7 +697,10 @@ mod tests {
                 Vector3::new(0.0, -1.0, 0.0), // Normal to the XZ plane
                 "XZ plane",
             );
+        }
 
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_45() {
             // Test 4: Points on an inclined plane z = x
             test_compute_plane_isometry(
                 &[
@@ -681,7 +712,42 @@ mod tests {
                 Vector3::new(1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
                 "Inclined plane (z = x)",
             );
+        }
 
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_45_neg_x() {
+            // Points on an inclined plane z = -x
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(-1.0, 0.0, 1.0),
+                    Point3::new(-0.5, 0.5, 0.5),
+                    Point3::new(-1.0, 1.0, 1.0),
+                ],
+                Vector3::new(-1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [-1, 0, -1]
+                "Inclined plane (z = -x)",
+            );
+        }
+
+
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_45_y() {
+            // Points on an inclined plane z = y
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(0.0, 1.0, 1.0),
+                    Point3::new(0.5, 0.5, 0.5),
+                    Point3::new(1.0, 1.0, 1.0),
+                ],
+                Vector3::new(0.0, 1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt()), // Normalized [0, 1, -1]
+                "Inclined plane (z = y)",
+            );
+        }
+        
+
+        #[test]
+        fn test_compute_planes_to_isometry_yz() {
             // Test 3: Points on the YZ plane (x = 0)
             test_compute_plane_isometry(
                 &[
@@ -692,6 +758,74 @@ mod tests {
                 ],
                 Vector3::new(-1.0, 0.0, 0.0), // Normal to the YZ plane
                 "YZ plane",
+            );
+        }
+
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_45_all_directions() {
+            // Points on an inclined plane z = x + y
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(1.0, 0.0, 1.0),
+                    Point3::new(0.0, 1.0, 1.0),
+                    Point3::new(1.0, 1.0, 2.0),
+                ],
+                Vector3::new(1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt(), -1.0 / 3_f32.sqrt()), // Normalized [1, 1, -1]
+                "Inclined plane (z = x + y)",
+            );
+        }
+
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_45_all_directions_opposite() {
+            // Points on an inclined plane z = x - y
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(1.0, 0.0, 1.0),
+                    Point3::new(0.0, 1.0, -1.0),
+                    Point3::new(1.0, 1.0, 0.0),
+                ],
+                Vector3::new(1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt()), // Normalized [1, -1, -1]
+                "Inclined plane (z = x - y)",
+            );
+        }
+
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_30_all_directions() {
+            // Points on an inclined plane z = x + y
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(1.0, 0.0, 1.0),
+                    Point3::new(0.0, 1.0, 1.0),
+                    Point3::new(1.0, 1.0, 2.0),
+                ],
+                Vector3::new(
+                    1.0 / 3_f32.sqrt(),
+                    1.0 / 3_f32.sqrt(),
+                    -1.0 / 3_f32.sqrt(),
+                ), // Normalized [1, 1, -1]
+                "Inclined plane (z = x + y, 30 degrees)",
+            );
+        }
+
+        #[test]
+        fn test_compute_planes_to_isometry_inclined_30_all_directions_opposite() {
+            // Points on an inclined plane z = x - y
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(1.0, 0.0, 1.0),
+                    Point3::new(0.0, 1.0, -1.0),
+                    Point3::new(1.0, 1.0, 0.0),
+                ],
+                Vector3::new(
+                    1.0 / 3_f32.sqrt(),
+                    -1.0 / 3_f32.sqrt(),
+                    -1.0 / 3_f32.sqrt(),
+                ), // Normalized [1, -1, -1]
+                "Inclined plane (z = x - y, 30 degrees)",
             );
         }
     }
