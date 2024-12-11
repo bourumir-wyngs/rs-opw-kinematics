@@ -215,13 +215,12 @@ impl Kinematics for OPWKinematics {
         // Calculate the final translation
         let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
 
-        // Convert the rotation matrix to a quaternion
-        let rotation = Rotation3::from_matrix_unchecked(r_oe);
+        let quaternion = UnitQuaternion::from_matrix(&r_oe);        
 
         // Return the pose combining translation and rotation
         Pose::from_parts(
             Translation3::from(translation),
-            UnitQuaternion::from_rotation_matrix(&rotation),
+            quaternion,
         )
     }
 

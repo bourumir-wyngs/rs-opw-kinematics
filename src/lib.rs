@@ -113,6 +113,9 @@ pub mod calipers;
 #[path = "path_plan/mesh_an.rs"]
 pub mod mesh_an;
 
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/projector.rs"]
+pub mod projector;
 
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
