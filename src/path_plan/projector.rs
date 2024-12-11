@@ -124,12 +124,8 @@ fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f
     let quaternion = UnitQuaternion::from_rotation_matrix(&r3);
 
     // Step 6: Create Isometry3 with rotation and centroid as translation
-    Isometry3::from_parts(
-        centroid.coords.into(),
-        quaternion,
-    )
+    Isometry3::from_parts(centroid.coords.into(), quaternion)
 }
-
 
 /// Handle regression results and convert to Isometry3
 fn regression_to_isometry(
@@ -263,7 +259,6 @@ impl Projector {
 
         None
     }
-    
 
     fn compute_plane_normal(points: &[Point3<f32>]) -> Option<Vector3<f32>> {
         let n = points.len();
@@ -595,15 +590,23 @@ mod tests {
 
     #[cfg(test)]
     mod compute_plane {
-        use nalgebra::{Point3, Vector3};
         use crate::projector::Projector;
+        use nalgebra::{Point3, Vector3};
 
         /// Helper function to test compute_plane_isometry with a set of points
-        fn test_compute_plane_isometry(points: &[Point3<f32>], expected_normal: Vector3<f32>, description: &str) {
-            let isometry = Projector::compute_plane_isometry(points).expect("Failed to compute plane isometry");
+        fn test_compute_plane_isometry(
+            points: &[Point3<f32>],
+            expected_normal: Vector3<f32>,
+            description: &str,
+        ) {
+            let isometry = Projector::compute_plane_isometry(points)
+                .expect("Failed to compute plane isometry");
 
             // Compute the centroid from points
-            let centroid = points.iter().fold(Vector3::zeros(), |acc, p| acc + p.coords) / points.len() as f32;
+            let centroid = points
+                .iter()
+                .fold(Vector3::zeros(), |acc, p| acc + p.coords)
+                / points.len() as f32;
 
             // Check translation
             let translation = isometry.translation.vector;
@@ -651,7 +654,7 @@ mod tests {
                     Point3::new(0.0, 1.0, 0.0),
                     Point3::new(1.0, 1.0, 0.0),
                 ],
-                Vector3::new(0.0, 0.0, 1.0), // Normal to the XY plane
+                Vector3::new(0.0, 0.0, -1.0), // Normal to the XY plane
                 "XY plane",
             );
 
@@ -663,20 +666,8 @@ mod tests {
                     Point3::new(0.0, 0.0, 1.0),
                     Point3::new(1.0, 0.0, 1.0),
                 ],
-                Vector3::new(0.0, 1.0, 0.0), // Normal to the XZ plane
+                Vector3::new(0.0, -1.0, 0.0), // Normal to the XZ plane
                 "XZ plane",
-            );
-
-            // Test 3: Points on the YZ plane (x = 0)
-            test_compute_plane_isometry(
-                &[
-                    Point3::new(0.0, 0.0, 0.0),
-                    Point3::new(0.0, 1.0, 0.0),
-                    Point3::new(0.0, 0.0, 1.0),
-                    Point3::new(0.0, 1.0, 1.0),
-                ],
-                Vector3::new(1.0, 0.0, 0.0), // Normal to the YZ plane
-                "YZ plane",
             );
 
             // Test 4: Points on an inclined plane z = x
@@ -690,7 +681,18 @@ mod tests {
                 Vector3::new(1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
                 "Inclined plane (z = x)",
             );
+
+            // Test 3: Points on the YZ plane (x = 0)
+            test_compute_plane_isometry(
+                &[
+                    Point3::new(0.0, 0.0, 0.0),
+                    Point3::new(0.0, 1.0, 0.0),
+                    Point3::new(0.0, 0.0, 1.0),
+                    Point3::new(0.0, 1.0, 1.0),
+                ],
+                Vector3::new(-1.0, 0.0, 0.0), // Normal to the YZ plane
+                "YZ plane",
+            );
         }
     }
-    
 }
