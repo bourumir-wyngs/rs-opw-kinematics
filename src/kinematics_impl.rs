@@ -215,12 +215,13 @@ impl Kinematics for OPWKinematics {
         // Calculate the final translation
         let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
 
-        let quaternion = UnitQuaternion::from_matrix(&r_oe);        
+        // Convert the rotation matrix to a quaternion
+        let rotation = Rotation3::from_matrix_unchecked(r_oe);
 
         // Return the pose combining translation and rotation
         Pose::from_parts(
             Translation3::from(translation),
-            quaternion,
+            UnitQuaternion::from_rotation_matrix(&rotation),
         )
     }
 
@@ -257,7 +258,7 @@ impl Kinematics for OPWKinematics {
             Translation3::new(p.a2, 0.0, 0.0),
             UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
         );
-         
+
         // Pose 5 is the movable "nose" close to the tool center point.
         let pose5 = pose4 * Isometry3::from_parts(
             Translation3::new(0.0, 0.0, p.c3),
