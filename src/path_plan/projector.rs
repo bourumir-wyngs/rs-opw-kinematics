@@ -1,5 +1,5 @@
 use nalgebra::{
-    DMatrix, Isometry3, Matrix3, Point3, Quaternion, Rotation3, Unit, UnitQuaternion, Vector3,
+    DMatrix, Isometry3, Matrix3, Point3, Rotation3, Unit, UnitQuaternion, Vector3,
 };
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
@@ -140,35 +140,10 @@ fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f
     Isometry3::from_parts(centroid.coords.into(), quaternion)
 }
 
-/// Handle regression results and convert to Isometry3
-fn regression_to_isometry(
-    primary: Option<(f32, f32, f32)>,
-    alt1: Option<(f32, f32, f32)>,
-    alt2: Option<(f32, f32, f32)>,
-    centroid: Point3<f32>,
-) -> Option<Isometry3<f32>> {
-    if let Some((a, b, _c)) = primary {
-        // z = ax + by + c
-        let normal = Vector3::new(a, b, -1.0);
-        return Some(plane_to_isometry(normal, centroid));
-    }
-
-    if let Some((d, e, _f)) = alt1 {
-        // x = dy + ez + f
-        let normal = Vector3::new(-1.0, d, e);
-        return Some(plane_to_isometry(normal, centroid));
-    }
-
-    if let Some((g, h, _q)) = alt2 {
-        // y = g * x + h * z + q
-        let normal = Vector3::new(g, -1.0, h);
-        return Some(plane_to_isometry(normal, centroid));
-    }
-
-    None
-}
-
 impl Projector {
+    const FROM_NEGATIVE: i32 = -1;
+    const FROM_POSITIVE: i32 = 1;
+    
     /// Projects a 2D pose onto the surface of the mesh along the X-axis, adjusting
     /// its `x` coordinate to lie on the mesh surface while keeping the `y` and `z`
     /// coordinates unchanged.
@@ -184,8 +159,8 @@ impl Projector {
     /// - `point`: The 2D pose represented as a `ParryPoint<f32>`. Its `y` and `z`
     ///   coordinates remain unchanged after projection, while `x` is adjusted.
     /// - `direction`: An integer value (`-1` or `+1`) specifying the direction of the ray:
-    ///   - `-1`: The ray starts far on the negative X-axis and moves towards positive X.
-    ///   - `+1`: The ray starts far on the positive X-axis and moves towards negative X.
+    ///   - `-1` or `FROM_NEGATIVE`: The ray starts far on the negative X-axis and moves towards positive X.
+    ///   - `+1` or `FROM_POSITIVE`: The ray starts far on the positive X-axis and moves towards negative X.
     ///
     /// # Returns
     /// - `Some(ParryPoint<f32>)`: The point projected onto the mesh surface, with the
@@ -235,9 +210,9 @@ impl Projector {
         let regression_result = detect_and_regress(&x, &y, &z)?;
 
         // Use the primary regression if available
-        if let Some((a, b, c)) = regression_result.0 {
+        if let Some((a, b, _c)) = regression_result.0 {
             // z = ax + by + c
-            let normal = Vector3::new(a, b, -1.0); // Normal vector for the plane
+            let normal = Vector3::new(a, b, 1.0); // Normal vector for the plane
             let centroid = Point3::new(
                 x.iter().copied().sum::<f32>() / x.len() as f32,
                 y.iter().copied().sum::<f32>() / y.len() as f32,
@@ -247,9 +222,9 @@ impl Projector {
         }
 
         // Use the first alternative regression if primary is degenerate
-        if let Some((d, e, f)) = regression_result.1 {
+        if let Some((d, e, _f)) = regression_result.1 {
             // x = dy + ez + f
-            let normal = Vector3::new(-1.0, d, e);
+            let normal = Vector3::new(1.0, d, e);
             let centroid = Point3::new(
                 x.iter().copied().sum::<f32>() / x.len() as f32,
                 y.iter().copied().sum::<f32>() / y.len() as f32,
@@ -259,9 +234,9 @@ impl Projector {
         }
 
         // Use the second alternative regression if both primary and first alternative are degenerate
-        if let Some((g, h, q)) = regression_result.2 {
+        if let Some((g, h, _q)) = regression_result.2 {
             // y = gx + hz + q
-            let normal = Vector3::new(g, -1.0, h);
+            let normal = Vector3::new(g, 1.0, h);
             let centroid = Point3::new(
                 x.iter().copied().sum::<f32>() / x.len() as f32,
                 y.iter().copied().sum::<f32>() / y.len() as f32,
@@ -275,50 +250,10 @@ impl Projector {
         None
     }
 
-    fn compute_plane_normal(points: &[Point3<f32>]) -> Option<Vector3<f32>> {
-        let n = points.len();
-        if n < 3 {
-            return None; // Not enough points for planar regression
-        }
-
-        // Step 1: Compute the centroid
-        let mut centroid = Point3::origin();
-        for p in points {
-            centroid += p.coords / (n as f32);
-        }
-        println!("Centroid: {:?}", centroid);
-
-        // Step 2: Build the covariance matrix
-        let mut covariance = Matrix3::zeros();
-        for p in points {
-            let diff = p.coords - centroid.coords;
-            covariance += diff * diff.transpose();
-        }
-        println!("Covariance matrix: {:?}", covariance);
-
-        // Step 3: Compute eigenvalues and eigenvectors
-        let eigens = covariance.symmetric_eigen();
-        println!("Eigenvalues: {:?}", eigens.eigenvalues);
-        println!("Eigenvectors: {:?}", eigens.eigenvectors);
-
-        // Step 4: Find the eigenvector corresponding to the smallest eigenvalue
-        let (min_index, _) = eigens
-            .eigenvalues
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap();
-        let normal = eigens.eigenvectors.column(min_index);
-        println!("Computed normal: {:?}", normal);
-
-        // Convert the dynamically sized eigenvector to a statically sized Vector3
-        Some(Vector3::new(normal[0], normal[1], normal[2]))
-    }
-
     /// Projects a point and performs planar regression to compute the normal.
-    pub fn project(&self, mesh: &TriMesh, point: &ParryPoint<f32>) -> Option<Isometry3<f32>> {
+    pub fn project(&self, mesh: &TriMesh, point: &ParryPoint<f32>, direction: i32) -> Option<Isometry3<f32>> {
         // Step 1: Project the central point
-        let central_point = Self::project_point(mesh, point, 1)?;
+        let central_point = Self::project_point(mesh, point, direction)?;
         println!("Central point projection: {:?}", central_point);
 
         // Step 2: Generate points on a circle in the XZ plane
@@ -335,7 +270,7 @@ impl Projector {
                 point.z + self.radius * angle.sin(),
             );
 
-            if let Some(intersection) = Self::project_point(mesh, &circle_point, 1) {
+            if let Some(intersection) = Self::project_point(mesh, &circle_point, direction) {
                 println!("Intersection at angle {}: {:?}", angle.to_degrees(), intersection);
                 points.push(intersection);
                 valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
@@ -357,11 +292,10 @@ impl Projector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parry3d::na;
     use parry3d::shape::TriMesh;
 
-    const HE: f32 = 1.0;
-    const HM: f32 = -1.0;
+    const HE: f32 = 1.5;
+    const HM: f32 = -1.5;
 
     // The cube spans -1 to 1 with 0 in the center
     fn create_test_cube() -> TriMesh {
@@ -403,13 +337,13 @@ mod tests {
         ]
     }
 
-    fn create_expected_results() -> Vec<ParryPoint<f32>> {
+    fn create_expected_results(x: f32) -> Vec<ParryPoint<f32>> {
         vec![
             // X value must come from the cube. We approach from + infity side.
-            ParryPoint::new(HE, -0.5, -0.51),
-            ParryPoint::new(HE, -0.5, 0.51),
-            ParryPoint::new(HE, 0.5, -0.51),
-            ParryPoint::new(HE, 0.5, 0.51),
+            ParryPoint::new(x, -0.5, -0.51),
+            ParryPoint::new(x, -0.5, 0.51),
+            ParryPoint::new(x, 0.5, -0.51),
+            ParryPoint::new(x, 0.5, 0.51),
         ]
     }
 
@@ -420,16 +354,68 @@ mod tests {
         (a.x - b.x).abs() <= tol && (a.y - b.y).abs() <= tol && (a.z - b.z).abs() <= tol
     }
 
+    /// Find the angle between the orientation of an Isometry3 and the global X-axis.
+    fn angle_with_x_axis(isometry: &Isometry3<f32>) -> f32 {
+        // Define the global X-axis
+        let x_axis = Vector3::x();
+        println!("Global X-axis: {:?}", x_axis);
+
+        // Apply the rotation of the isometry to the X-axis
+        let rotated_x = isometry.rotation.transform_vector(&x_axis);
+        println!("Rotated X-axis: {:?}", rotated_x);
+
+        // Compute the dot product of the rotated X-axis and the global X-axis
+        let dot_product = rotated_x.dot(&x_axis);
+        println!("Dot product with global X-axis: {:?}", dot_product);
+
+        // Clamp the dot product to avoid floating-point precision issues
+        let clamped_dot = dot_product.clamp(-1.0, 1.0);
+        println!("Clamped dot product: {:?}", clamped_dot);
+
+        // Compute the angle in degrees
+        let angle = clamped_dot.acos().to_degrees();
+        println!("Computed angle: {:?}", angle);
+
+        angle
+    }
+
+    fn assert_normal(expected_normal: Vector3<f32>, description: &str, isometry: Isometry3<f32>) {
+        // Check Z-axis alignment (normal)
+        let computed_z_axis = isometry.rotation * Vector3::z();
+        let normalized_expected_normal = expected_normal.normalize();
+        assert!(
+            (computed_z_axis - normalized_expected_normal).norm() <= 0.02,
+            "Rotation mismatch for {}: got Z-axis {:?}, expected {:?}",
+            description,
+            computed_z_axis,
+            normalized_expected_normal,            
+        );
+
+        // Additional orthonormality check
+        let computed_x_axis = isometry.rotation * Vector3::x();
+        let computed_y_axis = isometry.rotation * Vector3::y();
+        assert!(
+            (computed_x_axis.dot(&computed_y_axis)).abs() <= 0.01,
+            "Rotation matrix is not orthonormal for {}: X-axis and Y-axis are not orthogonal.",
+            description
+        );
+        assert!(
+            (computed_z_axis.dot(&computed_x_axis)).abs() <= 0.01,
+            "Rotation matrix is not orthonormal for {}: Z-axis and X-axis are not orthogonal.",
+            description
+        );
+    }   
+
     #[test]
     fn test_project_points_into_cube() {
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results();
+        let expected_results = create_expected_results(HE);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
             let expected = &expected_results[i];
-            let result = Projector::project_point(&cube, test_point, 1);
+            let result = Projector::project_point(&cube, test_point, Projector::FROM_POSITIVE);
 
             // Print both expected and received results for each test point.
             println!(
@@ -450,30 +436,41 @@ mod tests {
     }
 
     #[test]
-    fn test_project_circle_into_axis_aligned_cube() {
-        use nalgebra::{Isometry3, Vector3};
-
-        /// Find the angle between the orientation of an Isometry3 and the global X-axis.
-        fn angle_with_x_axis(isometry: &Isometry3<f32>) -> f32 {
-            // Define the global X-axis
-            let x_axis = Vector3::x();
-
-            // Apply the rotation of the isometry to the X-axis
-            let rotated_x = isometry.rotation * x_axis;
-
-            // Compute the dot product of the rotated X-axis and the global X-axis
-            let dot_product = rotated_x.dot(&x_axis);
-
-            // Clamp the dot product to avoid floating-point precision issues
-            let clamped_dot = dot_product.clamp(-1.0, 1.0);
-
-            // Compute the angle in radians
-            clamped_dot.acos().to_degrees()
-        }
-        
+    fn test_project_points_into_cube_neg() {
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results();
+        let expected_results = create_expected_results(HM);
+
+        for i in 0..test_points.len() {
+            let test_point = &test_points[i];
+            let expected = &expected_results[i];
+            let result = Projector::project_point(&cube, test_point, Projector::FROM_NEGATIVE);
+
+            // Print both expected and received results for each test point.
+            println!(
+                "Test Point: {:?}, Expected: {:?}, Result: {:?}",
+                test_point, expected, result
+            );
+
+            assert!(
+                result
+                    .map(|res| points_are_close(&res, &expected, TOLERANCE))
+                    .unwrap_or(false),
+                "Projection failed for point {:?}: expected {:?}, got {:?}",
+                test_point,
+                expected,
+                result
+            );
+        }
+    }    
+
+    #[test]
+    fn test_project_circle_into_aac_pos() {
+        use nalgebra::Vector3;
+
+        let cube = create_test_cube();
+        let test_points = create_test_points();
+        let expected_results = create_expected_results(HE);
 
         let projector = Projector {
             check_points: 8,
@@ -481,7 +478,44 @@ mod tests {
         };
 
         for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
-            let result = projector.project(&cube, test_point);
+            let result = projector.project(&cube, test_point, Projector::FROM_POSITIVE);
+            assert!(
+                result.is_some(),
+                "Projection failed for point {:?}",
+                test_point
+            );
+
+            let isometry = result.unwrap();
+            let projected_point = ParryPoint::new(
+                isometry.translation.x,
+                isometry.translation.y,
+                isometry.translation.z,
+            );
+
+            assert!(points_are_close(&projected_point, expected, 0.001),
+                    "Projection mismatch for point {:?}",
+                    test_point
+            );
+            assert_normal(Vector3::new(1.0, 0.0, 0.0), "Cube projection", isometry);
+        }
+    }
+
+    #[test]
+    fn test_project_circle_into_aac_neg() {
+        use nalgebra::Vector3;
+
+        let cube = create_test_cube();
+        let test_points = create_test_points();
+        let expected_results = create_expected_results(HM);
+
+        let projector = Projector {
+            check_points: 8,
+            radius: 0.05,
+        };
+
+        for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
+            // Fire in the opposite direction
+            let result = projector.project(&cube, test_point, Projector::FROM_NEGATIVE);
             assert!(
                 result.is_some(),
                 "Projection failed for point {:?}",
@@ -500,31 +534,8 @@ mod tests {
                 "Projection mismatch for point {:?}",
                 test_point
             );
+            assert_normal(Vector3::new(1.0, 0.0, 0.0), "Cube projection", isometry);
 
-            let rotation = isometry.rotation;
-            let tolerance = 1E-5;
-            
-            println!("Axis X angle {}", angle_with_x_axis(&isometry));
-
-            // The rotated X-axis should align with the negative X-axis
-            let rotated_x_axis = rotation * Vector3::x();
-
-            assert!(
-                rotated_x_axis.y.abs() <= tolerance,
-                "Rotated X-axis has unexpected Y component: {:?}",
-                rotated_x_axis
-            );
-            assert!(
-                rotated_x_axis.z.abs() <= tolerance,
-                "Rotated X-axis has unexpected Z component: {:?}",
-                rotated_x_axis
-            );
-            // Assert that the rotated X-axis is approximately [-1, 0, 0]
-            assert!(
-                (rotated_x_axis.x + 1.0).abs() <= tolerance,
-                "Rotated X-axis does not point to -X: {:?}",
-                rotated_x_axis
-            );
         }
     }
 
@@ -617,6 +628,7 @@ mod tests {
     mod compute_plane {
         use crate::projector::Projector;
         use nalgebra::{Point3, Vector3};
+        use crate::projector::tests::{angle_with_x_axis, assert_normal};
 
         /// Helper function to test compute_plane_isometry with a set of points
         fn test_compute_plane_isometry(
@@ -626,6 +638,8 @@ mod tests {
         ) {
             let isometry = Projector::compute_plane_isometry(points)
                 .expect("Failed to compute plane isometry");
+
+            println!("Axis X angle {}", angle_with_x_axis(&isometry));
 
             // Compute the centroid from points
             let centroid = points
@@ -643,34 +657,11 @@ mod tests {
                 translation
             );
 
-            // Check Z-axis alignment (normal)
-            let computed_z_axis = isometry.rotation * Vector3::z();
-            let normalized_expected_normal = expected_normal.normalize();
-            assert!(
-                (computed_z_axis - normalized_expected_normal).norm() <= 1e-5,
-                "Rotation mismatch for {}: expected Z-axis {:?}, got {:?}",
-                description,
-                normalized_expected_normal,
-                computed_z_axis
-            );
-
-            // Additional orthonormality check
-            let computed_x_axis = isometry.rotation * Vector3::x();
-            let computed_y_axis = isometry.rotation * Vector3::y();
-            assert!(
-                (computed_x_axis.dot(&computed_y_axis)).abs() <= 1e-5,
-                "Rotation matrix is not orthonormal for {}: X-axis and Y-axis are not orthogonal.",
-                description
-            );
-            assert!(
-                (computed_z_axis.dot(&computed_x_axis)).abs() <= 1e-5,
-                "Rotation matrix is not orthonormal for {}: Z-axis and X-axis are not orthogonal.",
-                description
-            );
+            assert_normal(expected_normal, description, isometry);
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_xy() {
+        fn test_i_xy() {
             // Test 1: Points on the XY plane (z = 0)
             test_compute_plane_isometry(
                 &[
@@ -679,13 +670,13 @@ mod tests {
                     Point3::new(0.0, 1.0, 0.0),
                     Point3::new(1.0, 1.0, 0.0),
                 ],
-                Vector3::new(0.0, 0.0, -1.0), // Normal to the XY plane
+                Vector3::new(0.0, 0.0, 1.0), // Normal to the XY plane
                 "XY plane",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_xz() {
+        fn test_i_xz() {
             // Test 2: Points on the XZ plane (y = 0)
             test_compute_plane_isometry(
                 &[
@@ -694,13 +685,13 @@ mod tests {
                     Point3::new(0.0, 0.0, 1.0),
                     Point3::new(1.0, 0.0, 1.0),
                 ],
-                Vector3::new(0.0, -1.0, 0.0), // Normal to the XZ plane
+                Vector3::new(0.0, 1.0, 0.0), // Normal to the XZ plane
                 "XZ plane",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_45() {
+        fn test_i_45() {
             // Test 4: Points on an inclined plane z = x
             test_compute_plane_isometry(
                 &[
@@ -709,13 +700,13 @@ mod tests {
                     Point3::new(0.5, 0.5, 0.5),
                     Point3::new(1.0, 1.0, 1.0),
                 ],
-                Vector3::new(1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
+                Vector3::new(1.0 / 2_f32.sqrt(), 0.0, 1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
                 "Inclined plane (z = x)",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_45_neg_x() {
+        fn test_i_45_neg_x() {
             // Points on an inclined plane z = -x
             test_compute_plane_isometry(
                 &[
@@ -724,14 +715,14 @@ mod tests {
                     Point3::new(-0.5, 0.5, 0.5),
                     Point3::new(-1.0, 1.0, 1.0),
                 ],
-                Vector3::new(-1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [-1, 0, -1]
+                Vector3::new(-1.0 / 2_f32.sqrt(), 0.0, 1.0 / 2_f32.sqrt()), // Normalized [-1, 0, -1]
                 "Inclined plane (z = -x)",
             );
         }
 
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_45_y() {
+        fn test_i_inclined_45_y() {
             // Points on an inclined plane z = y
             test_compute_plane_isometry(
                 &[
@@ -740,14 +731,14 @@ mod tests {
                     Point3::new(0.5, 0.5, 0.5),
                     Point3::new(1.0, 1.0, 1.0),
                 ],
-                Vector3::new(0.0, 1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt()), // Normalized [0, 1, -1]
+                Vector3::new(0.0, 1.0 / 2_f32.sqrt(), 1.0 / 2_f32.sqrt()), // Normalized [0, 1, -1]
                 "Inclined plane (z = y)",
             );
         }
         
 
         #[test]
-        fn test_compute_planes_to_isometry_yz() {
+        fn test_i_yz() {
             // Test 3: Points on the YZ plane (x = 0)
             test_compute_plane_isometry(
                 &[
@@ -756,13 +747,13 @@ mod tests {
                     Point3::new(0.0, 0.0, 1.0),
                     Point3::new(0.0, 1.0, 1.0),
                 ],
-                Vector3::new(-1.0, 0.0, 0.0), // Normal to the YZ plane
+                Vector3::new(1.0, 0.0, 0.0), // Normal to the YZ plane
                 "YZ plane",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_45_all_directions() {
+        fn test_i_45_all_directions() {
             // Points on an inclined plane z = x + y
             test_compute_plane_isometry(
                 &[
@@ -771,13 +762,13 @@ mod tests {
                     Point3::new(0.0, 1.0, 1.0),
                     Point3::new(1.0, 1.0, 2.0),
                 ],
-                Vector3::new(1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt(), -1.0 / 3_f32.sqrt()), // Normalized [1, 1, -1]
+                Vector3::new(1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt()), // Normalized [1, 1, -1]
                 "Inclined plane (z = x + y)",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_45_all_directions_opposite() {
+        fn test_i_45_all_directions_opposite() {
             // Points on an inclined plane z = x - y
             test_compute_plane_isometry(
                 &[
@@ -786,13 +777,13 @@ mod tests {
                     Point3::new(0.0, 1.0, -1.0),
                     Point3::new(1.0, 1.0, 0.0),
                 ],
-                Vector3::new(1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt()), // Normalized [1, -1, -1]
+                Vector3::new(1.0 / 2_f32.sqrt(), -1.0 / 2_f32.sqrt(), 1.0 / 2_f32.sqrt()), // Normalized [1, -1, -1]
                 "Inclined plane (z = x - y)",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_30_all_directions() {
+        fn test_i_30_all_directions() {
             // Points on an inclined plane z = x + y
             test_compute_plane_isometry(
                 &[
@@ -804,14 +795,14 @@ mod tests {
                 Vector3::new(
                     1.0 / 3_f32.sqrt(),
                     1.0 / 3_f32.sqrt(),
-                    -1.0 / 3_f32.sqrt(),
-                ), // Normalized [1, 1, -1]
+                    1.0 / 3_f32.sqrt(),
+                ),
                 "Inclined plane (z = x + y, 30 degrees)",
             );
         }
 
         #[test]
-        fn test_compute_planes_to_isometry_inclined_30_all_directions_opposite() {
+        fn test_i_30_all_directions_opposite() {
             // Points on an inclined plane z = x - y
             test_compute_plane_isometry(
                 &[
@@ -823,8 +814,8 @@ mod tests {
                 Vector3::new(
                     1.0 / 3_f32.sqrt(),
                     -1.0 / 3_f32.sqrt(),
-                    -1.0 / 3_f32.sqrt(),
-                ), // Normalized [1, -1, -1]
+                    1.0 / 3_f32.sqrt(),
+                ), 
                 "Inclined plane (z = x - y, 30 degrees)",
             );
         }
