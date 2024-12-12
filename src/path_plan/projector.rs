@@ -57,6 +57,32 @@ impl Axis {
             Axis::Z => Vector3::new(0.0, 0.0, -ray_side.to_sign()),
         }
     }
+
+    /// Generates a point on a circle around the given point along the specified axis.
+    pub fn circle_point(
+        &self,
+        point: &ParryPoint<f32>,
+        radius: f32,
+        angle: f32,
+    ) -> ParryPoint<f32> {
+        match self {
+            Axis::X => ParryPoint::new(
+                point.x,
+                point.y + radius * angle.cos(),
+                point.z + radius * angle.sin(),
+            ),
+            Axis::Y => ParryPoint::new(
+                point.x + radius * angle.cos(),
+                point.y,
+                point.z + radius * angle.sin(),
+            ),
+            Axis::Z => ParryPoint::new(
+                point.x + radius * angle.cos(),
+                point.y + radius * angle.sin(),
+                point.z,
+            ),
+        }
+    }
 }
 
 use nalgebra::DVector;
@@ -97,9 +123,10 @@ impl Projector {
         mesh: &TriMesh,
         point: &ParryPoint<f32>,
         direction: RayDirection,
+        axis: Axis,
     ) -> Option<Isometry3<f32>> {
         // Step 1: Project the central point
-        let central_point = Self::project_point(mesh, point, direction, Axis::X)?;
+        let central_point = Self::project_point(mesh, point, direction, axis)?;
         println!("Central point projection: {:?}", central_point);
 
         // Step 2: Generate points on a circle in the XZ plane
@@ -110,14 +137,9 @@ impl Projector {
 
         for i in 0..self.check_points {
             let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-            let circle_point = ParryPoint::new(
-                point.x,
-                point.y + self.radius * angle.cos(),
-                point.z + self.radius * angle.sin(),
-            );
+            let circle_point = axis.circle_point(&central_point, self.radius, angle);
 
-            if let Some(intersection) = Self::project_point(mesh, &circle_point, direction, Axis::X)
-            {
+            if let Some(intersection) = Self::project_point(mesh, &circle_point, direction, axis) {
                 println!(
                     "Intersection at angle {}: {:?}",
                     angle.to_degrees(),
@@ -301,9 +323,6 @@ mod tests {
     use super::*;
     use parry3d::shape::TriMesh;
 
-    // Test cube edge extensions negative and positive side.
-    // The cube side edge on XY plane is EDGE_POS + (- EDGE_NEG)
-    // The cube side edge on XZ, YZ planes is double of that.
     const EDGE_POS: f32 = 1.2;
     const EDGE_NEG: f32 = -1.5;
 
@@ -312,15 +331,15 @@ mod tests {
         // Create an axis-aligned cube as a TriMesh
         let vertices = vec![
             // Bottom face vertices
-            ParryPoint::new(EDGE_NEG, EDGE_NEG, 2.0 * EDGE_NEG),
-            ParryPoint::new(EDGE_POS, EDGE_NEG, 2.0 * EDGE_NEG),
-            ParryPoint::new(EDGE_POS, EDGE_POS, 2.0 * EDGE_NEG),
-            ParryPoint::new(EDGE_NEG, EDGE_POS, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_NEG, 3.0 * EDGE_NEG, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_POS, 3.0 * EDGE_NEG, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_POS, 3.0 * EDGE_POS, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_NEG, 3.0 * EDGE_POS, 2.0 * EDGE_NEG),
             // Top face vertices
-            ParryPoint::new(EDGE_NEG, EDGE_NEG, 2.0 * EDGE_POS),
-            ParryPoint::new(EDGE_POS, EDGE_NEG, 2.0 * EDGE_POS),
-            ParryPoint::new(EDGE_POS, EDGE_POS, 2.0 * EDGE_POS),
-            ParryPoint::new(EDGE_NEG, EDGE_POS, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_NEG, 3.0 * EDGE_NEG, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_POS, 3.0 * ImEDGE_NEG, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_POS, 3.0 * EDGE_POS, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_NEG, 3.0 * EDGE_POS, 2.0 * EDGE_POS),
         ];
 
         let indices = vec![
@@ -491,7 +510,7 @@ mod tests {
     fn test_pp_ypos() {
         let cube = create_test_cube();
         let test_points = create_test_points(Axis::Y);
-        let expected_results = create_expected_results(EDGE_POS, Axis::Y);
+        let expected_results = create_expected_results(3.0 * EDGE_POS, Axis::Y);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
@@ -521,7 +540,7 @@ mod tests {
     fn test_pp_y_neg() {
         let cube = create_test_cube();
         let test_points = create_test_points(Axis::Y);
-        let expected_results = create_expected_results(EDGE_NEG, Axis::Y);
+        let expected_results = create_expected_results(3.0 * EDGE_NEG, Axis::Y);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
@@ -621,7 +640,7 @@ mod tests {
         };
 
         for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
-            let result = projector.project(&cube, test_point, RayDirection::FromPositive);
+            let result = projector.project(&cube, test_point, RayDirection::FromPositive, Axis::X);
             assert!(
                 result.is_some(),
                 "Projection failed for point {:?}",
@@ -659,7 +678,7 @@ mod tests {
 
         for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
             // Fire in the opposite direction
-            let result = projector.project(&cube, test_point, RayDirection::FromNegative);
+            let result = projector.project(&cube, test_point, RayDirection::FromNegative, Axis::X);
             assert!(
                 result.is_some(),
                 "Projection failed for point {:?}",
