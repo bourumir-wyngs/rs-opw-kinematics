@@ -14,18 +14,20 @@ struct Projector {
 use nalgebra::DVector;
 
 /// Perform regression for z = ax + by + c, detect degeneracy, and handle alternative regressions.
+/// Returns tuple of possible regressions (a,b,c), None if regression is not possible or not needed
 fn detect_and_regress(
     x: &[f32],
     y: &[f32],
     z: &[f32],
-) -> Option<(
+) -> (
     Option<(f32, f32, f32)>,
     Option<(f32, f32, f32)>,
-    Option<(f32, f32, f32)>,
-)> {
+    Option<(f32, f32, f32)>) {
+    
     let n = x.len();
     if n != y.len() || n != z.len() || n < 3 {
-        return None; // Ensure valid input
+        // We cannot build a plane over less than 3 points
+        return (None, None, None)
     }
 
     // Helper function to calculate variance
@@ -45,29 +47,20 @@ fn detect_and_regress(
     );
 
     // Threshold for near-degeneracy
-    let epsilon = 1e-6;
-
-    // Step 2: Perform the primary regression z = ax + by + c
-    let primary_regression = plane_regression(x, y, z);
+    let epsilon = 1e-5;
 
     // Step 3: Perform alternative regressions if necessary
-    let alternative_regressions = if var_x < epsilon {
+    if var_x < epsilon {
         println!("Degenerate case detected for x (near-vertical plane). Performing x = dy + ez + f regression.");
         let alt = plane_regression(y, z, x); // x = dy + ez + f
-        (alt, None)
+        (None, alt, None)
     } else if var_y < epsilon {
         println!("Degenerate case detected for y (near-vertical plane). Performing y = gx + hz + q regression.");
         let alt = plane_regression(x, z, y); // y = gx + hz + q
-        (None, alt)
+        (None, None, alt)
     } else {
-        (None, None)
-    };
-
-    Some((
-        primary_regression,
-        alternative_regressions.0,
-        alternative_regressions.1,
-    ))
+        (plane_regression(x, y, z), None, None)
+    }
 }
 
 /// Perform regression to find a, b, c in the equation z = ax + by + c
@@ -97,7 +90,6 @@ fn plane_regression(x: &[f32], y: &[f32], z: &[f32]) -> Option<(f32, f32, f32)> 
 
 /// Convert plane coefficients to Isometry3 rotation and translation
 fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f32> {
-
     fn select_best_arbitrary_vector(z_axis: Vector3<f32>) -> Vector3<f32> {
         // Compute dot products with the standard basis vectors
         let dot_x = z_axis.dot(&Vector3::x()).abs();
@@ -113,7 +105,7 @@ fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f
             Vector3::z()
         }
     }
-    
+
     // Step 1: Normalize the normal vector (Z-axis of the plane)
     let z_axis = Unit::new_normalize(normal);
 
@@ -143,7 +135,7 @@ fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f
 impl Projector {
     const FROM_NEGATIVE: i32 = -1;
     const FROM_POSITIVE: i32 = 1;
-    
+
     /// Projects a 2D pose onto the surface of the mesh along the X-axis, adjusting
     /// its `x` coordinate to lie on the mesh surface while keeping the `y` and `z`
     /// coordinates unchanged.
@@ -207,7 +199,7 @@ impl Projector {
         let z: Vec<f32> = points.iter().map(|p| p.z).collect();
 
         // Perform regression to get the plane equation
-        let regression_result = detect_and_regress(&x, &y, &z)?;
+        let regression_result = detect_and_regress(&x, &y, &z);
 
         // Use the primary regression if available
         if let Some((a, b, _c)) = regression_result.0 {
@@ -244,7 +236,7 @@ impl Projector {
             );
             return Some(plane_to_isometry(normal, centroid));
         }
-        
+
         println!("No regression could be done for {:?}", points);
 
         None
@@ -265,7 +257,7 @@ impl Projector {
         for i in 0..self.check_points {
             let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
             let circle_point = ParryPoint::new(
-                point.x,                
+                point.x,
                 point.y + self.radius * angle.cos(),
                 point.z + self.radius * angle.sin(),
             );
@@ -284,7 +276,7 @@ impl Projector {
             println!("Not enough valid points for regression.");
             return None;
         }
-        
+
         Self::compute_plane_isometry(&*valid_points)
     }
 }
@@ -294,21 +286,21 @@ mod tests {
     use super::*;
     use parry3d::shape::TriMesh;
 
-    const HE: f32 = 1.5;
-    const HM: f32 = -1.5;
+    const EDGE_POS: f32 = 1.2;
+    const EDGE_NEG: f32 = -1.5;
 
     // The cube spans -1 to 1 with 0 in the center
     fn create_test_cube() -> TriMesh {
         // Create an axis-aligned cube as a TriMesh
         let vertices = vec![
-            ParryPoint::new(HM, HM, HM),
-            ParryPoint::new(HE, HM, HM),
-            ParryPoint::new(HE, HE, HM),
-            ParryPoint::new(HM, HE, HM),
-            ParryPoint::new(HM, HM, HE),
-            ParryPoint::new(HE, HM, HE),
-            ParryPoint::new(HE, HE, HE),
-            ParryPoint::new(HM, HE, HE),
+            ParryPoint::new(EDGE_NEG, EDGE_NEG, EDGE_NEG),
+            ParryPoint::new(EDGE_POS, EDGE_NEG, EDGE_NEG),
+            ParryPoint::new(EDGE_POS, EDGE_POS, EDGE_NEG),
+            ParryPoint::new(EDGE_NEG, EDGE_POS, EDGE_NEG),
+            ParryPoint::new(EDGE_NEG, EDGE_NEG, EDGE_POS),
+            ParryPoint::new(EDGE_POS, EDGE_NEG, EDGE_POS),
+            ParryPoint::new(EDGE_POS, EDGE_POS, EDGE_POS),
+            ParryPoint::new(EDGE_NEG, EDGE_POS, EDGE_POS),
         ];
         let indices = vec![
             [0, 1, 2],
@@ -388,7 +380,7 @@ mod tests {
             "Rotation mismatch for {}: got Z-axis {:?}, expected {:?}",
             description,
             computed_z_axis,
-            normalized_expected_normal,            
+            normalized_expected_normal,
         );
 
         // Additional orthonormality check
@@ -404,13 +396,13 @@ mod tests {
             "Rotation matrix is not orthonormal for {}: Z-axis and X-axis are not orthogonal.",
             description
         );
-    }   
+    }
 
     #[test]
     fn test_project_points_into_cube() {
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results(HE);
+        let expected_results = create_expected_results(EDGE_POS);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
@@ -439,7 +431,7 @@ mod tests {
     fn test_project_points_into_cube_neg() {
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results(HM);
+        let expected_results = create_expected_results(EDGE_NEG);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
@@ -462,7 +454,7 @@ mod tests {
                 result
             );
         }
-    }    
+    }
 
     #[test]
     fn test_project_circle_into_aac_pos() {
@@ -470,7 +462,7 @@ mod tests {
 
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results(HE);
+        let expected_results = create_expected_results(EDGE_POS);
 
         let projector = Projector {
             check_points: 8,
@@ -506,7 +498,7 @@ mod tests {
 
         let cube = create_test_cube();
         let test_points = create_test_points();
-        let expected_results = create_expected_results(HM);
+        let expected_results = create_expected_results(EDGE_NEG);
 
         let projector = Projector {
             check_points: 8,
@@ -535,7 +527,6 @@ mod tests {
                 test_point
             );
             assert_normal(Vector3::new(1.0, 0.0, 0.0), "Cube projection", isometry);
-
         }
     }
 
@@ -735,7 +726,7 @@ mod tests {
                 "Inclined plane (z = y)",
             );
         }
-        
+
 
         #[test]
         fn test_i_yz() {
@@ -815,7 +806,7 @@ mod tests {
                     1.0 / 3_f32.sqrt(),
                     -1.0 / 3_f32.sqrt(),
                     1.0 / 3_f32.sqrt(),
-                ), 
+                ),
                 "Inclined plane (z = x - y, 30 degrees)",
             );
         }
