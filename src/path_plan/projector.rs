@@ -1,6 +1,4 @@
-use nalgebra::{
-    DMatrix, Isometry3, Matrix3, Point3, Rotation3, Unit, UnitQuaternion, Vector3,
-};
+use nalgebra::{DMatrix, Isometry3, Matrix3, Point3, Rotation3, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -11,7 +9,136 @@ struct Projector {
     radius: f32,
 }
 
+/// Enum representing the direction from which a ray originates along an axis.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RayDirection {
+    FromNegative,
+    FromPositive,
+}
+
+impl RayDirection {
+    /// Converts the enum variant into an integer value (-1 or +1).
+    pub fn to_sign(self) -> f32 {
+        match self {
+            RayDirection::FromNegative => -1.0,
+            RayDirection::FromPositive => 1.0,
+        }
+    }
+}
+
+/// Enum representing the axis of movement.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+impl Axis {
+    /// Compute the ray's origin point based on the given direction, ray side, and distance.
+    pub fn compute_ray_origin(
+        self,
+        point: &ParryPoint<f32>,
+        ray_side: RayDirection,
+        far: f32,
+    ) -> ParryPoint<f32> {
+        match self {
+            Axis::X => ParryPoint::new(point.x + (far * ray_side.to_sign()), point.y, point.z),
+            Axis::Y => ParryPoint::new(point.x, point.y + (far * ray_side.to_sign()), point.z),
+            Axis::Z => ParryPoint::new(point.x, point.y, point.z + (far * ray_side.to_sign())),
+        }
+    }
+
+    /// Compute the ray's direction vector based on the axis and ray side.
+    pub fn compute_ray_direction(self, ray_side: RayDirection) -> Vector3<f32> {
+        match self {
+            Axis::X => Vector3::new(-ray_side.to_sign(), 0.0, 0.0),
+            Axis::Y => Vector3::new(0.0, -ray_side.to_sign(), 0.0),
+            Axis::Z => Vector3::new(0.0, 0.0, -ray_side.to_sign()),
+        }
+    }
+}
+
 use nalgebra::DVector;
+
+impl Projector {
+    pub fn project_point(
+        mesh: &TriMesh,
+        point: &ParryPoint<f32>,
+        direction: RayDirection,
+        axis: Axis,
+    ) -> Option<ParryPoint<f32>> {
+        const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
+
+        // Compute ray origin and direction using Direction methods
+        let ray_origin = axis.compute_ray_origin(point, direction, FAR);
+        let ray_direction = axis.compute_ray_direction(direction);
+        let ray = Ray::new(ray_origin, ray_direction);
+
+        // Perform ray casting
+        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, 2.0 * FAR, true) {
+            // Compute the intersection point using the ray origin and direction
+            let intersection_point = ray_origin + ray_direction * toi;
+
+            // Adjust only the projected coordinate for the specified axis
+            match axis {
+                Axis::X => Some(ParryPoint::new(intersection_point.x, point.y, point.z)),
+                Axis::Y => Some(ParryPoint::new(point.x, intersection_point.y, point.z)),
+                Axis::Z => Some(ParryPoint::new(point.x, point.y, intersection_point.z)),
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Projects a point and performs planar regression to compute the normal.
+    pub fn project(
+        &self,
+        mesh: &TriMesh,
+        point: &ParryPoint<f32>,
+        direction: RayDirection,
+    ) -> Option<Isometry3<f32>> {
+        // Step 1: Project the central point
+        let central_point = Self::project_point(mesh, point, direction, Axis::X)?;
+        println!("Central point projection: {:?}", central_point);
+
+        // Step 2: Generate points on a circle in the XZ plane
+        let mut points: Vec<ParryPoint<f32>> = vec![];
+        let mut valid_points: Vec<Point3<f32>> = vec![
+            Point3::new(central_point.x, central_point.y, central_point.z), // Include the central point
+        ];
+
+        for i in 0..self.check_points {
+            let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
+            let circle_point = ParryPoint::new(
+                point.x,
+                point.y + self.radius * angle.cos(),
+                point.z + self.radius * angle.sin(),
+            );
+
+            if let Some(intersection) = Self::project_point(mesh, &circle_point, direction, Axis::X)
+            {
+                println!(
+                    "Intersection at angle {}: {:?}",
+                    angle.to_degrees(),
+                    intersection
+                );
+                points.push(intersection);
+                valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
+            } else {
+                println!("No intersection at angle {}", angle.to_degrees());
+            }
+        }
+
+        // Ensure enough valid points exist
+        if valid_points.len() < 4 {
+            println!("Not enough valid points for regression.");
+            return None;
+        }
+
+        compute_plane_isometry(central_point, valid_points)
+    }
+}
 
 /// Perform regression for z = ax + by + c, detect degeneracy, and handle alternative regressions.
 /// Returns tuple of possible regressions (a,b,c), None if regression is not possible or not needed
@@ -22,17 +149,17 @@ fn detect_and_regress(
 ) -> (
     Option<(f32, f32, f32)>,
     Option<(f32, f32, f32)>,
-    Option<(f32, f32, f32)>) {
-    
+    Option<(f32, f32, f32)>,
+) {
     let n = x.len();
     if n != y.len() || n != z.len() || n < 3 {
         // We cannot build a plane over less than 3 points
-        return (None, None, None)
+        return (None, None, None);
     }
 
     // Helper function to calculate variance
     let variance = |data: &[f32]| -> f32 {
-        let mean = data.iter().copied().sum::<f32>() / data.len() as f32;
+        let mean = data.iter().sum::<f32>() / data.len() as f32;
         data.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / data.len() as f32
     };
 
@@ -132,152 +259,40 @@ fn plane_to_isometry(normal: Vector3<f32>, centroid: Point3<f32>) -> Isometry3<f
     Isometry3::from_parts(centroid.coords.into(), quaternion)
 }
 
-impl Projector {
-    const FROM_NEGATIVE: i32 = -1;
-    const FROM_POSITIVE: i32 = 1;
-
-    /// Projects a 2D pose onto the surface of the mesh along the X-axis, adjusting
-    /// its `x` coordinate to lie on the mesh surface while keeping the `y` and `z`
-    /// coordinates unchanged.
-    ///
-    /// The ray used for projection starts far along the X-axis, either on the
-    /// negative side (`direction = -1`) or the positive side (`direction = +1`),
-    /// and travels in the opposite direction. The ray intersects the mesh to find
-    /// the closest point on the surface.
-    ///
-    /// # Parameters
-    /// - `mesh`: The triangular mesh (`TriMesh`) representing the surface onto which
-    ///   the point is projected.
-    /// - `point`: The 2D pose represented as a `ParryPoint<f32>`. Its `y` and `z`
-    ///   coordinates remain unchanged after projection, while `x` is adjusted.
-    /// - `direction`: An integer value (`-1` or `+1`) specifying the direction of the ray:
-    ///   - `-1` or `FROM_NEGATIVE`: The ray starts far on the negative X-axis and moves towards positive X.
-    ///   - `+1` or `FROM_POSITIVE`: The ray starts far on the positive X-axis and moves towards negative X.
-    ///
-    /// # Returns
-    /// - `Some(ParryPoint<f32>)`: The point projected onto the mesh surface, with the
-    ///   adjusted `x` coordinate.
-    /// - `None`: If the ray does not intersect the mesh.
-    ///
-    /// # Panics
-    /// - Panics if `direction` is not `-1` or `+1`.
-    /// ```
-    pub fn project_point(
-        mesh: &TriMesh,
-        point: &ParryPoint<f32>,
-        direction: i32,
-    ) -> Option<ParryPoint<f32>> {
-        const FAR: f32 = 100.0; // Unit is assumed to be meters, 100 meters is more than enough for the robotic cell
-        assert!(
-            direction == -1 || direction == 1,
-            "Direction must be -1 or +1"
-        );
-
-        // Start the ray based on the direction parameter
-        let ray_origin = ParryPoint::new(point.x + (FAR * direction as f32), point.y, point.z);
-        let ray_direction = Vector3::new(-direction as f32, 0.0, 0.0); // Shoot ray in opposite of the origin side
-        let ray = Ray::new(ray_origin, ray_direction);
-
-        // Perform ray casting
-        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, 2.0 * FAR, true) {
-            // Compute the intersection point using the ray origin and direction
-            let intersection_point = ray_origin + ray_direction * toi;
-            Some(ParryPoint::new(intersection_point.x, point.y, point.z))
-        } else {
-            None
-        }
+fn compute_plane_isometry(
+    centroid: ParryPoint<f32>,
+    points: Vec<Point3<f32>>,
+) -> Option<Isometry3<f32>> {
+    if points.len() < 3 {
+        return None; // Not enough points to define a plane
     }
 
-    fn compute_plane_isometry(points: &[Point3<f32>]) -> Option<Isometry3<f32>> {
-        if points.len() < 3 {
-            return None; // Not enough points to define a plane
-        }
+    // Extract x, y, z coordinates from the points
+    let x: Vec<f32> = points.iter().map(|p| p.x).collect();
+    let y: Vec<f32> = points.iter().map(|p| p.y).collect();
+    let z: Vec<f32> = points.iter().map(|p| p.z).collect();
 
-        // Extract x, y, z coordinates from the points
-        let x: Vec<f32> = points.iter().map(|p| p.x).collect();
-        let y: Vec<f32> = points.iter().map(|p| p.y).collect();
-        let z: Vec<f32> = points.iter().map(|p| p.z).collect();
+    // Perform regression to get the plane equation
+    let regression_result = detect_and_regress(&x, &y, &z);
 
-        // Perform regression to get the plane equation
-        let regression_result = detect_and_regress(&x, &y, &z);
-
-        // Use the primary regression if available
-        if let Some((a, b, _c)) = regression_result.0 {
-            // z = ax + by + c
-            let normal = Vector3::new(a, b, 1.0); // Normal vector for the plane
-            let centroid = Point3::new(
-                x.iter().copied().sum::<f32>() / x.len() as f32,
-                y.iter().copied().sum::<f32>() / y.len() as f32,
-                z.iter().copied().sum::<f32>() / z.len() as f32,
-            );
-            return Some(plane_to_isometry(normal, centroid));
-        }
-
+    // Use the primary regression if available
+    if let Some((a, b, _c)) = regression_result.0 {
+        // z = ax + by + c
+        let normal = Vector3::new(a, b, 1.0);
+        Some(plane_to_isometry(normal, centroid))
+    } else if let Some((d, e, _f)) = regression_result.1 {
         // Use the first alternative regression if primary is degenerate
-        if let Some((d, e, _f)) = regression_result.1 {
-            // x = dy + ez + f
-            let normal = Vector3::new(1.0, d, e);
-            let centroid = Point3::new(
-                x.iter().copied().sum::<f32>() / x.len() as f32,
-                y.iter().copied().sum::<f32>() / y.len() as f32,
-                z.iter().copied().sum::<f32>() / z.len() as f32,
-            );
-            return Some(plane_to_isometry(normal, centroid));
-        }
-
+        // x = dy + ez + f
+        let normal = Vector3::new(1.0, d, e);
+        return Some(plane_to_isometry(normal, centroid));
+    } else if let Some((g, h, _q)) = regression_result.2 {
         // Use the second alternative regression if both primary and first alternative are degenerate
-        if let Some((g, h, _q)) = regression_result.2 {
-            // y = gx + hz + q
-            let normal = Vector3::new(g, 1.0, h);
-            let centroid = Point3::new(
-                x.iter().copied().sum::<f32>() / x.len() as f32,
-                y.iter().copied().sum::<f32>() / y.len() as f32,
-                z.iter().copied().sum::<f32>() / z.len() as f32,
-            );
-            return Some(plane_to_isometry(normal, centroid));
-        }
-
+        // y = gx + hz + q
+        let normal = Vector3::new(g, 1.0, h);
+        return Some(plane_to_isometry(normal, centroid));
+    } else {
         println!("No regression could be done for {:?}", points);
-
         None
-    }
-
-    /// Projects a point and performs planar regression to compute the normal.
-    pub fn project(&self, mesh: &TriMesh, point: &ParryPoint<f32>, direction: i32) -> Option<Isometry3<f32>> {
-        // Step 1: Project the central point
-        let central_point = Self::project_point(mesh, point, direction)?;
-        println!("Central point projection: {:?}", central_point);
-
-        // Step 2: Generate points on a circle in the XZ plane
-        let mut points: Vec<ParryPoint<f32>> = vec![];
-        let mut valid_points: Vec<Point3<f32>> = vec![
-            Point3::new(central_point.x, central_point.y, central_point.z), // Include the central point
-        ];
-
-        for i in 0..self.check_points {
-            let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-            let circle_point = ParryPoint::new(
-                point.x,
-                point.y + self.radius * angle.cos(),
-                point.z + self.radius * angle.sin(),
-            );
-
-            if let Some(intersection) = Self::project_point(mesh, &circle_point, direction) {
-                println!("Intersection at angle {}: {:?}", angle.to_degrees(), intersection);
-                points.push(intersection);
-                valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
-            } else {
-                println!("No intersection at angle {}", angle.to_degrees());
-            }
-        }
-
-        // Ensure enough valid points exist
-        if valid_points.len() < 4 {
-            println!("Not enough valid points for regression.");
-            return None;
-        }
-
-        Self::compute_plane_isometry(&*valid_points)
     }
 }
 
@@ -286,6 +301,9 @@ mod tests {
     use super::*;
     use parry3d::shape::TriMesh;
 
+    // Test cube edge extensions negative and positive side.
+    // The cube side edge on XY plane is EDGE_POS + (- EDGE_NEG)
+    // The cube side edge on XZ, YZ planes is double of that.
     const EDGE_POS: f32 = 1.2;
     const EDGE_NEG: f32 = -1.5;
 
@@ -293,15 +311,18 @@ mod tests {
     fn create_test_cube() -> TriMesh {
         // Create an axis-aligned cube as a TriMesh
         let vertices = vec![
-            ParryPoint::new(EDGE_NEG, EDGE_NEG, EDGE_NEG),
-            ParryPoint::new(EDGE_POS, EDGE_NEG, EDGE_NEG),
-            ParryPoint::new(EDGE_POS, EDGE_POS, EDGE_NEG),
-            ParryPoint::new(EDGE_NEG, EDGE_POS, EDGE_NEG),
-            ParryPoint::new(EDGE_NEG, EDGE_NEG, EDGE_POS),
-            ParryPoint::new(EDGE_POS, EDGE_NEG, EDGE_POS),
-            ParryPoint::new(EDGE_POS, EDGE_POS, EDGE_POS),
-            ParryPoint::new(EDGE_NEG, EDGE_POS, EDGE_POS),
+            // Bottom face vertices
+            ParryPoint::new(EDGE_NEG, EDGE_NEG, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_POS, EDGE_NEG, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_POS, EDGE_POS, 2.0 * EDGE_NEG),
+            ParryPoint::new(EDGE_NEG, EDGE_POS, 2.0 * EDGE_NEG),
+            // Top face vertices
+            ParryPoint::new(EDGE_NEG, EDGE_NEG, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_POS, EDGE_NEG, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_POS, EDGE_POS, 2.0 * EDGE_POS),
+            ParryPoint::new(EDGE_NEG, EDGE_POS, 2.0 * EDGE_POS),
         ];
+
         let indices = vec![
             [0, 1, 2],
             [0, 2, 3], // Bottom face
@@ -320,23 +341,31 @@ mod tests {
     }
 
     // The points span -0.5 to 0.5. x value should not be accounted for
-    fn create_test_points() -> Vec<ParryPoint<f32>> {
-        vec![
-            ParryPoint::new(90.1, -0.5, -0.51),
-            ParryPoint::new(90.2, -0.5, 0.51),
-            ParryPoint::new(90.3, 0.5, -0.51),
-            ParryPoint::new(90.4, 0.5, 0.51),
-        ]
+    fn create_test_points(axis: Axis) -> Vec<ParryPoint<f32>> {
+        create_expected_results(0.92, axis)
     }
 
-    fn create_expected_results(x: f32) -> Vec<ParryPoint<f32>> {
-        vec![
-            // X value must come from the cube. We approach from + infity side.
-            ParryPoint::new(x, -0.5, -0.51),
-            ParryPoint::new(x, -0.5, 0.51),
-            ParryPoint::new(x, 0.5, -0.51),
-            ParryPoint::new(x, 0.5, 0.51),
-        ]
+    fn create_expected_results(value: f32, axis: Axis) -> Vec<ParryPoint<f32>> {
+        match axis {
+            Axis::X => vec![
+                ParryPoint::new(value, -0.5, -0.51),
+                ParryPoint::new(value, -0.5, 0.51),
+                ParryPoint::new(value, 0.5, -0.51),
+                ParryPoint::new(value, 0.5, 0.51),
+            ],
+            Axis::Y => vec![
+                ParryPoint::new(-0.5, value, -0.51),
+                ParryPoint::new(-0.5, value, 0.51),
+                ParryPoint::new(0.5, value, -0.51),
+                ParryPoint::new(0.5, value, 0.51),
+            ],
+            Axis::Z => vec![
+                ParryPoint::new(-0.5, -0.51, value),
+                ParryPoint::new(-0.5, 0.51, value),
+                ParryPoint::new(0.5, -0.51, value),
+                ParryPoint::new(0.5, 0.51, value),
+            ],
+        }
     }
 
     const TOLERANCE: f32 = 0.002;
@@ -399,15 +428,16 @@ mod tests {
     }
 
     #[test]
-    fn test_project_points_into_cube() {
+    fn test_pp_xpos() {
         let cube = create_test_cube();
-        let test_points = create_test_points();
-        let expected_results = create_expected_results(EDGE_POS);
+        let test_points = create_test_points(Axis::X);
+        let expected_results = create_expected_results(EDGE_POS, Axis::X);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
             let expected = &expected_results[i];
-            let result = Projector::project_point(&cube, test_point, Projector::FROM_POSITIVE);
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromPositive, Axis::X);
 
             // Print both expected and received results for each test point.
             println!(
@@ -428,15 +458,16 @@ mod tests {
     }
 
     #[test]
-    fn test_project_points_into_cube_neg() {
+    fn test_pp_x_neg() {
         let cube = create_test_cube();
-        let test_points = create_test_points();
-        let expected_results = create_expected_results(EDGE_NEG);
+        let test_points = create_test_points(Axis::X);
+        let expected_results = create_expected_results(EDGE_NEG, Axis::X);
 
         for i in 0..test_points.len() {
             let test_point = &test_points[i];
             let expected = &expected_results[i];
-            let result = Projector::project_point(&cube, test_point, Projector::FROM_NEGATIVE);
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromNegative, Axis::X);
 
             // Print both expected and received results for each test point.
             println!(
@@ -457,12 +488,132 @@ mod tests {
     }
 
     #[test]
+    fn test_pp_ypos() {
+        let cube = create_test_cube();
+        let test_points = create_test_points(Axis::Y);
+        let expected_results = create_expected_results(EDGE_POS, Axis::Y);
+
+        for i in 0..test_points.len() {
+            let test_point = &test_points[i];
+            let expected = &expected_results[i];
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromPositive, Axis::Y);
+
+            // Print both expected and received results for each test point.
+            println!(
+                "Test Point: {:?}, Expected: {:?}, Result: {:?}",
+                test_point, expected, result
+            );
+
+            assert!(
+                result
+                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .unwrap_or(false),
+                "Projection failed for point {:?}: expected {:?}, got {:?}",
+                test_point,
+                expected,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_pp_y_neg() {
+        let cube = create_test_cube();
+        let test_points = create_test_points(Axis::Y);
+        let expected_results = create_expected_results(EDGE_NEG, Axis::Y);
+
+        for i in 0..test_points.len() {
+            let test_point = &test_points[i];
+            let expected = &expected_results[i];
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromNegative, Axis::Y);
+
+            // Print both expected and received results for each test point.
+            println!(
+                "Test Point: {:?}, Expected: {:?}, Result: {:?}",
+                test_point, expected, result
+            );
+
+            assert!(
+                result
+                    .map(|res| points_are_close(&res, &expected, TOLERANCE))
+                    .unwrap_or(false),
+                "Projection failed for point {:?}: expected {:?}, got {:?}",
+                test_point,
+                expected,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_pp_from_above() {
+        let cube = create_test_cube();
+        let test_points = create_test_points(Axis::Z);
+        let expected_results = create_expected_results(2.0 * EDGE_POS, Axis::Z);
+
+        for i in 0..test_points.len() {
+            let test_point = &test_points[i];
+            let expected = &expected_results[i];
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromPositive, Axis::Z);
+
+            // Print both expected and received results for each test point.
+            println!(
+                "Test Point: {:?}, Expected: {:?}, Result: {:?}",
+                test_point, expected, result
+            );
+
+            assert!(
+                result
+                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .unwrap_or(false),
+                "Projection failed for point {:?}: expected {:?}, got {:?}",
+                test_point,
+                expected,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_pp_from_below() {
+        let cube = create_test_cube();
+        let test_points = create_test_points(Axis::Z);
+        let expected_results = create_expected_results(2.0 * EDGE_NEG, Axis::Z);
+
+        for i in 0..test_points.len() {
+            let test_point = &test_points[i];
+            let expected = &expected_results[i];
+            let result =
+                Projector::project_point(&cube, test_point, RayDirection::FromNegative, Axis::Z);
+
+            // Print both expected and received results for each test point.
+            println!(
+                "Test Point: {:?}, Expected: {:?}, Result: {:?}",
+                test_point, expected, result
+            );
+
+            assert!(
+                result
+                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .unwrap_or(false),
+                "Projection failed for point {:?}: expected {:?}, got {:?}",
+                test_point,
+                expected,
+                result
+            );
+        }
+    }
+
+    #[test]
     fn test_project_circle_into_aac_pos() {
         use nalgebra::Vector3;
 
         let cube = create_test_cube();
-        let test_points = create_test_points();
-        let expected_results = create_expected_results(EDGE_POS);
+        let test_points = create_test_points(Axis::X);
+        let expected_results = create_expected_results(EDGE_POS, Axis::X);
 
         let projector = Projector {
             check_points: 8,
@@ -470,7 +621,7 @@ mod tests {
         };
 
         for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
-            let result = projector.project(&cube, test_point, Projector::FROM_POSITIVE);
+            let result = projector.project(&cube, test_point, RayDirection::FromPositive);
             assert!(
                 result.is_some(),
                 "Projection failed for point {:?}",
@@ -484,9 +635,10 @@ mod tests {
                 isometry.translation.z,
             );
 
-            assert!(points_are_close(&projected_point, expected, 0.001),
-                    "Projection mismatch for point {:?}",
-                    test_point
+            assert!(
+                points_are_close(&projected_point, expected, 0.001),
+                "Projection mismatch for point {:?}",
+                test_point
             );
             assert_normal(Vector3::new(1.0, 0.0, 0.0), "Cube projection", isometry);
         }
@@ -497,8 +649,8 @@ mod tests {
         use nalgebra::Vector3;
 
         let cube = create_test_cube();
-        let test_points = create_test_points();
-        let expected_results = create_expected_results(EDGE_NEG);
+        let test_points = create_test_points(Axis::X);
+        let expected_results = create_expected_results(EDGE_NEG, Axis::X);
 
         let projector = Projector {
             check_points: 8,
@@ -507,7 +659,7 @@ mod tests {
 
         for (test_point, expected) in test_points.iter().zip(expected_results.iter()) {
             // Fire in the opposite direction
-            let result = projector.project(&cube, test_point, Projector::FROM_NEGATIVE);
+            let result = projector.project(&cube, test_point, RayDirection::FromNegative);
             assert!(
                 result.is_some(),
                 "Projection failed for point {:?}",
@@ -609,7 +761,7 @@ mod tests {
             // Normal to the inclined plane z = x, centroid at (0.5, 0.0, 0.5)
             test_plane_to_isometry(
                 Vector3::new(1.0 / 2_f32.sqrt(), 0.0, -1.0 / 2_f32.sqrt()), // Normalized [1, 0, -1]
-                Point3::new(0.5, 0.0, 0.5), // Centroid
+                Point3::new(0.5, 0.0, 0.5),                                 // Centroid
                 "Inclined plane (z = x)",
             );
         }
@@ -617,9 +769,10 @@ mod tests {
 
     #[cfg(test)]
     mod compute_plane {
-        use crate::projector::Projector;
-        use nalgebra::{Point3, Vector3};
+        use crate::projector::compute_plane_isometry;
         use crate::projector::tests::{angle_with_x_axis, assert_normal};
+        use nalgebra::{Point3, Vector3};
+        use parry3d::math::Point as ParryPoint;
 
         /// Helper function to test compute_plane_isometry with a set of points
         fn test_compute_plane_isometry(
@@ -627,24 +780,35 @@ mod tests {
             expected_normal: Vector3<f32>,
             description: &str,
         ) {
-            let isometry = Projector::compute_plane_isometry(points)
+            fn compute_centroid(points: &[Point3<f32>]) -> ParryPoint<f32> {
+                let n = points.len();
+                // Use a mutable point to accumulate sums
+                let mut sum = Point3::new(0.0, 0.0, 0.0);
+
+                for point in points {
+                    sum.x += point.x;
+                    sum.y += point.y;
+                    sum.z += point.z;
+                }
+
+                // Divide by the number of points to get averages
+                ParryPoint::new(sum.x / n as f32, sum.y / n as f32, sum.z / n as f32)
+            }
+            let centroid = compute_centroid(points);
+            let isometry = compute_plane_isometry(compute_centroid(points), points.into())
                 .expect("Failed to compute plane isometry");
 
             println!("Axis X angle {}", angle_with_x_axis(&isometry));
 
-            // Compute the centroid from points
-            let centroid = points
-                .iter()
-                .fold(Vector3::zeros(), |acc, p| acc + p.coords)
-                / points.len() as f32;
+            let centroid_geo = Vector3::new(centroid.x, centroid.y, centroid.z);
 
             // Check translation
             let translation = isometry.translation.vector;
             assert!(
-                (translation - centroid).norm() <= 1e-5,
+                (translation - centroid_geo).norm() <= 1e-5,
                 "Translation mismatch for {}: expected {:?}, got {:?}",
                 description,
-                centroid,
+                centroid_geo,
                 translation
             );
 
@@ -711,7 +875,6 @@ mod tests {
             );
         }
 
-
         #[test]
         fn test_i_inclined_45_y() {
             // Points on an inclined plane z = y
@@ -726,7 +889,6 @@ mod tests {
                 "Inclined plane (z = y)",
             );
         }
-
 
         #[test]
         fn test_i_yz() {
@@ -783,11 +945,7 @@ mod tests {
                     Point3::new(0.0, 1.0, 1.0),
                     Point3::new(1.0, 1.0, 2.0),
                 ],
-                Vector3::new(
-                    1.0 / 3_f32.sqrt(),
-                    1.0 / 3_f32.sqrt(),
-                    1.0 / 3_f32.sqrt(),
-                ),
+                Vector3::new(1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt()),
                 "Inclined plane (z = x + y, 30 degrees)",
             );
         }
@@ -802,11 +960,7 @@ mod tests {
                     Point3::new(0.0, 1.0, -1.0),
                     Point3::new(1.0, 1.0, 0.0),
                 ],
-                Vector3::new(
-                    1.0 / 3_f32.sqrt(),
-                    -1.0 / 3_f32.sqrt(),
-                    1.0 / 3_f32.sqrt(),
-                ),
+                Vector3::new(1.0 / 3_f32.sqrt(), -1.0 / 3_f32.sqrt(), 1.0 / 3_f32.sqrt()),
                 "Inclined plane (z = x - y, 30 degrees)",
             );
         }
