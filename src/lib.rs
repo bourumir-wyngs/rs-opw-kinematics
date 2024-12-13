@@ -116,6 +116,13 @@ pub mod mesh_an;
 #[cfg(feature = "stroke_planning")]
 #[path = "path_plan/projector.rs"]
 pub mod projector;
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/transform_plane.rs"]
+pub mod transform_plane;
+
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/engraving.rs"]
+pub mod engraving;
 
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
