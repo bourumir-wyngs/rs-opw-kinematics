@@ -69,7 +69,7 @@ pub fn largest_fitting_rectangle(polygon: &Polygon<f32>) -> Option<(Point<f32>, 
             
             // area is much cheaper to compute than to check if all points are in polygon
             let area = width * height;
-            if area > min_area {
+            if area > min_area && width > height {
                 let rectangle_corners = vec![
                     Point::new(min_x + delta, min_y + delta),
                     Point::new(min_x + delta, max_y - delta),

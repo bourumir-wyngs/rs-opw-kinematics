@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use nalgebra::{Isometry3, Vector3};
 use rs_opw_kinematics::engraving::build_engraving_path;
 use rs_opw_kinematics::projector::{Axis, RayDirection};
@@ -11,6 +12,7 @@ fn generate_R_waypoints(height: f32) -> Vec<(f32, f32)> {
     let circle_center = (0.0_f32, height / 2.0);
     let r = 0.5 * height * 0.8;
     let n = 256;
+    /*
     for i in 0..=n {
         let angle = 2.0*std::f32::consts::PI * (i as f32) / (n as f32); // Half-circle from 0 to PI
         let x = circle_center.0 + r * angle.cos();
@@ -29,6 +31,8 @@ fn generate_R_waypoints(height: f32) -> Vec<(f32, f32)> {
     waypoints.push((0.5, 0.5));
     
     return waypoints;
+    */
+     
     
     fn compute_segments_from_height(height: f32) -> usize {
         let k = 0.1; // Adjust resolution factor as needed
@@ -46,7 +50,7 @@ fn generate_R_waypoints(height: f32) -> Vec<(f32, f32)> {
     // Step 2: Add the half-circle waypoints
     let half_circle_center = (0.0, height * 0.75);
     for i in 0..=n {
-        let angle = std::f32::consts::PI * (i as f32) / (n as f32); // Half-circle from 0 to PI
+        let angle = PI * (i as f32) / (n as f32) - PI/2.0; // Half-circle from 0 to PI
         let x = half_circle_center.0 + half_circle_radius * angle.cos();
         let y = half_circle_center.1 - half_circle_radius * angle.sin();
         waypoints.push((x, y));
@@ -56,7 +60,7 @@ fn generate_R_waypoints(height: f32) -> Vec<(f32, f32)> {
     waypoints.push((0.0, height * 0.5)); // Middle of vertical line
 
     // Step 4: Add the diagonal stroke's end point
-    waypoints.push((width, 0.0)); // Bottom-right corner of diagonal
+    waypoints.push((width *0.5, 0.0)); // Bottom-right corner of diagonal
 
     waypoints
 }
@@ -100,7 +104,7 @@ fn main() -> Result<(), String> {
     // let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
     
     // Works, shape is not extracted
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
+    // let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
 
     // Works, shape is not extracted
     //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
