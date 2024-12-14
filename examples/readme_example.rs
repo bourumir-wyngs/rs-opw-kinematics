@@ -32,16 +32,4 @@ fn main() {
     let when_continuing_from: Joints = Joints::from_degrees([0.0, 6.3, 12.6, 17.2, 5.7, 28.6]);
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
     dump_solutions(&solutions);
-
-    println!("Same pose, all J4+J6 rotation assumed to be previously concentrated on J4 only");
-    let when_continuing_from_j6_0: Joints = Joints::from_degrees([0.0, 6.3, 12.6, 45.9, 5.7, 0.0]);
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
-    dump_solutions(&solutions);
-
-    println!(
-        "If we do not have the previous position, we can assume we want J4, J6 close to 0.0. \
-        The solution appears and the needed rotation is now equally distributed between J4 and J6."
-    );
-    let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
-    dump_solutions(&solutions);
 }

@@ -2,6 +2,7 @@
  
 extern crate nalgebra as na;
 
+use std::f64::consts::PI;
 use std::f64::NAN;
 use na::{Isometry3};
 
@@ -31,6 +32,30 @@ pub enum Singularity {
 
 /// Six rotary joints of the robot with angles in radians. 
 pub type Joints = [f64; 6];
+
+/// A trait to convert joint angles between degrees and radians.
+///
+/// This trait provides two methods:
+/// - `from_degrees`: Converts joint angles from degrees to radians.
+/// - `to_degrees`: Converts joint angles from radians to degrees.
+pub trait AngleConversion {
+    /// Converts joint angles from degrees to radians.
+     fn from_degrees(degrees: [f64; 6]) -> Self;
+
+    /// Converts joint angles from radians to degrees.
+     fn to_degrees(&self) -> [f64; 6];
+}
+
+/// Implementation of the `AngleConversion` trait for the `Joints` type.
+impl AngleConversion for Joints {
+    fn from_degrees(degrees: [f64; 6]) -> Self {
+        degrees.map(|deg| deg * PI / 180.0)
+    }
+
+    fn to_degrees(&self) -> [f64; 6] {
+        self.map(|rad| rad * 180.0 / PI)
+    }
+}
 
 /// For providing singularity - proof solution when the previous value is not known.
 /// Joints that take arbitrary angles will take angles as close to 0 as possible:

@@ -2,6 +2,8 @@
  
 use std::f64::consts::PI;
 use std::f64::INFINITY;
+use std::ops::RangeInclusive;
+use rand::Rng;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::utils::deg;
 
@@ -54,6 +56,57 @@ impl Constraints {
             centers: centers,
             tolerances: tolerances,
             sorting_weight: sorting_weight,
+        }
+    }
+
+    /// Initializes `Constraints` from an array of 6 ranges (`RangeInclusive<f64>`),
+    /// where each range specifies the `from` (start) and `to` (end) values for each joint.
+    /// This is convenience method, where VALUES MUST BE GIVEN IN DEGREES.
+    ///
+    /// # Parameters
+    /// - `ranges`: An array of 6 `RangeInclusive<f64>` values, each representing a range for one joint.
+    ///   - The start of each range is taken as the `from` bound.
+    ///   - The end of each range is taken as the `to` bound.
+    /// - `sorting_weight`: A `f64` value representing the sorting weight for the constraint.
+    ///
+    /// # Returns
+    /// A new instance of `Constraints` with `from`, `to`, `centers`, and `tolerances` calculated
+    /// based on the specified ranges.
+    ///
+    /// # Example
+    /// ```
+    /// use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
+    /// let constraints = Constraints::from_degrees(
+    ///   [0.0..=90.0, 45.0..=135.0, -90.0..=90.0, 0.0..=180.0, -45.0..=45.0, -180.0..=180.0], 
+    ///   BY_PREV);
+    /// ```
+    pub fn from_degrees(ranges: [RangeInclusive<f64>; 6], sorting_weight: f64) -> Self {
+        let from: Joints = [
+            ranges[0].start().to_radians(),
+            ranges[1].start().to_radians(),
+            ranges[2].start().to_radians(),
+            ranges[3].start().to_radians(),
+            ranges[4].start().to_radians(),
+            ranges[5].start().to_radians(),
+        ];
+
+        let to: Joints = [
+            ranges[0].end().to_radians(),
+            ranges[1].end().to_radians(),
+            ranges[2].end().to_radians(),
+            ranges[3].end().to_radians(),
+            ranges[4].end().to_radians(),
+            ranges[5].end().to_radians(),
+        ];
+
+        let (centers, tolerances) = Self::compute_centers(from, to);
+
+        Constraints {
+            from,
+            to,
+            centers,
+            tolerances,
+            sorting_weight,
         }
     }
 
@@ -133,6 +186,39 @@ impl Constraints {
             self.to.iter().map(|x| deg(x))
                 .collect::<Vec<_>>().join(", ")
         )
+    }
+
+
+    /// Generate a random valid angle within the defined constraints for each joint.
+    pub fn random_angles(&self) -> Joints {
+        fn random_angle(from: f64, to: f64) -> f64 {
+            let mut rng = rand::thread_rng();
+            let random_angle = if from < to {
+                // Direct generation when `from` is less than `to`
+                from + rng.gen_range(0.0..(to - from))
+            } else {
+                // Wrap-around case: generate an angle based on two segments
+                let range_length = (2.0 * PI - (from - to)).abs();
+                let segment = rng.gen_range(0.0..range_length);
+
+                // Determine which segment to take (before or after the wrap)
+                if segment < (2.0 * PI - from) {
+                    from + segment // Within the forward wrap
+                } else {
+                    to + (segment - (2.0 * PI - from)) // After the wrap
+                }
+            };
+            random_angle
+        }
+
+        [
+            random_angle(self.from[0], self.to[0]),
+            random_angle(self.from[1], self.to[1]),
+            random_angle(self.from[2], self.to[2]),
+            random_angle(self.from[3], self.to[3]),
+            random_angle(self.from[4], self.to[4]),
+            random_angle(self.from[5], self.to[5]),
+        ]
     }
 }
 
@@ -214,6 +300,34 @@ mod tests {
         let filtered_angles = limits.filter(&angles);
         assert_eq!(filtered_angles.len(), 1);
         assert_eq!(filtered_angles[0], [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0]);
+    }
+
+    #[test]
+    fn test_random_angles_compliance_non_wrapping() {
+        // Define non-wrapping constraints
+        let from = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let to = [PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0];
+        let constraints = Constraints::new(from, to, BY_CONSTRAINS);
+
+        let total_samples = 360;
+        for _ in 0..total_samples {
+            let random_angles = constraints.random_angles();
+            assert!(constraints.compliant(&random_angles));
+        }
+    }
+
+    #[test]
+    fn test_random_angles_compliance_wrapping() {
+        // Define wrapping constraints
+        let from = [PI / 2.0, 0.0, -PI / 2.0, 0.0, -PI, -PI];
+        let to = [0.0, PI / 2.0, PI / 2.0, PI, PI / 2.0, 0.0];
+        let constraints = Constraints::new(from, to, BY_CONSTRAINS);
+
+        let total_samples = 360;
+        for _ in 0..total_samples {
+            let random_angles = constraints.random_angles();
+            assert!(constraints.compliant(&random_angles));
+        }
     }
 }
 
