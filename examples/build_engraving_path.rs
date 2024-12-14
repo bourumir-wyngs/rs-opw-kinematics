@@ -6,61 +6,60 @@ use rs_opw_kinematics::read_trimesh::load_trimesh_from_ply;
 use std::fs::File;
 use std::io::Write;
 /// Generate the waypoint that make the letter R
-fn generate_R_waypoints(height: f32) -> Vec<(f32, f32)> {
+fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
     let mut waypoints = Vec::new();
 
-    let circle_center = (0.0_f32, height / 2.0);
-    let r = 0.5 * height * 0.8;
-    let n = 256;
-    /*
-    for i in 0..=n {
-        let angle = 2.0*std::f32::consts::PI * (i as f32) / (n as f32); // Half-circle from 0 to PI
-        let x = circle_center.0 + r * angle.cos();
-        let y = circle_center.1 - r * angle.sin();
-        waypoints.push((x, y));
-    }
-    return waypoints;
-    
-    waypoints.push((0.0, 0.0));
-    waypoints.push((0.5, 0.0));
-    waypoints.push((1.0, 0.0));
-    waypoints.push((1.0, 0.5));
-    waypoints.push((1.0, 1.0));
-    waypoints.push((0.5, 1.0));
-    waypoints.push((0.0, 1.0));
-    waypoints.push((0.5, 0.5));
-    
-    return waypoints;
-    */
-     
-    
-    fn compute_segments_from_height(height: f32) -> usize {
-        let k = 0.1; // Adjust resolution factor as needed
-        (k * height).ceil().max(4.0) as usize
-    }
-
-    let n = 50; //compute_segments_from_height(height); // Dynamically compute n
     let width = height / 2.0; // Define the width as half the height
     let half_circle_radius = width / 2.0;
 
-    // Step 1: Add the bottom-left and top-left points of the vertical line
-    waypoints.push((0.0, 0.0)); // Bottom-left
-    waypoints.push((0.0, height)); // Top-left
+    // Helper to generate straight line points
+    let generate_line = |start: (f32, f32), end: (f32, f32)| {
+        let mut points = Vec::new();
+        let dx = end.0 - start.0;
+        let dy = end.1 - start.1;
+        let dist = (dx * dx + dy * dy).sqrt();
+        let steps = (dist / min_dist).ceil() as usize;
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            points.push((start.0 + t * dx, start.1 + t * dy));
+        }
+        points
+    };
 
-    // Step 2: Add the half-circle waypoints
+    // Generate points for the curved part (half-circle)
+    let generate_half_circle = |center: (f32, f32), radius: f32, start_angle: f32, end_angle: f32| {
+        let mut points = Vec::new();
+        let arc_length = radius * (end_angle - start_angle).abs(); // Arc length of the curve
+        let num_points = (arc_length / min_dist).ceil() as usize; // Number of points based on min_dist
+        let step = (end_angle - start_angle) / num_points as f32;
+
+        for i in 0..=num_points {
+            let angle = start_angle + i as f32 * step;
+            let x = center.0 + radius * angle.cos();
+            let y = center.1 - radius * angle.sin();
+            points.push((x, y));
+        }
+
+        points
+    };
+
+    // Step 1: Generate points for the vertical line from bottom-left to top-left
+    waypoints.extend(generate_line((0.0, 0.0), (0.0, height)));
+
+    // Step 2: Generate the points for the half-circle
     let half_circle_center = (0.0, height * 0.75);
-    for i in 0..=n {
-        let angle = PI * (i as f32) / (n as f32) - PI/2.0; // Half-circle from 0 to PI
-        let x = half_circle_center.0 + half_circle_radius * angle.cos();
-        let y = half_circle_center.1 - half_circle_radius * angle.sin();
-        waypoints.push((x, y));
-    }
+    waypoints.extend(generate_half_circle(
+        half_circle_center,
+        half_circle_radius,
+        -PI / 2.0, // Start at the bottom of the half-circle
+        PI / 2.0   // End at the top of the half-circle
+    ));
 
-    // Step 3: Add the point where the half-circle ends on the vertical line
-    waypoints.push((0.0, height * 0.5)); // Middle of vertical line
+    // Step 3: Generate points for the line from circle's top to vertical midpoint
+    waypoints.extend(generate_line((0.0, height * 0.75 - half_circle_radius), (0.0, height * 0.5)));
 
-    // Step 4: Add the diagonal stroke's end point
-    waypoints.push((width *0.5, 0.0)); // Bottom-right corner of diagonal
+    // Step 4: Generate points for the diagonal stroke
+    waypoints.extend(generate_line((0.0, height * 0.5), (width * 0.5, 0.0)));
 
     waypoints
 }
@@ -97,23 +96,24 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     let mesh = load_trimesh_from_ply("src/tests/data/goblet/ToriLeighR.ply");
-    let path = generate_R_waypoints(1.0);
+    let path = generate_R_waypoints(1.0, 0.01);
     
-    let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
+    //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
     
-    // let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
+    // pose rotation observed
+    let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
     
-    // Works, shape is not extracted
-    // let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
+    // Works
+    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
 
-    // Works, shape is not extracted
+    // Works
     //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
 
     // Works, shape is not extracted
     // let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromNegative)?;
 
     // Works, shape is not extracted
-    // let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromPositive)?;
+    //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromPositive)?;
     
     println!("Engraving length of {} for the path of length {}", engraving.len(), path.len());
 

@@ -3,15 +3,23 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose, PoseArray, Point
 from visualization_msgs.msg import Marker, MarkerArray
-
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 # Define a global scale factor
 SCALE_FACTOR = 0.005
 
-def load_json(file_path):
+def load_json(file_path, scale_factor=SCALE_FACTOR):
     """Load the JSON file and parse it into a list of poses."""
-    with open(file_path, 'r') as file:
-        data = json.load(file)
-
+    import time
+    while True:
+        try:
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+            break
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Error reading JSON file: {e}")
+            time.sleep(2)
+    data = data or []
     poses = []
     for entry in data:
         pose = Pose()
@@ -24,7 +32,7 @@ def load_json(file_path):
         pose.orientation.w = float(entry['rotation']['w'])
 
         # Expected close to correct rotation
-        if False:
+        if False:  # Example modification logic for orientation
             pose.orientation.x = 0.0
             pose.orientation.y = 0.0
             pose.orientation.z = 1.0
@@ -33,14 +41,24 @@ def load_json(file_path):
         poses.append(pose)
     return poses
 
-class PoseVisualizer(Node):
-    def __init__(self, poses):
+class PoseVisualizer(Node, FileSystemEventHandler):
+    """ROS2 Node that visualizes poses and reloads JSON on file modification."""
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.poses = load_json(file_path)
         super().__init__('pose_visualizer')
         self.pose_publisher = self.create_publisher(PoseArray, 'pose_array', 10)
+
+        # Setup file monitoring
+        self.observer = Observer()
+        self.observer.schedule(self, path=self.file_path, recursive=False)
+        self.observer.start()
         self.marker_publisher = self.create_publisher(MarkerArray, 'line_markers', 10)
         self.timer = self.create_timer(1.0, self.timer_callback)
-        self.poses = poses
+        self.timer = self.create_timer(1.0, self.timer_callback)
 
+        self.file_lock = False
     def timer_callback(self):
         # Publish PoseArray
         pose_array = PoseArray()
@@ -73,17 +91,29 @@ class PoseVisualizer(Node):
 
         marker_array.markers.append(marker)
         self.marker_publisher.publish(marker_array)
-
+    def on_modified(self, event):
+        """Callback for file modification events."""
+        if event.src_path == self.file_path and not self.file_lock:
+            try:
+                self.get_logger().info('File modified, reloading poses.')
+                self.file_lock = True
+                self.poses = load_json(self.file_path)
+                self.file_lock = False
+            except Exception as e:
+                self.get_logger().error(f"Error while reloading poses: {e}")
+            finally:
+                self.file_lock = False
 if __name__ == '__main__':
     # Load poses from the JSON file
     json_file_path = '/home/audrius/opw/rs-opw-kinematics/isometries.json'  # Replace with your JSON file path
-    poses = load_json(json_file_path)
 
     rclpy.init()
-    node = PoseVisualizer(poses)
+    node = PoseVisualizer(json_file_path)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
+        node.observer.stop()
+        node.observer.join()
         pass
     finally:
         node.destroy_node()

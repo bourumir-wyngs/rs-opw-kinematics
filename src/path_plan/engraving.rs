@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3};
+use nalgebra::Isometry3;
 
 use crate::calipers::largest_fitting_rectangle;
 use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
@@ -21,9 +21,14 @@ pub fn build_engraving_path(
     // Determine a suitable rectangle where we could engrave on the mesh.
     let (bottom_left, top_right) = axis_aligned_bounding_rectangle(mesh, axis)?;
 
+    println!(
+        "top_rights: {:?}, bottom_left: {:?}",
+        bottom_left, top_right
+    );
+
     // Calculate dimensions of the bounding rectangle
-    let rect_width = top_right.y - bottom_left.y;
-    let rect_height = top_right.z - bottom_left.z;
+    let rect_width = top_right.x() - bottom_left.x();
+    let rect_height = top_right.y() - bottom_left.y();
 
     // Calculate dimensions of the path
     let path_min_x = path.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
@@ -47,22 +52,15 @@ pub fn build_engraving_path(
     // Transform the path to fit into the bounding rectangle based on the axis
     let transformed_path: Vec<ParryPoint<f32>> = path
         .iter()
-        .map(|(x, y)| match axis {
-            Axis::X => ParryPoint::new(
-                0.0,
-                (x - path_min_x) * scale_x + bottom_left.y + MARGIN,
-                (y - path_min_y) * scale_y + bottom_left.z + MARGIN,
-            ),
-            Axis::Y => ParryPoint::new(
-                (x - path_min_x) * scale_x + bottom_left.y + MARGIN,
-                0.0,
-                (y - path_min_y) * scale_y + bottom_left.z + MARGIN,
-            ),
-            Axis::Z => ParryPoint::new(
-                (x - path_min_x) * scale_x + bottom_left.y + MARGIN,
-                (y - path_min_y) * scale_y + bottom_left.z + MARGIN,
-                0.0,
-            ),
+        .map(|(x, y)| {
+            let x_2d = (x - path_min_x) * scale_x + bottom_left.x() + MARGIN;
+            let y_2d = (y - path_min_y) * scale_y + bottom_left.y() + MARGIN;
+            // Place in 3D space
+            match axis {
+                Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
+                Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
+                Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
+            }
         })
         .collect();
 
@@ -81,7 +79,7 @@ pub fn build_engraving_path(
 pub fn axis_aligned_bounding_rectangle(
     mesh: &TriMesh,
     axis: Axis,
-) -> Result<(ParryPoint<f32>, ParryPoint<f32>), String> {
+) -> Result<(GeoPoint<f32>, GeoPoint<f32>), String> {
     let concavity = 0.1; // the mesh we have is is mm so value may need adjustment later
 
     // Step 1: Project all mesh points onto the relevant plane based on the axis
@@ -101,24 +99,7 @@ pub fn axis_aligned_bounding_rectangle(
         Polygon::new(LineString::from(projected_points), vec![]).concave_hull(concavity);
 
     // Step 3: Compute the largest fitting rectangle in the relevant plane
-    if let Some((bottom_left, top_right)) = largest_fitting_rectangle(&concave_hull) {
-        Ok(match axis {
-            Axis::X => (
-                ParryPoint::new(0.0, bottom_left.x(), bottom_left.y()),
-                ParryPoint::new(0.0, top_right.x(), top_right.y()),
-            ),
-            Axis::Y => (
-                ParryPoint::new(bottom_left.x(), 0.0, bottom_left.y()),
-                ParryPoint::new(top_right.x(), 0.0, top_right.y()),
-            ),
-            Axis::Z => (
-                ParryPoint::new(bottom_left.x(), bottom_left.y(), 0.0),
-                ParryPoint::new(top_right.x(), top_right.y(), 0.0),
-            ),
-        })
-    } else {
-        Err("Failed to compute the largest fitting rectangle.".to_string())
-    }
+    Ok(largest_fitting_rectangle(&concave_hull)?)
 }
 
 #[cfg(test)]

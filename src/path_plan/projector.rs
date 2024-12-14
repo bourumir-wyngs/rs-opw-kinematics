@@ -1,8 +1,8 @@
-use nalgebra::{Isometry3, Point3, UnitQuaternion, Vector3};
-use parry3d::math::{Point as ParryPoint};
+use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
+use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
-use std::f32::consts::PI;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 pub(crate) struct Projector {
     pub(crate) check_points: usize,
@@ -125,7 +125,9 @@ impl Projector {
     ) -> Option<Isometry3<f32>> {
         // Step 1: Project the central point
         let central_point = Self::project_point(mesh, point, direction, axis)?;
-        println!("Central point projection: {:?}", central_point);
+        if (false) {
+            println!("Central point projection: {:?}", central_point);
+        }
 
         // Step 2: Generate points on a circle in the XZ plane
         let mut points: Vec<ParryPoint<f32>> = vec![];
@@ -153,7 +155,7 @@ impl Projector {
         }
 
         // Ensure enough valid points exist
-        if valid_points.len() < 4 {
+        if valid_points.len() < 3 {
             println!("Not enough valid points for regression.");
             return None;
         }
@@ -161,7 +163,6 @@ impl Projector {
         compute_plane_isometry(central_point, valid_points, axis, direction)
     }
 }
-
 
 /// Computes the average orientation of a plane from multiple points.
 ///
@@ -179,9 +180,9 @@ fn average_plane_orientation(
     points: &[Vector3<f32>],
     axis: Axis,
     direction: RayDirection,
-) -> Isometry3<f32> {
+) -> Option<UnitQuaternion<f32>> {
     if points.len() < 3 {
-        panic!("At least three points are required to define a plane");
+        return None;
     }
 
     // Accumulate normals
@@ -209,7 +210,7 @@ fn average_plane_orientation(
 
     // Ensure the normal vector is valid
     if average_normal.norm() == 0.0 {
-        panic!("The points are collinear or do not define a valid plane");
+        return None;
     }
 
     // Convert `axis` and `direction` into a preferred orientation vector
@@ -225,13 +226,16 @@ fn average_plane_orientation(
         average_normal = -average_normal;
     }
 
-    // Create a quaternion to rotate the Z-axis (0, 0, 1) to the average normal
-    let z_axis = Vector3::x();
-    let rotation_quat = UnitQuaternion::rotation_between(&z_axis, &average_normal)
-        .unwrap_or_else(|| UnitQuaternion::identity()); // Fallback if already aligned
+    if average_normal.dot(&Vector3::x()) < -0.999 {
+        // We cannot rotate 180 degrees with his approach
+        // let x_axis = -Vector3::x();
+        // let quaternion = UnitQuaternion::rotation_between(&x_axis, &average_normal).unwrap();
+        // (that results in pointing the opposite direction, what to do with it then?
+        return None
+    };
 
-    // Construct the Isometry3 with the rotation
-    Isometry3::from_parts(Default::default(), rotation_quat)
+    let x_axis = Vector3::x();
+    UnitQuaternion::rotation_between(&x_axis, &average_normal)
 }
 
 fn compute_plane_isometry(
@@ -240,15 +244,20 @@ fn compute_plane_isometry(
     axis: Axis,
     direction: RayDirection,
 ) -> Option<Isometry3<f32>> {
-
     // Convert Point3<f32> to Vector3<f32> for average_plane_orientation
     let vectors: Vec<Vector3<f32>> = points.into_iter().map(|p| p.coords).collect();
 
     // Call average_plane_orientation to compute the plane's orientation
     let orientation = average_plane_orientation(&vectors, axis, direction);
+    if orientation.is_none() {
+        return None;
+    }
 
     // Combine the rotation with the translation (centroid) into an Isometry3
-    Some(Isometry3::from_parts(centroid.coords.into(), orientation.rotation))
+    Some(Isometry3::from_parts(
+        centroid.coords.into(),
+        orientation.unwrap(),
+    ))
 }
 
 #[cfg(test)]
@@ -506,5 +515,4 @@ mod tests {
             );
         }
     }
-
 }

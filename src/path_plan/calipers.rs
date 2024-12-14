@@ -30,7 +30,7 @@ fn generate_interpolated_points(
     result
 }
 
-pub fn largest_fitting_rectangle(polygon: &Polygon<f32>) -> Option<(Point<f32>, Point<f32>)> {
+pub fn largest_fitting_rectangle(polygon: &Polygon<f32>) -> Result<(Point<f32>, Point<f32>), String> {
     let delta = 1E-5;
     let tolerance = 0.0002; // Only points more apart than 2 mm are taken into consideration
     let n_was = polygon.exterior().points().len();
@@ -46,7 +46,7 @@ pub fn largest_fitting_rectangle(polygon: &Polygon<f32>) -> Option<(Point<f32>, 
         println!("Simplified from {} to {} points", n_was, n);
     }
     if n < 3 {
-        return None; // Not enough points for a valid polygon
+        return Err(format!("Not enough points: only {:?}", points)); 
     }    
 
     let mut min_area = 0.0; // any non zero area rectangle will replace
@@ -90,8 +90,11 @@ pub fn largest_fitting_rectangle(polygon: &Polygon<f32>) -> Option<(Point<f32>, 
         }
     }
 
-    // Return the smallest valid bounding box with its area
-    best_rectangle
+    if let Some(rectangle) = best_rectangle {
+        return Ok(rectangle)
+    }
+    Err("No rectangle found".to_string())
+    
 }
 
 #[cfg(test)]
