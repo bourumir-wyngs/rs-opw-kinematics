@@ -125,7 +125,7 @@ impl Projector {
     ) -> Option<Isometry3<f32>> {
         // Step 1: Project the central point
         let central_point = Self::project_point(mesh, point, direction, axis)?;
-        if (false) {
+        if false {
             println!("Central point projection: {:?}", central_point);
         }
 
@@ -226,17 +226,16 @@ fn average_plane_orientation(
         average_normal = -average_normal;
     }
 
-    if average_normal.dot(&Vector3::x()) < -0.999 {
-        // We cannot rotate 180 degrees with his approach
-        // let x_axis = -Vector3::x();
-        // let quaternion = UnitQuaternion::rotation_between(&x_axis, &average_normal).unwrap();
-        // (that results in pointing the opposite direction, what to do with it then?
-        return None
-    };
-
     let x_axis = Vector3::x();
-    UnitQuaternion::rotation_between(&x_axis, &average_normal)
+
+    //if x_axis.dot(&average_normal) < -0.9 {
+    //    return None;    
+    //}
+    
+    let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
+    q
 }
+
 
 fn compute_plane_isometry(
     centroid: ParryPoint<f32>,
