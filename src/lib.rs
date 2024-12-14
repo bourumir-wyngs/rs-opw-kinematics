@@ -112,9 +112,6 @@ pub mod calipers;
 #[cfg(feature = "stroke_planning")]
 #[path = "path_plan/projector.rs"]
 pub mod projector;
-#[cfg(feature = "stroke_planning")]
-#[path = "path_plan/transform_plane.rs"]
-pub mod transform_plane;
 
 #[cfg(feature = "stroke_planning")]
 #[path = "path_plan/engraving.rs"]

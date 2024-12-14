@@ -1,11 +1,12 @@
 use std::f32::consts::PI;
-use nalgebra::{Isometry3, Vector3};
+use nalgebra::{Isometry3};
 use rs_opw_kinematics::engraving::build_engraving_path;
 use rs_opw_kinematics::projector::{Axis, RayDirection};
 use rs_opw_kinematics::read_trimesh::load_trimesh_from_ply;
 use std::fs::File;
 use std::io::Write;
 /// Generate the waypoint that make the letter R
+#[allow(non_snake_case)] // we generate uppercase R
 fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
     let mut waypoints = Vec::new();
 
@@ -99,7 +100,7 @@ fn main() -> Result<(), String> {
     let path = generate_R_waypoints(1.0, 0.01);
     
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
-    
+
     // pose rotation observed
     let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
     

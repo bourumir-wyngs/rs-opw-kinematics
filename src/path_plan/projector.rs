@@ -1,12 +1,12 @@
-use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Point3, Quaternion, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::{PI};
 
-pub(crate) struct Projector {
-    pub(crate) check_points: usize,
-    pub(crate) radius: f32,
+pub struct Projector {
+    pub check_points: usize,
+    pub radius: f32,
 }
 
 /// Enum representing the direction from which a ray originates along an axis.
@@ -160,103 +160,142 @@ impl Projector {
             return None;
         }
 
-        compute_plane_isometry(central_point, valid_points, axis, direction)
-    }
-}
-
-/// Computes the average orientation of a plane from multiple points.
-///
-/// Ensures that the resulting orientation aligns as closely as possible
-/// with the given `Axis` and `RayDirection`.
-///
-/// # Arguments
-/// * `points` - A slice of points defining the plane.
-/// * `axis` - The axis along which the preferred orientation is defined.
-/// * `direction` - The direction (positive or negative) for the preferred orientation.
-///
-/// # Returns
-/// * `Isometry3<f32>` - The isometry representing the average plane orientation.
-fn average_plane_orientation(
-    points: &[Vector3<f32>],
-    axis: Axis,
-    direction: RayDirection,
-) -> Option<UnitQuaternion<f32>> {
-    if points.len() < 3 {
-        return None;
+        self.compute_plane_isometry(central_point, valid_points, axis, direction)
     }
 
-    // Accumulate normals
-    let mut normal_sum = Vector3::zeros();
-    for i in 0..points.len() {
-        for j in (i + 1)..points.len() {
-            for k in (j + 1)..points.len() {
-                // Compute vectors on the plane
-                let v1 = points[j] - points[i];
-                let v2 = points[k] - points[i];
+    /// Computes the average orientation of a plane from multiple points.
+    ///
+    /// Ensures that the resulting orientation aligns as closely as possible
+    /// with the given `Axis` and `RayDirection`.
+    ///
+    /// # Arguments
+    /// * `points` - A slice of points defining the plane.
+    /// * `axis` - The axis along which the preferred orientation is defined.
+    /// * `direction` - The direction (positive or negative) for the preferred orientation.
+    ///
+    /// # Returns
+    /// * `Isometry3<f32>` - The isometry representing the average plane orientation.
+    fn average_plane_orientation(
+        &self,
+        points: &[Vector3<f32>],
+        axis: Axis,
+        direction: RayDirection,
+    ) -> Option<UnitQuaternion<f32>> {
+        if points.len() < 3 {
+            return None;
+        }
 
-                // Compute normal of the triangle
-                let normal = v1.cross(&v2);
+        // Accumulate normals
+        let mut normal_sum = Vector3::zeros();
+        for i in 0..points.len() {
+            for j in (i + 1)..points.len() {
+                for k in (j + 1)..points.len() {
+                    // Compute vectors on the plane
+                    let v1 = points[j] - points[i];
+                    let v2 = points[k] - points[i];
 
-                // Accumulate normals (ignoring magnitude)
-                if normal.norm() > 0.0 {
-                    normal_sum += normal.normalize();
+                    // Compute normal of the triangle
+                    let normal = v1.cross(&v2);
+
+                    // Accumulate normals (ignoring magnitude)
+                    if normal.norm() > 0.0 {
+                        normal_sum += normal.normalize();
+                    }
                 }
             }
         }
+
+        // Average the normals
+        let mut average_normal = normal_sum.normalize();
+
+        // Ensure the normal vector is valid
+        if average_normal.norm() == 0.0 {
+            return None;
+        }
+
+        // Convert `axis` and `direction` into a preferred orientation vector
+        let preferred_direction = match axis {
+            Axis::X => Vector3::x(),
+            Axis::Y => Vector3::y(),
+            Axis::Z => Vector3::z(),
+        } * direction.to_sign();
+
+        // Check orientation consistency with the preferred vector
+        if average_normal.dot(&preferred_direction) < 0.0 {
+            // Flip the normal if it's pointing away from the preferred direction
+            average_normal = -average_normal;
+        }
+
+        let x_axis = Vector3::x();
+        if axis == Axis::X && direction == RayDirection::FromNegative {
+            // Axis would be close to antiparallel to X axis, solutions are unstable here, need spec approach
+            average_normal = -average_normal; // Make it instead close to parallel
+            let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
+            if let Some(q) = q {
+                let swing_twist =
+                    self.decompose_swing_twist(q, &x_axis);
+                // Flip 180 degrees
+                return Some(self.set_twist_y(&swing_twist, PI));
+            }
+        }
+        UnitQuaternion::rotation_between(&x_axis, &average_normal)
     }
 
-    // Average the normals
-    let mut average_normal = normal_sum.normalize();
+    /// Decomposes a quaternion into its swing and twist components around a specified axis.
+    fn decompose_swing_twist(
+        &self,
+        quaternion: UnitQuaternion<f32>,
+        axis: &Vector3<f32>,
+    ) -> (UnitQuaternion<f32>, UnitQuaternion<f32>) {
+        let axis = axis.normalize(); // Ensure the axis is normalized
+        let dot = quaternion.i * axis.x + quaternion.j * axis.y + quaternion.k * axis.z;
 
-    // Ensure the normal vector is valid
-    if average_normal.norm() == 0.0 {
-        return None;
+        let twist =
+            Quaternion::new(quaternion.w, axis.x * dot, axis.y * dot, axis.z * dot).normalize();
+
+        let twist = UnitQuaternion::from_quaternion(twist);
+        let swing = quaternion * twist.inverse();
+
+        (swing, twist)
     }
 
-    // Convert `axis` and `direction` into a preferred orientation vector
-    let preferred_direction = match axis {
-        Axis::X => Vector3::x(),
-        Axis::Y => Vector3::y(),
-        Axis::Z => Vector3::z(),
-    } * direction.to_sign();
+    /// Sets the twist of a quaternion to a fixed angle (in radians) around a specified axis.
+    fn set_twist_y(
+        &self,
+        decomposition: &(UnitQuaternion<f32>, UnitQuaternion<f32>),
+        fixed_angle: f32,
+    ) -> UnitQuaternion<f32> {
+        // Decompose the quaternion into swing and twist
+        let axis = Vector3::y_axis();
+        let (swing, _twist) = decomposition;
+        let fixed_twist = UnitQuaternion::from_axis_angle(&axis, fixed_angle);
 
-    // Check orientation consistency with the preferred vector
-    if average_normal.dot(&preferred_direction) < 0.0 {
-        // Flip the normal if it's pointing away from the preferred direction
-        average_normal = -average_normal;
+        // Combine the swing with the new twist
+        swing * fixed_twist
     }
 
-    let x_axis = Vector3::x();
+    fn compute_plane_isometry(
+        &self,
+        centroid: ParryPoint<f32>,
+        points: Vec<Point3<f32>>,
+        axis: Axis,
+        direction: RayDirection,
+    ) -> Option<Isometry3<f32>> {
+        // Convert Point3<f32> to Vector3<f32> for average_plane_orientation
+        let vectors: Vec<Vector3<f32>> = points.into_iter().map(|p| p.coords).collect();
 
-    //if x_axis.dot(&average_normal) < -0.9 {
-    //    return None;    
-    //}
-    
-    let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
-    q
-}
+        // Call average_plane_orientation to compute the plane's orientation
+        let orientation = self.average_plane_orientation(&vectors, axis, direction);
+        if orientation.is_none() {
+            return None;
+        }
 
-
-fn compute_plane_isometry(
-    centroid: ParryPoint<f32>,
-    points: Vec<Point3<f32>>,
-    axis: Axis,
-    direction: RayDirection,
-) -> Option<Isometry3<f32>> {
-    // Convert Point3<f32> to Vector3<f32> for average_plane_orientation
-    let vectors: Vec<Vector3<f32>> = points.into_iter().map(|p| p.coords).collect();
-
-    // Call average_plane_orientation to compute the plane's orientation
-    let orientation = average_plane_orientation(&vectors, axis, direction);
-    if orientation.is_none() {
-        return None;
+        // Combine the rotation with the translation (centroid) into an Isometry3
+        Some(Isometry3::from_parts(
+            centroid.coords.into(),
+            orientation.unwrap(),
+        ))
     }
-
-    // Combine the rotation with the translation (centroid) into an Isometry3
-    Some(Isometry3::from_parts(
-        centroid.coords.into(),
-        orientation.unwrap(),
-    ))
 }
 
 #[cfg(test)]
