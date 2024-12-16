@@ -75,7 +75,7 @@ stroke_planning = ["rrt", "collisions"]
 [profile.release]
 
 [profile.dev]
-opt-level = 3 # For some reason, collision checks are not a bit but 100x slower when not optimized.
+#opt-level = 3 # For some reason, collision checks are not a bit but 100x slower when not optimized.
 debug = true
 
 

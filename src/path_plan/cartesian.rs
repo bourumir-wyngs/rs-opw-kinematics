@@ -182,7 +182,7 @@ impl Cartesian<'_> {
         &self,
         from: &Joints,
         land: &Pose,
-        steps: Vec<Pose>,
+        steps: &Vec<Pose>,
         park: &Pose,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.robot.collides(from) {

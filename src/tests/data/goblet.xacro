@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot_with_goblet">
+
+    <!-- Include the robot URDF -->
+    <xacro:include filename="/home/audrius/opw/goblets/rx160/rx160_macro.xacro"/>
+    <xacro:staubli_rx160 prefix=""/>
+
+    <link name="world"/>
+
+
+    <!-- Goblet Link -->
+    <link name="goblet_base">
+        <visual>
+            <geometry>
+                <mesh filename="file:/home/audrius/opw/goblets/goblet.stl"/>
+            </geometry>
+            <material name="goblet">
+                <color rgba="1 0.5 0.5 0.3"/>
+            </material>
+        </visual>
+        <visual>
+            <origin xyz="0 0 1.0" rpy="0 0 0"/>
+            <geometry>
+                <sphere radius="0.01"/>
+            </geometry>
+            <material name="goblet"/>
+        </visual>
+    </link>
+
+    <link name="tool">
+        <visual>
+            <geometry>
+                <mesh filename="file:/home/audrius/opw/goblets/stick.stl"/>
+            </geometry>
+            <material name="tool"/>
+            <color rgba="1 1 1 1.0"/>
+        </visual>
+    </link>
+
+    <!-- Attach Goblet -->
+    <joint name="attach_goblet" type="fixed">
+        <parent link="world"/>
+        <child link="goblet_base"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+
+    <!-- Attach robot -->
+    <joint name="robot_stand" type="fixed">
+        <parent link="world"/>
+        <child link="base_link"/>
+        <origin xyz="0 0 1.7" rpy="0 3.1415 0"/>
+    </joint>
+
+    <!-- Attach tool -->
+    <joint name="tool" type="fixed">
+        <parent link="tool0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <virtual_joint name="world_joint" type="fixed" parent_frame="world" child_link="base_link"/>
+</robot>
