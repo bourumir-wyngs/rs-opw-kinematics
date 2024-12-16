@@ -105,7 +105,7 @@ class PoseVisualizer(Node, FileSystemEventHandler):
                 self.file_lock = False
 if __name__ == '__main__':
     # Load poses from the JSON file
-    json_file_path = '/home/audrius/opw/rs-opw-kinematics/isometries.json'  # Replace with your JSON file path
+    json_file_path = '/work/isometries.json'  # Replace with your JSON file path
 
     rclpy.init()
     node = PoseVisualizer(json_file_path)

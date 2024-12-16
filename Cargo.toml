@@ -57,6 +57,9 @@ bitflags = "2.6.0"
 # Copyright 2017 Takashi Ogura Apache 2 license.
 rrt = { version = "0.7.0", optional = true }
 
+# ROS bridge development only
+rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge", package = "rs-cxx-ros2-opw-bridge" }
+
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
@@ -77,3 +80,10 @@ debug = true
 
 
 [dev-dependencies]
+#  cargo update rs-cxx-ros2-opw-bridge
+rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge", package = "rs-cxx-ros2-opw-bridge" }
+
+[[bin]]
+name = "planner_tester"
+path = "scripts/plan_saved_path.rs"
+
