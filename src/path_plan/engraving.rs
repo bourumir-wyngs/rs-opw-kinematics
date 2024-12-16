@@ -67,6 +67,7 @@ pub fn build_engraving_path(
     let projector = Projector {
         check_points: PROJECTOR_CHECK_POINTS,
         radius: PROJECTOR_RADIUS,
+        normals_inward: true
     };
 
     // Project transformed points onto the mesh

@@ -3,10 +3,14 @@ use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::{PI};
+use rayon::prelude::IntoParallelRefIterator;
 
 pub struct Projector {
     pub check_points: usize,
     pub radius: f32,
+    
+    // If true, normals point inward (as needed for the robot to orient the tool).
+    pub normals_inward: bool
 }
 
 /// Enum representing the direction from which a ray originates along an axis.
@@ -186,24 +190,7 @@ impl Projector {
         }
 
         // Accumulate normals
-        let mut normal_sum = Vector3::zeros();
-        for i in 0..points.len() {
-            for j in (i + 1)..points.len() {
-                for k in (j + 1)..points.len() {
-                    // Compute vectors on the plane
-                    let v1 = points[j] - points[i];
-                    let v2 = points[k] - points[i];
-
-                    // Compute normal of the triangle
-                    let normal = v1.cross(&v2);
-
-                    // Accumulate normals (ignoring magnitude)
-                    if normal.norm() > 0.0 {
-                        normal_sum += normal.normalize();
-                    }
-                }
-            }
-        }
+        let mut normal_sum = Self::compute_normal_sum_parallel(points);
 
         // Average the normals
         let mut average_normal = normal_sum.normalize();
@@ -226,8 +213,8 @@ impl Projector {
             average_normal = -average_normal;
         }
 
-        let x_axis = Vector3::x();
-        if axis == Axis::X && direction == RayDirection::FromNegative {
+        let x_axis = Vector3::z();
+        if axis == Axis::Z && direction == RayDirection::FromNegative {
             // Axis would be close to antiparallel to X axis, solutions are unstable here, need spec approach
             average_normal = -average_normal; // Make it instead close to parallel
             let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
@@ -241,6 +228,64 @@ impl Projector {
         UnitQuaternion::rotation_between(&x_axis, &average_normal)
     }
 
+    fn compute_normal_sum_trivial(points: &[Vector3<f32>]) -> Vector3<f32> {
+        let mut normal_sum = Vector3::zeros();
+        for i in 0..points.len() {
+            for j in (i + 1)..points.len() {
+                for k in (j + 1)..points.len() {
+                    // Compute vectors on the plane
+                    let v1 = points[j] - points[i];
+                    let v2 = points[k] - points[i];
+
+                    // Compute normal of the triangle
+                    let normal = v1.cross(&v2);
+
+                    // Accumulate normals (ignoring magnitude)
+                    if normal.norm() > 0.0 {
+                        normal_sum += normal.normalize();
+                    }
+                }
+            }
+        }
+        normal_sum
+    }
+
+    fn compute_normal_sum_parallel(points: &[Vector3<f32>]) -> Vector3<f32> {
+        use rayon::prelude::*; // Includes common Rayon traits
+        use rayon::iter::{ParallelIterator, IndexedParallelIterator};
+        use nalgebra::Vector3;
+        
+        // Use Rayon parallel iterator with a thread-safe accumulation
+        let normal_sum = points
+            .par_iter() // Parallel iteration over the first loop
+            .enumerate()
+            .map(|(i, &point_i)| {
+                let mut local_sum = Vector3::zeros();
+
+                for j in (i + 1)..points.len() {
+                    for k in (j + 1)..points.len() {
+                        // Compute vectors on the plane
+                        let v1 = points[j] - point_i;
+                        let v2 = points[k] - point_i;
+
+                        // Compute normal of the triangle
+                        let normal = v1.cross(&v2);
+
+                        // Accumulate normals (ignore magnitude)
+                        if normal.norm() > 0.0 {
+                            local_sum += normal.normalize();
+                        }
+                    }
+                }
+
+                local_sum // Return this thread's local sum
+            })
+            .reduce(|| Vector3::zeros(), |acc, local| acc + local);
+
+        normal_sum // Return the accumulated vector
+    }   
+    
+    
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
     fn decompose_swing_twist(
         &self,
@@ -293,7 +338,11 @@ impl Projector {
         // Combine the rotation with the translation (centroid) into an Isometry3
         Some(Isometry3::from_parts(
             centroid.coords.into(),
-            orientation.unwrap(),
+            if self.normals_inward {
+                orientation.unwrap().inverse()                
+            } else {
+                orientation.unwrap()
+            }
         ))
     }
 }

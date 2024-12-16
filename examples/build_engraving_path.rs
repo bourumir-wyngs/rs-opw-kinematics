@@ -102,23 +102,23 @@ fn main() -> Result<(), String> {
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
     // pose rotation observed
-    let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
+    //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
     
     // Works
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
+    let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
 
     // Works
     //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
 
     // Works, shape is not extracted
-    // let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromNegative)?;
+    //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromNegative)?;
 
     // Works, shape is not extracted
     //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromPositive)?;
     
     println!("Engraving length of {} for the path of length {}", engraving.len(), path.len());
 
-    if let Err(e) = write_isometries_to_json("isometries.json", engraving) {
+    if let Err(e) = write_isometries_to_json("work/isometries.json", engraving) {
         return Err(e)
     };
     
