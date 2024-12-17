@@ -147,13 +147,14 @@ fn main() {
             debug: true,
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
+        cartesian_excludes_tool: true, // If true, tool collision is only checked during RRT relocation.
         // included in the output. Otherwise, they are checked but not included in the output
         debug: true,
     };
 
     // plan path
     let started = Instant::now();
-    let path = planner.plan(&start, &land, steps, &park);
+    let path = planner.plan(&start, &land, &steps, &park);
     let elapsed = started.elapsed();
 
     match path {

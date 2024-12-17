@@ -1,6 +1,6 @@
 //! Cartesian stroke
 
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
@@ -8,6 +8,7 @@ use crate::utils::{assert_pose_eq, dump_joints};
 use bitflags::bitflags;
 use nalgebra::Translation3;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use std::collections::HashSet;
 use std::fmt;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -47,6 +48,12 @@ pub struct Cartesian<'a> {
     /// much better on they own
     pub include_linear_interpolation: bool,
 
+    /// If set, tool is only checked for collision on joint (RRT) relocations
+    /// but not on cartesian stroke. This is necessary if the tool comes into
+    /// contact or very close to the target surface when the robot is working
+    /// on it during Cartesian strokes.
+    pub cartesian_excludes_tool: bool,
+
     /// Debug mode for logging
     pub debug: bool,
 }
@@ -64,18 +71,18 @@ bitflags! {
         const TRACE =               0b00000100;
         /// Position is linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
-        /// but may be important for more developed models that only rotate between 
+        /// but may be important for more developed models that only rotate between
         /// the given joint positions without guarantees that TCP movement is linear.
         const LIN_INTERP = 0b00001000;
         /// Position corresponds the starting pose ("land") that is normally little above
         /// the start of the required trace
         const LAND =                0b00010000;
         /// Position corresponds the ennding pose ("park") that is normally little above
-        /// the end of the required trace. This is the last pose to include into the 
+        /// the end of the required trace. This is the last pose to include into the
         /// output.
-        const PARK =                0b00100000;   
+        const PARK =                0b00100000;
         /// Combined flag representing the "original" position, so the one that was
-        /// given in the input. 
+        /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
@@ -118,7 +125,7 @@ fn flag_representation(flags: &PathFlags) -> String {
         (PathFlags::PARK, "PARK"),
         (PathFlags::TRACE, "TRACE"),
         (PathFlags::CARTESIAN, "CARTESIAN"),
-        (PathFlags::ONBOARDING, "ONBOARDING"),        
+        (PathFlags::ONBOARDING, "ONBOARDING"),
     ];
 
     FLAG_MAP
@@ -221,9 +228,16 @@ impl Cartesian<'_> {
         strategy: &Joints,
         poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
+        let excluded_joints = if self.cartesian_excludes_tool {
+            // Exclude tool for cartesian
+            HashSet::from([J_TOOL])
+        } else {
+            HashSet::with_capacity(0)
+        };
+
         let onboarding = self.rrt.plan_rrt(start, strategy, self.robot)?;
         let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
-        
+
         // Do not take the last value as it is same as 'strategy'
         for joints in onboarding.iter().take(onboarding.len() - 1) {
             trace.push(AnnotatedJoints {
@@ -231,11 +245,11 @@ impl Cartesian<'_> {
                 flags: PathFlags::ONBOARDING,
             });
         }
-        
+
         // Push the strategy point, from here the move must be already CARTESIAN
         trace.push(AnnotatedJoints {
             joints: *strategy,
-            flags: PathFlags::TRACE | PathFlags::CARTESIAN
+            flags: PathFlags::TRACE | PathFlags::CARTESIAN,
         });
 
         // "Complete" trace with all intermediate poses. Onboarding is not included
@@ -263,10 +277,10 @@ impl Cartesian<'_> {
                         } else {
                             PathFlags::TRACE | PathFlags::CARTESIAN | to.flags
                         };
-                    
+
                         trace.push(AnnotatedJoints {
                             joints: next,
-                            flags: flags
+                            flags: flags,
                         });
                     }
                 }
@@ -286,7 +300,7 @@ impl Cartesian<'_> {
 
         let collides = check_trace
             .par_iter()
-            .any(|joints| self.robot.collides(joints));
+            .any(|joints| self.robot.collides_except(joints, &excluded_joints));
         if collides {
             return Err("Collision detected".into());
         }

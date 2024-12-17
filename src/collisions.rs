@@ -3,6 +3,7 @@
 use crate::kinematic_traits::{
     Joints, Kinematics, Solutions, ENV_START_IDX, J1, J5, J6, J_BASE, J_TOOL,
 };
+
 use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -231,6 +232,26 @@ impl RobotBody {
                 Some(CheckMode::FirstCollisionOnly),
             )
             .is_empty()
+    }
+
+    /// Check for collisions exclusing some links (J_TOOL may need to be excluded 
+    /// if the robot touches the surface with it while working but now allowed when
+    /// relocating
+    pub fn collides_except(
+        &self,
+        qs: &Joints,
+        kinematics: &dyn Kinematics,
+        skips: &HashSet<usize>,
+    ) -> bool {
+        if self.safety.mode == CheckMode::NoCheck {
+            return false;
+        }
+        let joint_poses = kinematics.forward_with_joint_poses(qs);
+        let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
+        let safety = &self.safety;
+        let override_mode = Some(CheckMode::FirstCollisionOnly);
+        !self.detect_collisions_with_skips(
+            &joint_poses_f32, &safety, &override_mode, &skips).is_empty()
     }
 
     /// Returns detailed information about all collisions detected in the robot's configuration.

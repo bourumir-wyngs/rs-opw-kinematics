@@ -164,7 +164,7 @@ fn translate_along_local_z(isometry: &Isometry3<f64>, dz: f64) -> Isometry3<f64>
     Isometry3::from_parts(translation.into(), rotation.clone())
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>>  {
     use rs_cxx_ros2_opw_bridge::sender::Sender;
 
     // Call the function and read the isometries from the JSON file
@@ -234,6 +234,7 @@ fn main() {
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
+        cartesian_excludes_tool: true,
         debug: true,
     };
 
@@ -254,11 +255,12 @@ fn main() {
                 println!("{:?}", &joints);
             }
             let joints: Vec<[f64; 6]> = path.into_iter().map(|aj| aj.joints.clone()).collect();
-            sender.send_joint_trajectory_message(&joints);            
+            sender.send_joint_trajectory_message(&joints)?            
         }
         Err(message) => {
             println!("Failed: {}", message);
         }
     }
-    println!("Took {:?}", elapsed); 
+    println!("Took {:?}", elapsed);
+    Ok(())
 }

@@ -2,6 +2,7 @@
 //! This struct provides both the kinematic functionality for computing joint positions and
 //! the physical structure used for collision detection and other geometric calculations.
 
+use std::collections::HashSet;
 use crate::collisions::{BaseBody, CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions, J6};
@@ -275,6 +276,14 @@ impl KinematicsWithShape {
     // too close to collision rather than collides.
     pub fn collides(&self, joints: &Joints) -> bool {
         self.body.collides(joints, self.kinematics.as_ref())
+    }
+
+    /// Check for collisions for the given joint position. Both self-collisions and collisions
+    /// with environment are checked. This method simply returns true (if collides) or false (if not)
+    // If safety distances are specified, also returns true for solutions where robot comes 
+    // too close to collision rather than collides.
+    pub fn collides_except(&self, joints: &Joints, skips: &HashSet<usize>) -> bool {
+        self.body.collides_except(joints, self.kinematics.as_ref(), skips)
     }
 
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into

@@ -3,7 +3,6 @@ use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::{PI};
-use rayon::prelude::IntoParallelRefIterator;
 
 pub struct Projector {
     pub check_points: usize,
@@ -190,7 +189,7 @@ impl Projector {
         }
 
         // Accumulate normals
-        let mut normal_sum = Self::compute_normal_sum_parallel(points);
+        let normal_sum = Self::compute_normal_sum_parallel(points);
 
         // Average the normals
         let mut average_normal = normal_sum.normalize();
@@ -228,7 +227,8 @@ impl Projector {
         UnitQuaternion::rotation_between(&x_axis, &average_normal)
     }
 
-    fn compute_normal_sum_trivial(points: &[Vector3<f32>]) -> Vector3<f32> {
+    #[allow(dead_code)]
+    fn compute_normal_sum_sequential(points: &[Vector3<f32>]) -> Vector3<f32> {
         let mut normal_sum = Vector3::zeros();
         for i in 0..points.len() {
             for j in (i + 1)..points.len() {
