@@ -4,12 +4,13 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints};
+use crate::utils::{assert_pose_eq, dump_joints, joints};
 use bitflags::bitflags;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fmt;
+use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -95,12 +96,12 @@ bitflags! {
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
-        
+
         /// Special flag used in debugging
         const DEBUG = 0b1000_0000_0000_0000;
-        
+
         // The movement INTO this pose is Cartesian stroke
-        const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();        
+        const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
 
@@ -221,7 +222,7 @@ impl Cartesian<'_> {
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
         }
-        
+
         let (land, land_flags) = if let Some(land_pose) = land_first {
             println!("Starting from land");
             (land_pose, PathFlags::LAND)
@@ -244,13 +245,15 @@ impl Cartesian<'_> {
         let poses = self.with_intermediate_poses(land_first, &steps, park);
         strategies
             .par_iter()
-            .find_map_any(
-                |strategy| match self.probe_strategy(from, 
-                                                     &AnnotatedJoints {
-                                                         joints: strategy.clone(),
-                                                         flags: land_flags
-                                                     }                                                     
-                                                     , &poses) {
+            .find_map_any(|strategy| {
+                match self.probe_strategy(
+                    from,
+                    &AnnotatedJoints {
+                        joints: strategy.clone(),
+                        flags: land_flags,
+                    },
+                    &poses,
+                ) {
                     Ok(outcome) => Some(Ok(outcome)), // Return success wrapped in Some
                     Err(msg) => {
                         if self.debug {
@@ -258,8 +261,8 @@ impl Cartesian<'_> {
                         }
                         None // Continue searching
                     }
-                },
-            )
+                }
+            })
             .unwrap_or_else(|| {
                 Err(format!(
                     "No strategy worked out of {} tried",
@@ -295,11 +298,45 @@ impl Cartesian<'_> {
         }
     }
 
-    /// Probe the given strategy
     fn probe_strategy(
         &self,
         start: &Joints,
-        strategy: &AnnotatedJoints,
+        work_path_start: &AnnotatedJoints,
+        poses: &Vec<AnnotatedPose>,
+    ) -> Result<Vec<AnnotatedJoints>, String> {
+        use rayon::prelude::*;
+
+        // Use Rayon to run both functions in parallel
+        let (onboarding, stroke) = rayon::join(
+            || self.rrt.plan_rrt(start, &work_path_start.joints, self.robot),
+            || self.compute_strategy(work_path_start, &poses),
+        );
+
+        // Use `?` to propagate errors upwards
+        let onboarding = onboarding?;
+        let stroke = stroke?;
+
+        // Combine results into `trace`
+        let mut trace = Vec::with_capacity(onboarding.len() + stroke.len() + 10);
+
+        // Add onboarding, omitting the last entry
+        trace.extend(onboarding.iter().take(onboarding.len() - 1).map(|joints| {
+            AnnotatedJoints {
+                joints: *joints,
+                flags: PathFlags::ONBOARDING,
+            }
+        }));
+
+        // Add stroke
+        trace.extend(stroke);
+
+        Ok(trace)
+    }
+
+    /// Probe the given strategy
+    fn compute_strategy(
+        &self,
+        work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         let excluded_joints = if self.cartesian_excludes_tool {
@@ -309,19 +346,9 @@ impl Cartesian<'_> {
             HashSet::with_capacity(0)
         };
 
-        let onboarding = self.rrt.plan_rrt(start, &strategy.joints, self.robot)?;
-        let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
-
-        // Do not take the last value as it is same as 'strategy'
-        for joints in onboarding.iter().take(onboarding.len() - 1) {
-            trace.push(AnnotatedJoints {
-                joints: *joints,
-                flags: PathFlags::ONBOARDING,
-            });
-        }
-
+        let mut trace = Vec::with_capacity(100 + poses.len() + 10);
         // Push the strategy point, from here the move must be already CARTESIAN
-        trace.push(strategy.clone());
+        trace.push(work_path_start.clone());
 
         // "Complete" trace with all intermediate poses. Onboarding is not included
         // as rrt planner checks that path itself.
@@ -488,12 +515,7 @@ impl Cartesian<'_> {
             // There may be previous step or landing pose if provided
             if let Some(last) = poses.last() {
                 let last = last.clone();
-                self.add_intermediate_poses(
-                    &last.pose,
-                    &step,
-                    &mut poses,
-                    last.flags
-                );
+                self.add_intermediate_poses(&last.pose, &step, &mut poses, last.flags);
             }
             poses.push(AnnotatedPose {
                 pose: step.clone(),
