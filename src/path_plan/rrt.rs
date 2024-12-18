@@ -97,6 +97,7 @@ impl RRTPlanner {
     /// collision avoidance. 
     pub fn plan_rrt(&self, start: &Joints, goal: &Joints, kinematics: &KinematicsWithShape)
                     -> Result<Vec<Joints>, String> {
+        println!("RRT started");
         let started = Instant::now();
         let path = self.plan_path(&kinematics, start, goal);
         let spent = started.elapsed();
@@ -105,6 +106,7 @@ impl RRTPlanner {
             // self.print_summary(&result);
             println!("RRT Took {:?}", &spent);
         }
+        println!("RRT finished");
         result
     }
 }    

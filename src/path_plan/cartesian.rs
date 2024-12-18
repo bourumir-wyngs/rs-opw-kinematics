@@ -10,6 +10,7 @@ use nalgebra::{Isometry3, Translation3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fmt;
+use std::time::Instant;
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -218,7 +219,7 @@ impl Cartesian<'_> {
         land_first: &Option<Pose>,
         steps: &Vec<Pose>,
         park: &Option<Pose>,
-    ) -> Result<Vec<AnnotatedJoints>, String> {
+    ) -> Result<Vec<AnnotatedJoints>, String> {       
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
         }
@@ -339,6 +340,8 @@ impl Cartesian<'_> {
         work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
+        println!("Cartesian planning started");
+        let started = Instant::now();
         let excluded_joints = if self.cartesian_excludes_tool {
             // Exclude tool for cartesian
             HashSet::from([J_TOOL])
@@ -389,13 +392,18 @@ impl Cartesian<'_> {
             }
         }
 
+        if self.debug {
+            println!("Cartesian planning till collision check took {:?}", started.elapsed());
+        }
         let collides = check_trace
             .par_iter()
             .any(|joints| self.robot.collides_except(joints, &excluded_joints));
         if collides {
             return Err("Collision detected".into());
         }
-
+        if self.debug {
+            println!("Cartesian planning took {:?}", started.elapsed());
+        }
         Ok(trace)
     }
 

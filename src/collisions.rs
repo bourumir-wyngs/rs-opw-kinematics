@@ -225,16 +225,15 @@ impl RobotBody {
         }
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
+        let safety = &self.safety;
+        let override_mode = Some(CheckMode::FirstCollisionOnly);
+        let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         !self
-            .detect_collisions(
-                &joint_poses_f32,
-                &self.safety,
-                Some(CheckMode::FirstCollisionOnly),
-            )
+            .detect_collisions_with_skips(&joint_poses_f32, &safety, &override_mode, &empty_set)
             .is_empty()
     }
 
-    /// Check for collisions exclusing some links (J_TOOL may need to be excluded 
+    /// Check for collisions exclusing some links (J_TOOL may need to be excluded
     /// if the robot touches the surface with it while working but now allowed when
     /// relocating
     pub fn collides_except(
@@ -250,8 +249,9 @@ impl RobotBody {
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
         let safety = &self.safety;
         let override_mode = Some(CheckMode::FirstCollisionOnly);
-        !self.detect_collisions_with_skips(
-            &joint_poses_f32, &safety, &override_mode, &skips).is_empty()
+        !self
+            .detect_collisions_with_skips(&joint_poses_f32, &safety, &override_mode, &skips)
+            .is_empty()
     }
 
     /// Returns detailed information about all collisions detected in the robot's configuration.
@@ -425,16 +425,19 @@ impl RobotBody {
         let mut tasks = Vec::with_capacity(self.count_tasks(&skip));
 
         // Check if the tool does not hit anything in the environment
-        if let Some(tool) = &self.tool {
-            for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                tasks.push(CollisionTask {
-                    i: J_TOOL as u16,
-                    j: (ENV_START_IDX + env_idx) as u16,
-                    transform_i: &joint_poses[J6],
-                    transform_j: &env_obj.pose,
-                    shape_i: &tool,
-                    shape_j: &env_obj.mesh,
-                });
+        let check_tool = !skip.contains(&J_TOOL);
+        if check_tool {
+            if let Some(tool) = &self.tool {
+                for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
+                    tasks.push(CollisionTask {
+                        i: J_TOOL as u16,
+                        j: (ENV_START_IDX + env_idx) as u16,
+                        transform_i: &joint_poses[J6],
+                        transform_j: &env_obj.pose,
+                        shape_i: &tool,
+                        shape_j: &env_obj.mesh,
+                    });
+                }
             }
         }
 
@@ -470,7 +473,7 @@ impl RobotBody {
             }
 
             // Check if there is no collision between joint and tool
-            if i != J6 && i != J5 {
+            if check_tool && i != J6 && i != J5 {
                 if let Some(tool) = &self.tool {
                     let accessory_pose = &joint_poses[J6];
                     tasks.push(CollisionTask {
@@ -502,15 +505,18 @@ impl RobotBody {
             }
         }
 
-        if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
-            tasks.push(CollisionTask {
-                i: J_TOOL as u16,
-                j: J_BASE as u16,
-                transform_i: &joint_poses[J6],
-                transform_j: &base.base_pose,
-                shape_i: &tool,
-                shape_j: &base.mesh,
-            });
+        // Check tool-base collision if necessary
+        if check_tool {
+            if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
+                tasks.push(CollisionTask {
+                    i: J_TOOL as u16,
+                    j: J_BASE as u16,
+                    transform_i: &joint_poses[J6],
+                    transform_j: &base.base_pose,
+                    shape_i: &tool,
+                    shape_j: &base.mesh,
+                });
+            }
         }
         Self::process_collision_tasks(tasks, safety_distances, override_mode)
     }
