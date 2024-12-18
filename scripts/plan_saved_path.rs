@@ -1,8 +1,4 @@
-use std::f64::consts::PI;
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
-use serde::Deserialize;
-use std::fs;
-use std::time::Instant;
 use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
 use rs_opw_kinematics::collisions::{CheckMode, CollisionBody, SafetyDistances, NEVER_COLLIDES};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
@@ -11,6 +7,10 @@ use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::rrt::RRTPlanner;
 use rs_opw_kinematics::utils;
+use serde::Deserialize;
+use std::f64::consts::PI;
+use std::fs;
+use std::time::Instant;
 
 const HOME: [f64; 6] = [0.0, 1.451, -1.642, 0.0, 0.0, 0.0];
 
@@ -36,7 +36,9 @@ struct Rotation {
 }
 
 /// Reads a JSON file and parses it into a vector of `nalgebra::Isometry3<f64>`.
-fn read_isometries_from_file(file_path: &str) -> Result<Vec<Isometry3<f64>>, Box<dyn std::error::Error>> {
+fn read_isometries_from_file(
+    file_path: &str,
+) -> Result<Vec<Isometry3<f64>>, Box<dyn std::error::Error>> {
     const SCALE: f64 = 0.005;
     // Read the JSON file as a string
     let file_content = fs::read_to_string(file_path)?;
@@ -49,7 +51,11 @@ fn read_isometries_from_file(file_path: &str) -> Result<Vec<Isometry3<f64>>, Box
         .into_iter()
         .map(|transform| {
             // Create translation
-            let translation = Translation3::new(transform.position.x * SCALE, transform.position.y * SCALE, transform.position.z * SCALE);
+            let translation = Translation3::new(
+                transform.position.x * SCALE,
+                transform.position.y * SCALE,
+                transform.position.z * SCALE,
+            );
 
             // Create a quaternion from the provided rotation
             let raw_quaternion = Quaternion::new(
@@ -71,7 +77,7 @@ fn read_isometries_from_file(file_path: &str) -> Result<Vec<Isometry3<f64>>, Box
 }
 
 pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
+    use rs_opw_kinematics::read_trimesh::{load_trimesh_from_ply, load_trimesh_from_stl};
 
     // Environment object to collide with.
     let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
@@ -118,7 +124,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 1.7).into(),
-            UnitQuaternion::from_euler_angles(0.0, PI, 0.0)
+            UnitQuaternion::from_euler_angles(0.0, PI, 0.0),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
         load_trimesh_from_ply("src/tests/data/stick.ply"),
@@ -126,11 +132,10 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 0.125).into(), // 0.125
-            UnitQuaternion::identity()
+            UnitQuaternion::identity(),
         ),
         // Objects around the robot, with global transforms for them.
-        vec![
-        ],
+        vec![],
         SafetyDistances {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
             to_robot_default: 0.05, // No closer than 5 cm to itself.
@@ -150,25 +155,11 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
     )
 }
 
-fn translate_along_local_z(isometry: &Isometry3<f64>, dz: f64) -> Isometry3<f64> {
-    // Extract the rotation component as a UnitQuaternion
-    let rotation = isometry.rotation;
-
-    // Determine the local Z-axis direction (quaternion's orientation)
-    let local_z_axis = rotation.transform_vector(&Vector3::z());
-
-    // Compute the new translation by adding dz along the local Z-axis
-    let translation = isometry.translation.vector + dz * local_z_axis;
-
-    // Return a new Isometry3 with the updated translation and the same rotation
-    Isometry3::from_parts(translation.into(), rotation.clone())
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>>  {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     use rs_cxx_ros2_opw_bridge::sender::Sender;
 
     // Call the function and read the isometries from the JSON file
-    let isometries; 
+    let isometries;
     match read_isometries_from_file("work/isometries.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
@@ -207,7 +198,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
 
     // "Landing" pose close to the surface, from where Cartesian landing on the surface
-    // is possible and easy. Robot will change into one of the possible alternative configurations 
+    // is possible and easy. Robot will change into one of the possible alternative configurations
     // between start and land.
     let land = HOME;
 
@@ -218,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k, // The robot, instance of KinematicsWithShape
+        robot: &k,                               // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
@@ -240,13 +231,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
 
     // plan path
     let started = Instant::now();
-    
-    // TODO this needs implementation
-    let land = steps.first().unwrap();
-    let park = steps.last().unwrap();
-    
-    let path = planner.plan(&start, &land, &steps, &park);
-    
+
+    let path = planner.plan(
+        &start,
+        &Cartesian::elevated_z(steps.first(), 0.1),
+        &steps,
+        &Cartesian::elevated_z(steps.last(), 0.1),
+    );
+
     let elapsed = started.elapsed();
 
     match path {
@@ -255,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
                 println!("{:?}", &joints);
             }
             let joints: Vec<[f64; 6]> = path.into_iter().map(|aj| aj.joints.clone()).collect();
-            sender.send_joint_trajectory_message(&joints)?            
+            sender.send_joint_trajectory_message(&joints)?
         }
         Err(message) => {
             println!("Failed: {}", message);

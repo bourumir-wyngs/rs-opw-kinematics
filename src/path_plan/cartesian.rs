@@ -6,7 +6,7 @@ use crate::rrt::RRTPlanner;
 use crate::utils;
 use crate::utils::{assert_pose_eq, dump_joints};
 use bitflags::bitflags;
-use nalgebra::Translation3;
+use nalgebra::{Isometry3, Translation3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fmt;
@@ -62,28 +62,45 @@ bitflags! {
     /// Flags that can be set on AnnotatedJoints in the output
     #[derive(Clone, Copy)]
     pub struct PathFlags: u32 {
-        const CARTESIAN =           0b00000001;
+        const NONE = 0b0000_0000;
+
         /// Position is part of the movement from the initil ("home") pose to the landing
         /// pose. It may include very arbitrary joint movements, so Cartesian stroke
         /// may not work on this part of the trajectory.
-        const ONBOARDING =          0b00000010;
+        const ONBOARDING =          0b0000_0010;
         /// Position directly matches one of the stroke poses given in the input.
-        const TRACE =               0b00000100;
+        const TRACE =               0b0000_0100;
         /// Position is linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
         /// but may be important for more developed models that only rotate between
         /// the given joint positions without guarantees that TCP movement is linear.
-        const LIN_INTERP = 0b00001000;
+        const LIN_INTERP =          0b0000_1000;
         /// Position corresponds the starting pose ("land") that is normally little above
         /// the start of the required trace
-        const LAND =                0b00010000;
+        const LAND =                0b0001_0000;
+
+        /// The tool is movind down from the landing position to the first stroke position.
+        /// Activate the tool mechanism if any (start the drill, open sprayer, etc).
+        const LANDING =             0b0010_0000;
+
         /// Position corresponds the ennding pose ("park") that is normally little above
         /// the end of the required trace. This is the last pose to include into the
         /// output.
-        const PARK =                0b00100000;
+        const PARK =                0b0100_0000;
+
+        /// The tool is moving up from the last trace point to the parking position
+        /// (shut down the effector mechanism if any)
+        const PARKING =             0b1000_0000;
+
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
+        
+        /// Special flag used in debugging
+        const DEBUG = 0b1000_0000_0000_0000;
+        
+        // The movement INTO this pose is Cartesian stroke
+        const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();        
     }
 }
 
@@ -122,10 +139,13 @@ fn flag_representation(flags: &PathFlags) -> String {
     const FLAG_MAP: &[(PathFlags, &str)] = &[
         (PathFlags::LIN_INTERP, "LIN_INTERP"),
         (PathFlags::LAND, "LAND"),
+        (PathFlags::LANDING, "LANDING"),
         (PathFlags::PARK, "PARK"),
+        (PathFlags::PARKING, "PARKING"),
         (PathFlags::TRACE, "TRACE"),
         (PathFlags::CARTESIAN, "CARTESIAN"),
         (PathFlags::ONBOARDING, "ONBOARDING"),
+        (PathFlags::DEBUG, "DEBUG"),
     ];
 
     FLAG_MAP
@@ -134,6 +154,12 @@ fn flag_representation(flags: &PathFlags) -> String {
         .map(|(_, name)| *name)
         .collect::<Vec<_>>()
         .join(" | ")
+}
+impl fmt::Debug for PathFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let flag_string = flag_representation(self);
+        write!(f, "{}", flag_string)
+    }
 }
 
 impl fmt::Debug for AnnotatedPose {
@@ -188,22 +214,43 @@ impl Cartesian<'_> {
     pub fn plan(
         &self,
         from: &Joints,
-        land: &Pose,
+        land_first: &Option<Pose>,
         steps: &Vec<Pose>,
-        park: &Pose,
+        park: &Option<Pose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
         }
+        
+        let (land, land_flags) = if let Some(land_pose) = land_first {
+            println!("Starting from land");
+            (land_pose, PathFlags::LAND)
+        } else if let Some(step_pose) = steps.first() {
+            println!("Starting from trace");
+            (step_pose, PathFlags::TRACE)
+        } else if let Some(park_pose) = park {
+            println!("Starting from park");
+            (park_pose, PathFlags::PARKING)
+        } else {
+            return Ok(vec![]); // No job to do
+        };
+
         let strategies = self.robot.inverse_continuing(land, from);
         if strategies.is_empty() {
             return Err("Unable to start from onboarding point".into());
         }
-        let poses = self.with_intermediate_poses(land, &steps, park);
+        println!("land_flags {:?}", land_flags);
+
+        let poses = self.with_intermediate_poses(land_first, &steps, park);
         strategies
             .par_iter()
             .find_map_any(
-                |strategy| match self.probe_strategy(from, strategy, &poses) {
+                |strategy| match self.probe_strategy(from, 
+                                                     &AnnotatedJoints {
+                                                         joints: strategy.clone(),
+                                                         flags: land_flags
+                                                     }                                                     
+                                                     , &poses) {
                     Ok(outcome) => Some(Ok(outcome)), // Return success wrapped in Some
                     Err(msg) => {
                         if self.debug {
@@ -221,11 +268,38 @@ impl Cartesian<'_> {
             })
     }
 
+    /// Computes pose, moved by the distance dz in the local orientation of the Isometry3.
+    /// This is used for computing starting and landing poses if the Cartesian path needs
+    /// to exclude the tool from collision check (as it touches the working surface during
+    /// operation)
+    ///
+    /// This function takes Option and returns None if None is passed. This is handy
+    /// when start and end poses are taken from the list that might be empty
+    ///
+    /// positive value of z means moving in negative direction (lifting up)
+    pub fn elevated_z(isometry: Option<&Isometry3<f64>>, dz: f64) -> Option<Isometry3<f64>> {
+        if let Some(isometry) = isometry {
+            // Extract the rotation component as a UnitQuaternion
+            let rotation = isometry.rotation;
+
+            // Determine the local Z-axis direction (quaternion's orientation)
+            let local_z_axis = rotation.transform_vector(&Vector3::z());
+
+            // Compute the new translation by adding dz along the local Z-axis
+            let translation = isometry.translation.vector - dz * local_z_axis;
+
+            // Return a new Isometry3 with the updated translation and the same rotation
+            Some(Isometry3::from_parts(translation.into(), rotation))
+        } else {
+            None
+        }
+    }
+
     /// Probe the given strategy
     fn probe_strategy(
         &self,
         start: &Joints,
-        strategy: &Joints,
+        strategy: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         let excluded_joints = if self.cartesian_excludes_tool {
@@ -235,7 +309,7 @@ impl Cartesian<'_> {
             HashSet::with_capacity(0)
         };
 
-        let onboarding = self.rrt.plan_rrt(start, strategy, self.robot)?;
+        let onboarding = self.rrt.plan_rrt(start, &strategy.joints, self.robot)?;
         let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
 
         // Do not take the last value as it is same as 'strategy'
@@ -247,10 +321,7 @@ impl Cartesian<'_> {
         }
 
         // Push the strategy point, from here the move must be already CARTESIAN
-        trace.push(AnnotatedJoints {
-            joints: *strategy,
-            flags: PathFlags::TRACE | PathFlags::CARTESIAN,
-        });
+        trace.push(strategy.clone());
 
         // "Complete" trace with all intermediate poses. Onboarding is not included
         // as rrt planner checks that path itself.
@@ -271,16 +342,9 @@ impl Cartesian<'_> {
                     if self.include_linear_interpolation
                         || !to.flags.contains(PathFlags::LIN_INTERP)
                     {
-                        let flags = if to.flags.contains(PathFlags::PARK) {
-                            // At the end of the stroke, we do not assume CARTESIAN
-                            PathFlags::TRACE | to.flags
-                        } else {
-                            PathFlags::TRACE | PathFlags::CARTESIAN | to.flags
-                        };
-
                         trace.push(AnnotatedJoints {
                             joints: next,
-                            flags: flags,
+                            flags: to.flags,
                         });
                     }
                 }
@@ -405,57 +469,63 @@ impl Cartesian<'_> {
 
     fn with_intermediate_poses(
         &self,
-        land: &Pose,
+        land: &Option<Pose>,
         steps: &Vec<Pose>,
-        park: &Pose,
+        park: &Option<Pose>,
     ) -> Vec<AnnotatedPose> {
         let mut poses = Vec::with_capacity(10 * steps.len() + 2);
 
-        // Add the landing pose
-        poses.push(AnnotatedPose {
-            pose: *land,
-            flags: PathFlags::LAND,
-        });
-
-        if !steps.is_empty() {
-            // Add intermediate poses between land and the first step
-            self.add_intermediate_poses(land, &steps[0], &mut poses);
-
-            // Add the steps and intermediate poses between them
-            for i in 0..steps.len() - 1 {
-                poses.push(AnnotatedPose {
-                    pose: steps[i].clone(),
-                    flags: PathFlags::TRACE,
-                });
-
-                self.add_intermediate_poses(&steps[i], &steps[i + 1], &mut poses);
-            }
-
-            // Add the last step
-            let last = *steps.last().unwrap();
+        // Add the landing pose if one provided
+        if let Some(land) = land {
             poses.push(AnnotatedPose {
-                pose: last.clone(),
-                flags: PathFlags::TRACE,
+                pose: *land,
+                flags: PathFlags::LAND,
             });
-
-            // Add intermediate poses between the last step and park
-            self.add_intermediate_poses(&last, park, &mut poses);
-        } else {
-            // If no steps, add intermediate poses between land and park directly
-            self.add_intermediate_poses(land, park, &mut poses);
         }
 
-        // Add the parking pose
-        poses.push(AnnotatedPose {
-            pose: park.clone(),
-            flags: PathFlags::PARK,
-        });
+        // Add the steps and intermediate poses between them
+        for step in steps {
+            // There may be previous step or landing pose if provided
+            if let Some(last) = poses.last() {
+                let last = last.clone();
+                self.add_intermediate_poses(
+                    &last.pose,
+                    &step,
+                    &mut poses,
+                    last.flags
+                );
+            }
+            poses.push(AnnotatedPose {
+                pose: step.clone(),
+                flags: PathFlags::TRACE,
+            });
+        }
+
+        // Add the parking pose if one provided
+        if let (Some(park), Some(last)) = (park, poses.last()) {
+            self.add_intermediate_poses(
+                &last.pose.clone(),
+                &park.clone(),
+                &mut poses,
+                PathFlags::PARK,
+            );
+            poses.push(AnnotatedPose {
+                pose: park.clone(),
+                flags: PathFlags::PARK,
+            });
+        }
 
         poses
     }
 
     /// Add intermediate poses. start and end poses are not added.
-    fn add_intermediate_poses(&self, start: &Pose, end: &Pose, poses: &mut Vec<AnnotatedPose>) {
+    fn add_intermediate_poses(
+        &self,
+        start: &Pose,
+        end: &Pose,
+        poses: &mut Vec<AnnotatedPose>,
+        flags: PathFlags,
+    ) {
         // Calculate the translation difference and distance
         let translation_diff = end.translation.vector - start.translation.vector;
         let translation_distance = translation_diff.norm();
@@ -488,7 +558,7 @@ impl Cartesian<'_> {
 
             poses.push(AnnotatedPose {
                 pose: intermediate_pose,
-                flags: PathFlags::LIN_INTERP,
+                flags: flags | PathFlags::LIN_INTERP,
             });
         }
     }

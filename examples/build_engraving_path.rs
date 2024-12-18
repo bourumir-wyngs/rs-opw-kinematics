@@ -99,13 +99,13 @@ fn main() -> Result<(), String> {
     let mesh = load_trimesh_from_ply("src/tests/data/goblet/ToriLeighR.ply");
     let path = generate_R_waypoints(1.0, 0.01);
     
-    //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
+    let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
     
     // Works
-    let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
+    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
 
     // Works
     //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
