@@ -8,8 +8,7 @@ use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use parry3d::bounding_volume::{Aabb, BoundingVolume};
-use parry3d::na;
+use parry3d::bounding_volume::{BoundingVolume};
 
 /// Optional structure attached to the robot base joint. It has its own global transform
 /// that brings the robot to the location. This structure includes two transforms,
@@ -72,6 +71,7 @@ impl CollisionTask<'_> {
         } else {
             // Check if the bounding boxes of both objects, enlarged by r_min, touch
             // If they do not, objects are more than r_min apart.
+            // AABB's can be fast obtained as they are already computed.
             let aabb_i = self.shape_i.aabb(self.transform_i).loosened(r_min);
             let abbb_j = self.shape_j.aabb(self.transform_j).loosened(r_min);
             if !aabb_i.intersects(&abbb_j) {
@@ -472,7 +472,7 @@ impl RobotBody {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 // Joints we do not move we do not need to check for collision against objects
                 // that also not move.
-                if self.check_required(i, (ENV_START_IDX + env_idx) as usize, &skip) {
+                if self.check_required(i, ENV_START_IDX + env_idx, &skip) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: (ENV_START_IDX + env_idx) as u16,
