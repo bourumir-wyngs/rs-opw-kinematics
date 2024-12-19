@@ -134,10 +134,15 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             Translation3::new(0.0, 0.0, 0.125).into(), // 0.125
             UnitQuaternion::identity(),
         ),
-        // Objects around the robot, with global transforms for them.
-        vec![],
+        // We use the Goblet in this task. It is sitting in the orginin of coordinates.
+        vec![
+            CollisionBody {
+                mesh: load_trimesh_from_ply("src/tests/data/goblet/goblet.ply"),
+                pose: Isometry3::identity()
+            }, 
+        ],
         SafetyDistances {
-            to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
+            to_environment: 0.05,   // Robot should not come closer than 5 cm to the goblet
             to_robot_default: 0.05, // No closer than 5 cm to itself.
             special_distances: SafetyDistances::distances(&[
                 // Due construction of this robot, these joints are very close, so
@@ -196,16 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // In production, other poses are normally given in Cartesian, but here they are given
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
-
-    // "Landing" pose close to the surface, from where Cartesian landing on the surface
-    // is possible and easy. Robot will change into one of the possible alternative configurations
-    // between start and land.
-    let land = HOME;
-
     let steps = isometries;
-
-    // "Parking" pose, Cartesian lifting from the surface at the end of the stroke. Park where we landed.
-    let park = HOME;
 
     // Creat Cartesian planner
     let planner = Cartesian {
