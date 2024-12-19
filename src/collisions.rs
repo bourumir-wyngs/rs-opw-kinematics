@@ -8,7 +8,8 @@ use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use parry3d::bounding_volume::{BoundingVolume};
+use parry3d::bounding_volume::{Aabb, BoundingVolume};
+use parry3d::math::Point;
 
 /// Optional structure attached to the robot base joint. It has its own global transform
 /// that brings the robot to the location. This structure includes two transforms,
@@ -69,30 +70,91 @@ impl CollisionTask<'_> {
             )
             .expect(SUPPORTED)
         } else {
-            // Check if the bounding boxes of both objects, enlarged by r_min, touch
-            // If they do not, objects are more than r_min apart.
-            // AABB's can be fast obtained as they are already computed.
-            let aabb_i = self.shape_i.aabb(self.transform_i).loosened(r_min);
-            let abbb_j = self.shape_j.aabb(self.transform_j).loosened(r_min);
-            if !aabb_i.intersects(&abbb_j) {
-                return None;
+            // Check if the bounding boxe of the object i, enlarged by r_min, touches
+            // the object j. If not, objects are more than r_min apart.
+            let (sm_shape, sm_transform, bg_shape, bg_transform) = 
+                if self.shape_i.vertices().len() < self.shape_j.vertices().len() {
+                (self.shape_i, self.transform_i, self.shape_j, self.transform_j)
+            } else {
+                (self.shape_j, self.transform_j, self.shape_i, self.transform_i)
+            };            
+            // Small shape is simplified to aabb that is then enlarged. Large shape is used
+            // as is (it probably has a complex shape and would result in many false positives
+            // if similarly simplified            
+            let am_aaabb = sm_shape.local_aabb().loosened(r_min);
+            let sm_abb_mesh = build_trimesh_from_aabb(am_aaabb);
+            if !parry3d::query::intersection_test(
+                sm_transform,
+                &sm_abb_mesh,
+                bg_transform,
+                bg_shape,
+            ).expect(SUPPORTED) {
+                false
+            } else {
+                parry3d::query::distance(
+                    self.transform_i,
+                    self.shape_i,
+                    self.transform_j,
+                    self.shape_j,
+                )
+                    .expect(SUPPORTED)
+                    <= r_min
             }
-            
-            parry3d::query::distance(
-                self.transform_i,
-                self.shape_i,
-                self.transform_j,
-                self.shape_j,
-            )
-            .expect(SUPPORTED)
-                <= r_min
         };
+        
         if collides {
             Some((self.i.min(self.j), self.i.max(self.j)))
         } else {
             None
         }
     }
+}
+
+/// Parry does not support AABB as a "proper" shape so we rewrap it as mesh
+fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
+    let min: Point<f32> = aabb.mins;
+    let max: Point<f32> = aabb.maxs;
+    // Define the 8 vertices of the AABB
+    let vertices = vec![
+        min, // 0
+        Point::new(max.x, min.y, min.z), // 1
+        Point::new(min.x, max.y, min.z), // 2
+        Point::new(max.x, max.y, min.z), // 3
+        Point::new(min.x, min.y, max.z), // 4
+        Point::new(max.x, min.y, max.z), // 5
+        Point::new(min.x, max.y, max.z), // 6
+        max, // 7
+    ];
+
+    // Define the 12 triangles (2 for each face)
+    const INDICES: [[u32; 3]; 12] = [
+        // Bottom face (min.z)
+        [0, 1, 2],
+        [2, 1, 3],
+
+        // Top face (max.z)
+        [4, 5, 6],
+        [6, 5, 7],
+
+        // Front face (max.y)
+        [2, 3, 6],
+        [6, 3, 7],
+
+        // Back face (min.y)
+        [0, 1, 4],
+        [4, 1, 5],
+
+        // Left face (min.x)
+        [0, 2, 4],
+        [4, 2, 6],
+
+        // Right face (max.x)
+        [1, 3, 5],
+        [5, 3, 7],
+    ];
+
+    // Return TriMesh
+    TriMesh::new(vertices, INDICES.to_vec())
 }
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
