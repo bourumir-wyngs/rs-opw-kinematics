@@ -5,7 +5,7 @@ autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
-keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
+keywords = ["robotics", "kinematics", "path-planning", "collisions", "opw"]
 categories = ["science::robotics", "algorithms"]
 
 license = "BSD-3-Clause"
