@@ -12,7 +12,7 @@ planning.
 
 <img src="https://github.com/user-attachments/assets/64cf952a-93b0-4a69-ba6f-d3e98b1cee25" alt="screenshot" width="300"/>
 
-See also [video produced with RViz2 under ROS2](https://www.youtube.com/watch?v=CVZ9CFt_QMM)
+See also [video produced with RViz under ROS2](https://www.youtube.com/watch?v=CVZ9CFt_QMM)
 
 # Intro
 
