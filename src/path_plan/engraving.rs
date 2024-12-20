@@ -62,6 +62,7 @@ pub fn build_engraving_path_side_projected(
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
                 Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
                 Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
+                Axis::CYLINDER_Z => panic!("Not implemented"),
             }
         })
         .collect();
@@ -95,6 +96,7 @@ pub fn axis_aligned_bounding_rectangle(
             Axis::X => GeoPoint::new(vertex.y * scale, vertex.z * scale), // YZ plane
             Axis::Y => GeoPoint::new(vertex.x * scale, vertex.z * scale), // XZ plane
             Axis::Z => GeoPoint::new(vertex.x * scale, vertex.y * scale), // XY plane
+            Axis::CYLINDER_Z => panic!("Not implemented"),
         })
         .collect();
 
@@ -140,6 +142,7 @@ pub fn build_engraving_path_cylindric(
     projection_radius: f32,
     height: std::ops::Range<f32>,
     angle: Range<f32>,
+    direction: RayDirection,
 ) -> Result<Vec<Isometry3<f32>>, String> {
     use std::f32::consts::PI;
     // Validate inputs using range methods.
@@ -200,7 +203,7 @@ pub fn build_engraving_path_cylindric(
     // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
-        .filter_map(|point| projector.project_cylindric(mesh, point, projection_radius))
+        .filter_map(|point| projector.project_cylindric(mesh, point, projection_radius, direction))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

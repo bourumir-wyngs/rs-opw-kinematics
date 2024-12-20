@@ -37,6 +37,7 @@ pub enum Axis {
     X,
     Y,
     Z,
+    CYLINDER_Z,
 }
 
 impl Axis {
@@ -51,6 +52,7 @@ impl Axis {
             Axis::X => ParryPoint::new(point.x + (far * ray_side.to_sign()), point.y, point.z),
             Axis::Y => ParryPoint::new(point.x, point.y + (far * ray_side.to_sign()), point.z),
             Axis::Z => ParryPoint::new(point.x, point.y, point.z + (far * ray_side.to_sign())),
+            Axis::CYLINDER_Z => panic!("Not implemented"),
         }
     }
 
@@ -60,6 +62,7 @@ impl Axis {
             Axis::X => Vector3::new(-ray_side.to_sign(), 0.0, 0.0),
             Axis::Y => Vector3::new(0.0, -ray_side.to_sign(), 0.0),
             Axis::Z => Vector3::new(0.0, 0.0, -ray_side.to_sign()),
+            Axis::CYLINDER_Z => panic!("Not implemented"),
         }
     }
 
@@ -86,6 +89,7 @@ impl Axis {
                 point.y + radius * angle.sin(),
                 point.z,
             ),
+            Axis::CYLINDER_Z => panic!("Not implemented"),
         }
     }
 }
@@ -114,6 +118,7 @@ impl Projector {
                 Axis::X => Some(ParryPoint::new(intersection_point.x, point.y, point.z)),
                 Axis::Y => Some(ParryPoint::new(point.x, intersection_point.y, point.z)),
                 Axis::Z => Some(ParryPoint::new(point.x, point.y, intersection_point.z)),
+                Axis::CYLINDER_Z => panic!("Not implemented"),
             }
         } else {
             None
@@ -209,23 +214,67 @@ impl Projector {
         mesh: &TriMesh,
         point: &geo::Point<f32>,
         projection_radius: f32,
+        direction: RayDirection,
     ) -> Option<Isometry3<f32>> {
+        pub fn circle_point(
+            central_point: &geo::Point<f32>, // Center of the circle in 3D
+            radius: f32,                     // Circle radius
+            theta: f32,                      // Angle (in radians) for parametric circle point
+            projection_radius: f32,          // Diameter of the cylinder
+        ) -> geo::Point<f32> {
+            // Step 1: Compute the meter_rad_factor
+            let meter_rad_factor = projection_radius / 2.0;
+
+            // Step 2: Compute the Z coordinate (vertical position)
+            let z = central_point.y() + radius * theta.sin();
+
+            // Step 3: Compute the X coordinate, representing angular displacement in meters
+            let theta_x = central_point.x() + radius * theta.cos() * meter_rad_factor;
+
+            // Step 4: Return the 2D point in (theta_x, z)
+            geo::Point::new(theta_x, z)
+        }
+
         // Attempt to project the central point.
         if let Some(central_point) = Self::project_point_cylindric(mesh, point, projection_radius) {
-            // Log the central point for debugging.
             println!("Central point projection: {:?}", central_point);
 
-            // Create and return an Isometry3 translation using the projected point.
-            Some(Isometry3::translation(
-                central_point.x,
-                central_point.y,
-                central_point.z,
-            ))
+            // Step 2: Generate points on a circle in the XZ plane
+            let mut valid_points: Vec<Point3<f32>> = vec![
+                Point3::new(central_point.x, central_point.y, central_point.z), // Include the central point
+            ];
+            for i in 0..self.check_points {
+                let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
+                let circle_point =
+                    circle_point(&point, self.radius, angle, projection_radius);
+
+                if let Some(intersection) =
+                    Self::project_point_cylindric(mesh, &circle_point, projection_radius)
+                {
+                    println!(
+                        "Intersection at angle {}: {:?}",
+                        angle.to_degrees(),
+                        intersection
+                    );
+                    valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
+                } else {
+                    println!("No intersection at angle {}", angle.to_degrees());
+                }
+            }
+
+            // Ensure enough valid points exist
+            if valid_points.len() < 3 {
+                println!("Not enough valid points for regression.");
+                return None;
+            }
+
+            self.compute_plane_isometry(central_point, valid_points, Axis::CYLINDER_Z, direction)
         } else {
             println!("Central point projection NONE");
             None
         }
     }
+
 
     /// Computes the average orientation of a plane from multiple points.
     ///
@@ -239,6 +288,43 @@ impl Projector {
     ///
     /// # Returns
     /// * `Isometry3<f32>` - The isometry representing the average plane orientation.
+    fn average_plane_orientation_(
+        &self,
+        points: &[Vector3<f32>],
+        axis: Axis,
+        direction: RayDirection,
+    ) -> Option<UnitQuaternion<f32>> {
+        if points.len() < 3 {
+            // At least 3 points are needed to define a plane or normal.
+            return None;
+        }
+
+        // Step 1: Compute a normal vector for the plane from the points.
+        let normal_sum = Self::compute_normal_sum_parallel(points);
+
+        // Step 2: Normalize the resulting normal vector.
+        let mut average_normal = normal_sum.normalize();
+
+        // Ensure the normal is valid (non-zero).
+        if average_normal.norm() == 0.0 {
+            return None;
+        }
+
+        // Step 3: Special handling for `CENTERWISE`.
+        if axis == Axis::CYLINDER_Z {
+            // Create a quaternion that rotates from the standard Z-axis to the computed normal.
+            return UnitQuaternion::rotation_between(&Vector3::z_axis(), &average_normal);
+        }
+
+        None
+    }
+
+    fn is_normal_pointing_to_origin(point: &Vector3<f32>, normal: &Vector3<f32>) -> bool {
+        let displacement_to_origin = -point;
+        let dot_product = displacement_to_origin.dot(&normal);
+        dot_product < 0.0
+    }
+
     fn average_plane_orientation(
         &self,
         points: &[Vector3<f32>],
@@ -260,32 +346,43 @@ impl Projector {
             return None;
         }
 
-        // Convert `axis` and `direction` into a preferred orientation vector
-        let preferred_direction = match axis {
-            Axis::X => Vector3::x(),
-            Axis::Y => Vector3::y(),
-            Axis::Z => Vector3::z(),
-        } * direction.to_sign();
+        // Fix the normal for the case we have it opposite. For centerwise projection,
+        // this is not yet supported.
+        if axis != Axis::CYLINDER_Z {
+            // Convert `axis` and `direction` into a preferred orientation vector
+            let preferred_direction = match axis {
+                Axis::X => Vector3::x(),
+                Axis::Y => Vector3::y(),
+                Axis::Z => Vector3::z(),
+                Axis::CYLINDER_Z => panic!("Should not be here"),
+            } * direction.to_sign();
 
-        // Check orientation consistency with the preferred vector
-        if average_normal.dot(&preferred_direction) < 0.0 {
-            // Flip the normal if it's pointing away from the preferred direction
-            average_normal = -average_normal;
+            // Check orientation consistency with the preferred vector
+            if average_normal.dot(&preferred_direction) < 0.0 {
+                // Flip the normal if it's pointing away from the preferred direction
+                average_normal = -average_normal;
+            }
+        } else {
+            let point = points.first().unwrap(); // This is center point of the circle
+            let is_pointing_to_origin = Self::is_normal_pointing_to_origin(point, &average_normal);
+            if direction == RayDirection::FromNegative {
+                average_normal = -average_normal;
+            }
         }
 
-        let x_axis = Vector3::z();
+        let z_axis = Vector3::z();
         if axis == Axis::Z && direction == RayDirection::FromNegative {
             // Axis would be close to antiparallel to X axis, solutions are unstable here, need spec approach
             average_normal = -average_normal; // Make it instead close to parallel
-            let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
+            let q = UnitQuaternion::rotation_between(&z_axis, &average_normal);
             if let Some(q) = q {
-                let swing_twist = self.decompose_swing_twist(q, &x_axis);
+                let swing_twist = self.decompose_swing_twist(q, &z_axis);
                 // Flip 180 degrees
                 return Some(self.set_twist_y(&swing_twist, PI));
             }
         }
-        UnitQuaternion::rotation_between(&x_axis, &average_normal)
-    }
+        UnitQuaternion::rotation_between(&z_axis, &average_normal)
+    }    
 
     #[allow(dead_code)]
     fn compute_normal_sum_sequential(points: &[Vector3<f32>]) -> Vector3<f32> {
@@ -472,6 +569,7 @@ mod tests {
                 ParryPoint::new(0.5, -0.51, value),
                 ParryPoint::new(0.5, 0.51, value),
             ],
+            Axis::CYLINDER_Z => panic!("Such test is not supported"),
         }
     }
 

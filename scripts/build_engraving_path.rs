@@ -102,7 +102,7 @@ fn main() -> Result<(), String> {
     let path = generate_R_waypoints(1.0, 0.01);
 
     let engraving = build_engraving_path_cylindric(&mesh, &path, 
-      0.5, 0.4.. 0.58, 0. ..1.5*PI)?;
+      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;
     
     //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
