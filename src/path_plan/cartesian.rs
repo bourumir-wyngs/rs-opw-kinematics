@@ -11,7 +11,6 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fmt;
 use std::time::Instant;
-use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -305,7 +304,6 @@ impl Cartesian<'_> {
         work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        use rayon::prelude::*;
 
         // Use Rayon to run both functions in parallel
         let (onboarding, stroke) = rayon::join(

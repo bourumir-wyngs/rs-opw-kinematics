@@ -1,8 +1,8 @@
 use std::f32::consts::PI;
 use nalgebra::{Isometry3};
-use rs_opw_kinematics::engraving::build_engraving_path;
+use rs_opw_kinematics::engraving::{build_engraving_path_cylindric, build_engraving_path_side_projected};
 use rs_opw_kinematics::projector::{Axis, RayDirection};
-use rs_opw_kinematics::read_trimesh::{load_trimesh_from_ply, load_trimesh_from_stl};
+use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl};
 use std::fs::File;
 use std::io::Write;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
@@ -100,8 +100,11 @@ fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     let mesh = load_trimesh_from_stl("/home/audrius/opw/rs-opw-kinematics/src/tests/data/goblet/goblet.stl");
     let path = generate_R_waypoints(1.0, 0.01);
+
+    let engraving = build_engraving_path_cylindric(&mesh, &path, 
+      0.5, 0.4.. 0.58, 0. ..1.5*PI)?;
     
-    let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
+    //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works

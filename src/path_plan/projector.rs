@@ -2,14 +2,16 @@ use nalgebra::{Isometry3, Point3, Quaternion, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
-use std::f32::consts::{PI};
+use std::f32::consts::PI;
 
 pub struct Projector {
     pub check_points: usize,
-    pub radius: f32,
-    
+
     // If true, normals point inward (as needed for the robot to orient the tool).
-    pub normals_inward: bool
+    pub normals_inward: bool,
+
+    // Check cylinder radius for finding normals
+    pub radius: f32,
 }
 
 /// Enum representing the direction from which a ray originates along an axis.
@@ -118,6 +120,42 @@ impl Projector {
         }
     }
 
+    pub fn project_point_cylindric(
+        mesh: &TriMesh,
+        point: &geo::Point<f32>,
+        radius: f32,
+    ) -> Option<ParryPoint<f32>> {
+        const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
+
+        use parry3d::query::Ray;
+        use std::f32::consts::PI;
+
+        // Step 1: Convert cylindrical coordinates to Cartesian
+        let theta = point.x();
+        let x = radius * theta.cos(); // X coordinate on cylinder's surface
+        let y = radius * theta.sin(); // Y coordinate on cylinder's surface
+        let z = point.y(); // Z remains unchanged
+
+        // Step 2: Create the ray origin from the cylindrical surface point
+        let ray_origin = ParryPoint::new(x, y, z);
+
+        // Step 3: Compute the ray direction (parallel to XY toward Z axis)
+        // Pointing inward from the cylinder's surface
+        let ray_direction = Vector3::new(-x, -y, 0.0).normalize(); // Normalized direction in XY plane
+
+        // Step 4: Create the ray
+        let ray = Ray::new(ray_origin.into(), ray_direction);
+
+        // Step 5: Use mesh.cast_ray to find the intersection
+        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
+            let intersection_point = ray_origin + ray_direction * toi;
+            return Some(ParryPoint::from(intersection_point));
+        }
+
+        // If no intersection is found, return None
+        None
+    }
+
     /// Projects a point and performs planar regression to compute the normal.
     pub fn project(
         &self,
@@ -164,6 +202,29 @@ impl Projector {
         }
 
         self.compute_plane_isometry(central_point, valid_points, axis, direction)
+    }
+
+    pub fn project_cylindric(
+        &self,
+        mesh: &TriMesh,
+        point: &geo::Point<f32>,
+        projection_radius: f32,
+    ) -> Option<Isometry3<f32>> {
+        // Attempt to project the central point.
+        if let Some(central_point) = Self::project_point_cylindric(mesh, point, projection_radius) {
+            // Log the central point for debugging.
+            println!("Central point projection: {:?}", central_point);
+
+            // Create and return an Isometry3 translation using the projected point.
+            Some(Isometry3::translation(
+                central_point.x,
+                central_point.y,
+                central_point.z,
+            ))
+        } else {
+            println!("Central point projection NONE");
+            None
+        }
     }
 
     /// Computes the average orientation of a plane from multiple points.
@@ -218,8 +279,7 @@ impl Projector {
             average_normal = -average_normal; // Make it instead close to parallel
             let q = UnitQuaternion::rotation_between(&x_axis, &average_normal);
             if let Some(q) = q {
-                let swing_twist =
-                    self.decompose_swing_twist(q, &x_axis);
+                let swing_twist = self.decompose_swing_twist(q, &x_axis);
                 // Flip 180 degrees
                 return Some(self.set_twist_y(&swing_twist, PI));
             }
@@ -251,10 +311,10 @@ impl Projector {
     }
 
     fn compute_normal_sum_parallel(points: &[Vector3<f32>]) -> Vector3<f32> {
-        use rayon::prelude::*; // Includes common Rayon traits
-        use rayon::iter::{ParallelIterator, IndexedParallelIterator};
         use nalgebra::Vector3;
-        
+        use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+        use rayon::prelude::*; // Includes common Rayon traits
+
         // Use Rayon parallel iterator with a thread-safe accumulation
         let normal_sum = points
             .par_iter() // Parallel iteration over the first loop
@@ -283,9 +343,8 @@ impl Projector {
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
         normal_sum // Return the accumulated vector
-    }   
-    
-    
+    }
+
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
     fn decompose_swing_twist(
         &self,
@@ -339,10 +398,10 @@ impl Projector {
         Some(Isometry3::from_parts(
             centroid.coords.into(),
             if self.normals_inward {
-                orientation.unwrap().inverse()                
+                orientation.unwrap().inverse()
             } else {
                 orientation.unwrap()
-            }
+            },
         ))
     }
 }
