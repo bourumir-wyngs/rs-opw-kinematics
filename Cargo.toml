@@ -21,7 +21,6 @@ rand = "0.8" # Now is needed for path planner
 
 
 geo = "0.25"
-delaunator = "1.0.2"
 serde = { version = "1.0", features = ["derive"] } # For JSON serialization/deserialization
 serde_json = "1.0.133"
 
@@ -87,3 +86,6 @@ rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge",
 name = "planner_tester"
 path = "scripts/plan_saved_path.rs"
 
+[[bin]]
+name = "engraving_path"
+path = "scripts/build_engraving_path.rs"

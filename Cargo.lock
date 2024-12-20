@@ -1566,15 +1566,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 
 [[package]]
-name = "delaunator"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab46e386c7a38300a0d93b0f3e484bc2ee0aded66c47b14762ec9ab383934fa"
-dependencies = [
- "robust 0.2.3",
-]
-
-[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2595,7 +2586,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3667,7 +3658,7 @@ dependencies = [
 [[package]]
 name = "rs-cxx-ros2-opw-bridge"
 version = "0.0.1"
-source = "git+https://github.com/bourumir-wyngs/cxx_bridge#885826b7008fc94c0196d78668b0e3163400aa2b"
+source = "git+https://github.com/bourumir-wyngs/cxx_bridge#da3f936391f0f408045f2834f8c66b4b0eb1266a"
 dependencies = [
  "nalgebra",
  "prost",
@@ -3682,7 +3673,6 @@ dependencies = [
  "bevy_egui",
  "bitflags 2.6.0",
  "clap",
- "delaunator",
  "geo",
  "nalgebra",
  "parry3d",
@@ -4776,7 +4766,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

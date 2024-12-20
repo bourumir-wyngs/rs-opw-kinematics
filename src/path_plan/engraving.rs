@@ -7,9 +7,9 @@ use parry3d::shape::TriMesh;
 
 use crate::projector::{Axis, Projector, RayDirection};
 
-const MARGIN: f32 = 0.04 / 0.005; // Margin for the engraving area
+const MARGIN: f32 = 0.04;
 const PROJECTOR_CHECK_POINTS: usize = 16;
-const PROJECTOR_RADIUS: f32 = 0.02 / 0.005; //0.04 / 0.005;
+const PROJECTOR_RADIUS: f32 = 0.02;
 
 /// Build a series of poses for "engraving" over the mesh.
 pub fn build_engraving_path(
@@ -81,16 +81,17 @@ pub fn axis_aligned_bounding_rectangle(
     mesh: &TriMesh,
     axis: Axis,
 ) -> Result<(GeoPoint<f32>, GeoPoint<f32>), String> {
+    // THIS CODE IS SENSITIVE TO ABSOLUTE DIMENSIONS
     let concavity = 0.1; // the mesh we have is is mm so value may need adjustment later
-
+    let scale = 1.0 / 0.005;
     // Step 1: Project all mesh points onto the relevant plane based on the axis
     let projected_points: Vec<GeoPoint<f32>> = mesh
         .vertices()
         .iter()
         .map(|vertex| match axis {
-            Axis::X => GeoPoint::new(vertex.y, vertex.z), // YZ plane
-            Axis::Y => GeoPoint::new(vertex.x, vertex.z), // XZ plane
-            Axis::Z => GeoPoint::new(vertex.x, vertex.y), // XY plane
+            Axis::X => GeoPoint::new(vertex.y * scale, vertex.z * scale), // YZ plane
+            Axis::Y => GeoPoint::new(vertex.x * scale, vertex.z * scale), // XZ plane
+            Axis::Z => GeoPoint::new(vertex.x * scale, vertex.y * scale), // XY plane
         })
         .collect();
 
@@ -100,7 +101,9 @@ pub fn axis_aligned_bounding_rectangle(
         Polygon::new(LineString::from(projected_points), vec![]).concave_hull(concavity);
 
     // Step 3: Compute the largest fitting rectangle in the relevant plane
-    Ok(largest_fitting_rectangle(&concave_hull)?)
+    let lff = largest_fitting_rectangle(&concave_hull)?;
+    
+    Ok((lff.0  / scale, lff.1 / scale))
 }
 
 #[cfg(test)]

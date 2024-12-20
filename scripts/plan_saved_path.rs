@@ -39,7 +39,6 @@ struct Rotation {
 fn read_isometries_from_file(
     file_path: &str,
 ) -> Result<Vec<Isometry3<f64>>, Box<dyn std::error::Error>> {
-    const SCALE: f64 = 0.005;
     // Read the JSON file as a string
     let file_content = fs::read_to_string(file_path)?;
 
@@ -52,9 +51,9 @@ fn read_isometries_from_file(
         .map(|transform| {
             // Create translation
             let translation = Translation3::new(
-                transform.position.x * SCALE,
-                transform.position.y * SCALE,
-                transform.position.z * SCALE,
+                transform.position.x,
+                transform.position.y,
+                transform.position.z,
             );
 
             // Create a quaternion from the provided rotation
