@@ -262,11 +262,13 @@ impl KinematicsWithShape {
     /// with the distance, also discards solutions where robot comes too close to
     /// collision rather than collides.
     pub(crate) fn remove_collisions(&self, solutions: Solutions) -> Solutions {
-        solutions
-            .into_iter()
-            .find(|qs| !self.body.collides(qs, self.kinematics.as_ref()))
-            .map(|qs| vec![qs]) // Wrap the solution in a vector
-            .unwrap_or_default() // Return an empty vector if no solution is found
+        let mut filtered_solutions = Vec::with_capacity(solutions.len());
+        for solution in solutions {
+            if !self.body.collides(&solution, self.kinematics.as_ref()) {
+                filtered_solutions.push(solution);
+            }
+        }
+        filtered_solutions
     }
 
     /// Check for collisions for the given joint position. Both self-collisions and collisions
