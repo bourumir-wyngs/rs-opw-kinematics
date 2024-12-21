@@ -1,8 +1,8 @@
-use std::sync::atomic::AtomicBool;
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_with_shape::KinematicsWithShape;
+use crate::rrt_to::{dual_rrt_connect, smooth_path};
 use crate::utils::dump_joints;
-use crate::rrt_to::dual_rrt_connect;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -46,7 +46,7 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         start: &Joints,
         goal: &Joints,
-        stop: &AtomicBool
+        stop: &AtomicBool,
     ) -> Result<Vec<Vec<f64>>, String> {
         let collision_free = |joint_angles: &[f64]| -> bool {
             let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
@@ -64,15 +64,34 @@ impl RRTPlanner {
         };
 
         // Plan the path with RRT
-        dual_rrt_connect(
+        let mut path = dual_rrt_connect(
             start,
             goal,
             collision_free,
             random_joint_angles,
             self.step_size_joint_space, // Step size in joint space
             self.max_try,               // Max iterations
-            &stop
-        )
+            &stop,
+        );
+
+        // "Smooth path" is currently disabled. It behaved very aggressively in tests,
+        // removing near all points. While maybe true, we need to test more before we activate.
+        // @TODO test the path smoothing, if we can enable
+        if false && !stop.load(Ordering::Relaxed) {
+            let t = Instant::now();
+            if let Ok(mut path) = path {
+                smooth_path(
+                    & mut path,
+                    collision_free,
+                    self.step_size_joint_space,
+                    10,
+                    stop,
+                );
+                println!("Smooth path took {:?}", t.elapsed());                
+                return Ok(path);                
+            }
+        }
+        path
     }
 
     fn convert_result(&self, data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, String> {

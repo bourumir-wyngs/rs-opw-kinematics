@@ -160,7 +160,6 @@ where
     tree_b.add_vertex(goal);
     for _ in 0..num_max_try {
         if stop.load(Ordering::Relaxed) {
-            println!("!!! RRT cancelled !!!");
             return Err("Cancelled".to_string());
         }
         debug!("tree_a = {:?}", tree_a.vertices.len());
@@ -196,6 +195,7 @@ pub fn smooth_path<FF, N>(
     mut is_free: FF,
     extend_length: N,
     num_max_try: usize,
+    stop: &AtomicBool,
 ) where
     FF: FnMut(&[N]) -> bool,
     N: Float + Debug,
@@ -205,6 +205,9 @@ pub fn smooth_path<FF, N>(
     }
     let mut rng = rand::thread_rng();
     for _ in 0..num_max_try {
+        if stop.load(Ordering::Relaxed) {
+            break
+        }
         let range1 = Uniform::new(0, path.len() - 2);
         let ind1 = range1.sample(&mut rng);
         let range2 = Uniform::new(ind1 + 2, path.len());
