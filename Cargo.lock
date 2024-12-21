@@ -2586,7 +2586,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -3676,17 +3676,28 @@ dependencies = [
  "geo",
  "nalgebra",
  "parry3d",
- "ply-rs-bw",
  "rand",
  "rayon",
  "regex",
  "rrt",
  "rs-cxx-ros2-opw-bridge",
+ "rs-read-trimesh",
  "serde",
  "serde_json",
- "stl_io",
  "sxd-document",
  "yaml-rust2",
+]
+
+[[package]]
+name = "rs-read-trimesh"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "339fe38d61244a61b601096d1435ae161238422f7891f358bf872f97925117ba"
+dependencies = [
+ "parry3d",
+ "ply-rs-bw",
+ "stl_io",
+ "tobj",
 ]
 
 [[package]]
@@ -4212,6 +4223,15 @@ checksum = "9117f5d4db391c1cf6927e7bea3db74b9a1c1add8f7eda9ffd5364f40f57b82f"
 dependencies = [
  "displaydoc",
  "zerovec",
+]
+
+[[package]]
+name = "tobj"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3bd4ba05f29e4c65b6c0c11a58b6465ffa820bac890d76ad407b4e81d8372e8"
+dependencies = [
+ "ahash",
 ]
 
 [[package]]
@@ -4766,7 +4786,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

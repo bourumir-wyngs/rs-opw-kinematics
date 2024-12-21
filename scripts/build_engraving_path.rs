@@ -2,10 +2,10 @@ use std::f32::consts::PI;
 use nalgebra::{Isometry3};
 use rs_opw_kinematics::engraving::{build_engraving_path_cylindric, build_engraving_path_side_projected};
 use rs_opw_kinematics::projector::{Axis, RayDirection};
-use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl};
 use std::fs::File;
 use std::io::Write;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
+use rs_read_trimesh::load_trimesh;
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
@@ -98,7 +98,7 @@ fn write_isometries_to_json(
 
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
-    let mesh = load_trimesh_from_stl("/home/audrius/opw/rs-opw-kinematics/src/tests/data/goblet/goblet.stl");
+    let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
     let path = generate_R_waypoints(1.0, 0.01);
 
     let engraving = build_engraving_path_cylindric(&mesh, &path, 

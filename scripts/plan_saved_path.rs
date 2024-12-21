@@ -1,16 +1,16 @@
-use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
 use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
 use rs_opw_kinematics::collisions::{CheckMode, CollisionBody, SafetyDistances, NEVER_COLLIDES};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-use rs_opw_kinematics::kinematic_traits::{Kinematics, Pose, J2, J3, J4, J6, J_BASE, J_TOOL};
+use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::rrt::RRTPlanner;
-use rs_opw_kinematics::utils;
 use serde::Deserialize;
 use std::f64::consts::PI;
 use std::fs;
 use std::time::Instant;
+use rs_read_trimesh::load_trimesh;
 
 const HOME: [f64; 6] = [0.0, 1.451, -1.642, 0.0, 0.0, 0.0];
 
@@ -75,13 +75,8 @@ fn read_isometries_from_file(
     Ok(isometries)
 }
 
-pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::{load_trimesh_from_ply, load_trimesh_from_stl};
-
-    // Environment object to collide with.
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
-
-    KinematicsWithShape::with_safety(
+pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
+    Ok(KinematicsWithShape::with_safety(
         // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
@@ -111,22 +106,22 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             // you may also need Trimesh::scale in some extreme cases.
             // If your joints or tool consist of multiple meshes, combine these
             // with Trimesh::append
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl"),
+            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 0.)?,
         ],
         // Base link mesh
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 1.7).into(),
             UnitQuaternion::from_euler_angles(0.0, PI, 0.0),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
-        load_trimesh_from_ply("src/tests/data/stick.ply"),
+        load_trimesh("src/tests/data/stick.ply", 0.)?,
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
@@ -134,12 +129,10 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             UnitQuaternion::identity(),
         ),
         // We use the Goblet in this task. It is sitting in the orginin of coordinates.
-        vec![
-            CollisionBody {
-                mesh: load_trimesh_from_ply("src/tests/data/goblet/goblet.ply"),
-                pose: Isometry3::identity()
-            }, 
-        ],
+        vec![CollisionBody {
+            mesh: load_trimesh("src/tests/data/goblet/goblet.ply", 0.)?,
+            pose: Isometry3::identity(),
+        }],
         SafetyDistances {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to the goblet
             to_robot_default: 0.05, // No closer than 5 cm to itself.
@@ -156,7 +149,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             // mode: CheckMode::AllCollsions, // we need to report all for visualization
             mode: CheckMode::FirstCollisionOnly, // good for planning
         },
-    )
+    ))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -193,7 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Initialize kinematics with your robot's specific parameters
-    let k = create_rx160_robot();
+    let k = create_rx160_robot()?;
 
     // Starting point, where the robot exists at the beginning of the task.
     let start = HOME;

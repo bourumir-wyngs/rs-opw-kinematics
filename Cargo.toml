@@ -40,8 +40,7 @@ parry3d = { version = "0.17", optional = true }
 rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
-ply-rs-bw = { version = "2.0.0", optional = true } # patched ply-rs
-stl_io = { version = "0.8", optional = true }
+rs-read-trimesh = { version = "0.1.0", optional = true } # patched ply-rs
 
 # Needed for visualization. Only relevant packages are included.
 bevy = { version = "0.12", default-features = false, features = [
@@ -62,7 +61,7 @@ rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge",
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs-bw", "stl_io"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["rrt", "collisions"]

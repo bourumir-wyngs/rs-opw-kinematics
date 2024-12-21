@@ -1,11 +1,10 @@
-use std::f64::consts::PI;
 use nalgebra::Isometry3;
 use std::ops::Range;
 
 use crate::calipers::largest_fitting_rectangle;
 use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
 use parry3d::math::Point as ParryPoint;
-use parry3d::shape::{HeightField, TriMesh};
+use parry3d::shape::{TriMesh};
 
 use crate::projector::{Axis, Projector, RayDirection};
 
@@ -62,7 +61,7 @@ pub fn build_engraving_path_side_projected(
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
                 Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
                 Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
-                Axis::CYLINDER_Z => panic!("Not implemented"),
+                Axis::CylinderZ => panic!("Not implemented"),
             }
         })
         .collect();
@@ -96,7 +95,7 @@ pub fn axis_aligned_bounding_rectangle(
             Axis::X => GeoPoint::new(vertex.y * scale, vertex.z * scale), // YZ plane
             Axis::Y => GeoPoint::new(vertex.x * scale, vertex.z * scale), // XZ plane
             Axis::Z => GeoPoint::new(vertex.x * scale, vertex.y * scale), // XY plane
-            Axis::CYLINDER_Z => panic!("Not implemented"),
+            Axis::CylinderZ => panic!("Not implemented"),
         })
         .collect();
 
@@ -187,7 +186,6 @@ pub fn build_engraving_path_cylindric(
             let theta = (x - path_min_x) * scale_x; 
             let z = (y - path_min_y) * scale_y + height.start;
             let x = theta;
-            let y = 0.0;
 
             GeoPoint::new(x, z)
         })
