@@ -3644,18 +3644,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rrt"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c1ef35d85ad3a9e66fe5b9ddcdf39184e65cd73ec5a8f4b1254d8cbea6eda6"
-dependencies = [
- "kdtree",
- "num-traits",
- "rand",
- "tracing",
-]
-
-[[package]]
 name = "rs-cxx-ros2-opw-bridge"
 version = "0.0.1"
 source = "git+https://github.com/bourumir-wyngs/cxx_bridge#da3f936391f0f408045f2834f8c66b4b0eb1266a"
@@ -3681,7 +3669,6 @@ dependencies = [
  "rand",
  "rayon",
  "regex",
- "rrt",
  "rs-cxx-ros2-opw-bridge",
  "rs-read-trimesh",
  "serde",

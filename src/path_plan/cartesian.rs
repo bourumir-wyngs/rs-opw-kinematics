@@ -4,7 +4,7 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints, joints};
+use crate::utils::{assert_pose_eq, dump_joints};
 use bitflags::bitflags;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -241,7 +241,10 @@ impl Cartesian<'_> {
         println!("Strategies to try: {}", strategies.len());
 
         let poses = self.with_intermediate_poses(land_first, &steps, park);
-        let mut stop = AtomicBool::new(false);
+        
+        // Global stop once a solution is found
+        let stop = AtomicBool::new(false);
+        
         strategies
             .par_iter()
             .find_map_any(|strategy| {

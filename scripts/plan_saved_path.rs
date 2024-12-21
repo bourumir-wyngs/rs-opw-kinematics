@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k,                               // The robot, instance of KinematicsWithShape
+        robot: &k, // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
@@ -205,7 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
-            max_try: 500,
+            max_try: 1000,
             debug: true,
             waypoints: vec![] // vec![[-2.0, 1.451, -1.642, 0.0, 0.0, 0.0]]
         },

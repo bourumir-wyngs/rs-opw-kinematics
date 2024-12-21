@@ -53,13 +53,13 @@ bevy_egui = { version = "0.24", optional = true }
 # Needed for stroke planning
 bitflags = "2.6.0"
 
-# Copyright 2017 Takashi Ogura Apache 2 license.
-rrt = { version = "0.7.0", optional = true }
-
-# Quick check TO rrt
-kdtree = "0.7"                # For k-d tree implementation and `squared_euclidean`
-num-traits = "0.2"          # For `Float` and `Zero` traits
-tracing = "0.1"
+#rrt = { version = "0.7.0", optional = true }
+# Copyright 2017 Takashi Ogura Apache 2 license. This is not integrated in the code (src/path_plan/rrt_to.rs)
+# as we needed changes there.
+# Dependencies for this code:
+kdtree = { version = "0.7", optional = true }
+num-traits = { version = "0.2", optional = true }
+tracing = { version = "0.1", optional = true }
 
 
 # ROS bridge development only
@@ -71,7 +71,7 @@ default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
-stroke_planning = ["rrt", "collisions"]
+stroke_planning = ["collisions", "kdtree", "num-traits", "tracing"]
 
 # To disable filesystem, collision and visualizatio support:
 # rs-opw-kinematics = { version = "1.8.0", default-features = false }
