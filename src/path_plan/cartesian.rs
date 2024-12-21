@@ -4,12 +4,13 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints};
+use crate::utils::{assert_pose_eq, dump_joints, joints};
 use bitflags::bitflags;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -224,13 +225,10 @@ impl Cartesian<'_> {
         }
 
         let (land, land_flags) = if let Some(land_pose) = land_first {
-            println!("Starting from land");
             (land_pose, PathFlags::LAND)
         } else if let Some(step_pose) = steps.first() {
-            println!("Starting from trace");
             (step_pose, PathFlags::TRACE)
         } else if let Some(park_pose) = park {
-            println!("Starting from park");
             (park_pose, PathFlags::PARKING)
         } else {
             return Ok(vec![]); // No job to do
@@ -240,9 +238,10 @@ impl Cartesian<'_> {
         if strategies.is_empty() {
             return Err("Unable to start from onboarding point".into());
         }
-        println!("land_flags {:?}", land_flags);
+        println!("Strategies to try: {}", strategies.len());
 
         let poses = self.with_intermediate_poses(land_first, &steps, park);
+        let mut stop = AtomicBool::new(false);
         strategies
             .par_iter()
             .find_map_any(|strategy| {
@@ -253,11 +252,16 @@ impl Cartesian<'_> {
                         flags: land_flags,
                     },
                     &poses,
+                    &stop,
                 ) {
-                    Ok(outcome) => Some(Ok(outcome)), // Return success wrapped in Some
+                    Ok(outcome) => {
+                        println!("Strategy worked out: {:?}", strategy);
+                        stop.store(true, Ordering::Relaxed);
+                        Some(Ok(outcome))
+                    }, 
                     Err(msg) => {
                         if self.debug {
-                            println!("Strategy failed: {}", msg);
+                            println!("Strategy failed: {:?}, {}", strategy, msg);
                         }
                         None // Continue searching
                     }
@@ -303,13 +307,18 @@ impl Cartesian<'_> {
         start: &Joints,
         work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
+        stop: &AtomicBool
     ) -> Result<Vec<AnnotatedJoints>, String> {
 
         // Use Rayon to run both functions in parallel
         let (onboarding, stroke) = rayon::join(
-            || self.rrt.plan_rrt(start, &work_path_start.joints, self.robot),
-            || self.compute_strategy(work_path_start, &poses),
+            || self.rrt.plan_rrt(start, &work_path_start.joints, self.robot, stop),
+            || self.compute_strategy(work_path_start, &poses, stop),
         );
+        
+        if stop.load(Ordering::Relaxed) {
+            return Err("Stopped".into());
+        }
 
         // Use `?` to propagate errors upwards
         let onboarding = onboarding?;
@@ -337,6 +346,7 @@ impl Cartesian<'_> {
         &self,
         work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
+        stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         println!("Cartesian planning started");
         let started = Instant::now();
@@ -393,12 +403,22 @@ impl Cartesian<'_> {
         if self.debug {
             println!("Cartesian planning till collision check took {:?}", started.elapsed());
         }
-        let collides = check_trace
-            .par_iter()
-            .any(|joints| self.robot.collides_except(joints, &excluded_joints));
-        if collides {
-            return Err("Collision detected".into());
+        if stop.load(Ordering::Relaxed) {
+            return Err("Stopped".into());
         }
+
+        // Parallel check with early stopping
+        let collides = check_trace.par_iter().any(|joints| {
+            // Check the stop flag at the start of the closure
+            if stop.load(Ordering::Relaxed) {
+                return true; // If we cancel, treat this as colliding
+            }
+            self.robot.collides_except(joints, &excluded_joints)
+        });
+        
+        if collides {
+            return Err("Collision or cancel detected".into());
+        } 
         if self.debug {
             println!("Cartesian planning took {:?}", started.elapsed());
         }

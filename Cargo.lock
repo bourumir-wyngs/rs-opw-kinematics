@@ -3674,7 +3674,9 @@ dependencies = [
  "bitflags 2.6.0",
  "clap",
  "geo",
+ "kdtree",
  "nalgebra",
+ "num-traits",
  "parry3d",
  "rand",
  "rayon",
@@ -3685,6 +3687,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sxd-document",
+ "tracing",
  "yaml-rust2",
 ]
 
