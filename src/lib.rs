@@ -100,6 +100,9 @@ mod camera_controller;
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
+#[path = "path_plan/rrt_to.rs"]
+mod rrt_to;
+
 #[cfg(feature = "stroke_planning")]
 #[path = "path_plan/calipers.rs"]
 pub mod calipers;

@@ -12,6 +12,8 @@ use std::fs;
 use std::time::Instant;
 use rs_read_trimesh::load_trimesh;
 
+// The initial position of the robotic arm.
+// const HOME: [f64; 6] = [-2.0, 1.451, -1.642, 0.0, 0.0, 0.0];
 const HOME: [f64; 6] = [0.0, 1.451, -1.642, 0.0, 0.0, 0.0];
 
 #[derive(Deserialize, Debug)]
@@ -106,22 +108,22 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
             // you may also need Trimesh::scale in some extreme cases.
             // If your joints or tool consist of multiple meshes, combine these
             // with Trimesh::append
-            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 0.)?,
-            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 0.)?,
-            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 0.)?,
-            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 0.)?,
-            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 0.)?,
-            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 1.0)?,
         ],
         // Base link mesh
-        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 1.7).into(),
             UnitQuaternion::from_euler_angles(0.0, PI, 0.0),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
-        load_trimesh("src/tests/data/stick.ply", 0.)?,
+        load_trimesh("src/tests/data/stick.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
@@ -130,7 +132,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         ),
         // We use the Goblet in this task. It is sitting in the orginin of coordinates.
         vec![CollisionBody {
-            mesh: load_trimesh("src/tests/data/goblet/goblet.ply", 0.)?,
+            mesh: load_trimesh("src/tests/data/goblet/goblet.ply", 1.0)?,
             pose: Isometry3::identity(),
         }],
         SafetyDistances {
@@ -168,11 +170,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Print the parsed isometries
-    for (i, isometry) in isometries.iter().enumerate() {
-        println!("Isometry #{}:\n{}", i + 1, isometry);
-    }
-
     let sender = Sender::new("127.0.0.1", 5555);
 
     // Handle the result of `send_pose_message`
@@ -208,8 +205,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
-            max_try: 1000,
+            max_try: 500,
             debug: true,
+            waypoints: vec![] // vec![[-2.0, 1.451, -1.642, 0.0, 0.0, 0.0]]
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output

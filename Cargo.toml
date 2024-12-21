@@ -52,8 +52,15 @@ bevy_egui = { version = "0.24", optional = true }
 
 # Needed for stroke planning
 bitflags = "2.6.0"
+
 # Copyright 2017 Takashi Ogura Apache 2 license.
 rrt = { version = "0.7.0", optional = true }
+
+# Quick check TO rrt
+kdtree = "0.7"                # For k-d tree implementation and `squared_euclidean`
+num-traits = "0.2"          # For `Float` and `Zero` traits
+tracing = "0.1"
+
 
 # ROS bridge development only
 rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge", package = "rs-cxx-ros2-opw-bridge" }
