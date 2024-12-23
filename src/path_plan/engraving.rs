@@ -61,7 +61,7 @@ pub fn build_engraving_path_side_projected(
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
                 Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
                 Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
-                Axis::CylinderZ => panic!("Not implemented"),
+                Axis::Cylinder => panic!("Not implemented"),
             }
         })
         .collect();
@@ -95,7 +95,7 @@ pub fn axis_aligned_bounding_rectangle(
             Axis::X => GeoPoint::new(vertex.y * scale, vertex.z * scale), // YZ plane
             Axis::Y => GeoPoint::new(vertex.x * scale, vertex.z * scale), // XZ plane
             Axis::Z => GeoPoint::new(vertex.x * scale, vertex.y * scale), // XY plane
-            Axis::CylinderZ => panic!("Not implemented"),
+            Axis::Cylinder => panic!("Not implemented"),
         })
         .collect();
 
@@ -201,7 +201,8 @@ pub fn build_engraving_path_cylindric(
     // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
-        .filter_map(|point| projector.project_cylindric(mesh, point, projection_radius, direction))
+        .filter_map(|point| 
+            projector.project_cylindric_with_axis(mesh, point, projection_radius, direction, Axis::Z))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

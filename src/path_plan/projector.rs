@@ -37,7 +37,7 @@ pub enum Axis {
     X,
     Y,
     Z,
-    CylinderZ,
+    Cylinder,
 }
 
 impl Axis {
@@ -52,7 +52,7 @@ impl Axis {
             Axis::X => ParryPoint::new(point.x + (far * ray_side.to_sign()), point.y, point.z),
             Axis::Y => ParryPoint::new(point.x, point.y + (far * ray_side.to_sign()), point.z),
             Axis::Z => ParryPoint::new(point.x, point.y, point.z + (far * ray_side.to_sign())),
-            Axis::CylinderZ => panic!("Not implemented"),
+            Axis::Cylinder => panic!("Not implemented"),
         }
     }
 
@@ -62,12 +62,12 @@ impl Axis {
             Axis::X => Vector3::new(-ray_side.to_sign(), 0.0, 0.0),
             Axis::Y => Vector3::new(0.0, -ray_side.to_sign(), 0.0),
             Axis::Z => Vector3::new(0.0, 0.0, -ray_side.to_sign()),
-            Axis::CylinderZ => panic!("Not implemented"),
+            Axis::Cylinder => panic!("Not implemented"),
         }
     }
 
     /// Generates a point on a circle around the given point along the specified axis.
-    pub fn circle_point(
+    pub fn axis_aligned_circle_point(
         &self,
         point: &ParryPoint<f32>,
         radius: f32,
@@ -89,7 +89,7 @@ impl Axis {
                 point.y + radius * angle.sin(),
                 point.z,
             ),
-            Axis::CylinderZ => panic!("Not implemented"),
+            Axis::Cylinder => panic!("Not implemented"),
         }
     }
 }
@@ -118,11 +118,73 @@ impl Projector {
                 Axis::X => Some(ParryPoint::new(intersection_point.x, point.y, point.z)),
                 Axis::Y => Some(ParryPoint::new(point.x, intersection_point.y, point.z)),
                 Axis::Z => Some(ParryPoint::new(point.x, point.y, intersection_point.z)),
-                Axis::CylinderZ => panic!("Not implemented"),
+                Axis::Cylinder => panic!("Not implemented"),
             }
         } else {
             None
         }
+    }
+
+    pub fn project_point_cylindric_with_axis(
+        mesh: &TriMesh,
+        point: &geo::Point<f32>,
+        radius: f32,
+        axis: Axis,
+    ) -> Option<ParryPoint<f32>> {
+        const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
+
+        // Step 1: Convert cylindrical coordinates to Cartesian based on the axis.
+        let (x, y, z) = match axis {
+            Axis::Z => {
+                let theta = point.x();
+                let x = radius * theta.cos(); // X coordinate on cylinder's surface
+                let y = radius * theta.sin(); // Y coordinate on cylinder's surface
+                let z = point.y(); // Z remains unchanged
+                (x, y, z)
+            }
+            Axis::X => {
+                let theta = point.y();
+                let y = radius * theta.cos(); // Y coordinate on cylinder's surface
+                let z = radius * theta.sin(); // Z coordinate on cylinder's surface
+                let x = point.x(); // X remains unchanged
+                (x, y, z)
+            }
+            Axis::Y => {
+                let theta = point.y();
+                let x = radius * theta.cos(); // X coordinate on cylinder's surface
+                let z = radius * theta.sin(); // Z coordinate on cylinder's surface
+                let y = point.x(); // Y remains unchanged
+                (x, y, z)
+            }
+            _ => {
+                panic!("Unsupported axis for cylindrical projection");
+            }
+        };
+
+        // Step 2: Create the ray origin from the cylindrical surface point
+        let ray_origin = ParryPoint::new(x, y, z);
+
+        // Step 3: Compute the ray direction (pointing inward to the cylinder's axis)
+        let ray_direction = match axis {
+            Axis::Z => Vector3::new(-x, -y, 0.0).normalize(), // Direction in XY toward Z axis
+            Axis::X => Vector3::new(0.0, -y, -z).normalize(), // Direction in YZ toward X axis
+            Axis::Y => Vector3::new(-x, 0.0, -z).normalize(), // Direction in XZ toward Y axis
+            _ => {
+                panic!("Unsupported axis for cylindrical projection");
+            }
+        };
+
+        // Step 4: Create the ray
+        let ray = Ray::new(ray_origin.into(), ray_direction);
+
+        // Step 5: Use mesh.cast_ray to find the intersection
+        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
+            let intersection_point = ray_origin + ray_direction * toi;
+            return Some(ParryPoint::from(intersection_point));
+        }
+
+        // If no intersection is found, return None
+        None
     }
 
     pub fn project_point_cylindric(
@@ -182,7 +244,7 @@ impl Projector {
 
         for i in 0..self.check_points {
             let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-            let circle_point = axis.circle_point(&central_point, self.radius, angle);
+            let circle_point = axis.axis_aligned_circle_point(&central_point, self.radius, angle);
 
             if let Some(intersection) = Self::project_point(mesh, &circle_point, direction, axis) {
                 if false {
@@ -267,7 +329,73 @@ impl Projector {
                 return None;
             }
 
-            self.compute_plane_isometry(central_point, valid_points, Axis::CylinderZ, direction)
+            self.compute_plane_isometry(central_point, valid_points, Axis::Cylinder, direction)
+        } else {
+            println!("Central point projection NONE");
+            None
+        }
+    }
+
+    pub fn project_cylindric_with_axis(
+        &self,
+        mesh: &TriMesh,
+        point: &geo::Point<f32>,
+        projection_radius: f32,
+        direction: RayDirection,
+        axis: Axis,
+    ) -> Option<Isometry3<f32>> {
+        pub fn circle_point(
+            central_point: &geo::Point<f32>, // Center of the circle in 3D
+            radius: f32,                     // Circle radius
+            theta: f32,                      // Angle (in radians) for parametric circle point
+            projection_radius: f32,          // Diameter of the cylinder
+        ) -> geo::Point<f32> {
+            // Step 1: Compute the meter_rad_factor
+            let meter_rad_factor = projection_radius / 2.0;
+
+            // Step 2: Compute the Z coordinate (for the axis)
+            let z = central_point.y() + radius * theta.sin();
+
+            // Step 3: Compute the X coordinate, representing angular displacement in meters
+            let theta_x = central_point.x() + radius * theta.cos() * meter_rad_factor;
+
+            // Step 4: Return the 2D point in (theta_x, z)
+            geo::Point::new(theta_x, z)
+        }
+
+        // Attempt to project the central point using the updated project_point_cylindric_with_axis.
+        if let Some(central_point) = Self::project_point_cylindric_with_axis(mesh, point, projection_radius, axis) {
+            println!("Central point projection: {:?}", central_point);
+
+            // Step 2: Generate points on a circle around the cylinder axis
+            let mut valid_points: Vec<Point3<f32>> = vec![
+                Point3::new(central_point.x, central_point.y, central_point.z), // Include the central point
+            ];
+
+            for i in 0..self.check_points {
+                let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
+                let circle_point = circle_point(&point, self.radius, angle, projection_radius);
+
+                // Use project_point_cylindric_with_axis for circle points
+                if let Some(intersection) = Self::project_point_cylindric_with_axis(mesh, &circle_point, projection_radius, axis) {
+                    println!(
+                        "Intersection at angle {}: {:?}",
+                        angle.to_degrees(),
+                        intersection
+                    );
+                    valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
+                } else {
+                    println!("No intersection at angle {}", angle.to_degrees());
+                }
+            }
+
+            // Ensure enough valid points exist for plane fitting
+            if valid_points.len() < 3 {
+                println!("Not enough valid points for regression.");
+                return None;
+            }
+
+            self.compute_plane_isometry(central_point, valid_points, Axis::Cylinder, direction)
         } else {
             println!("Central point projection NONE");
             None
@@ -297,13 +425,13 @@ impl Projector {
 
         // Fix the normal for the case we have it opposite. For centerwise projection,
         // this is not yet supported.
-        if axis != Axis::CylinderZ {
+        if axis != Axis::Cylinder {
             // Convert `axis` and `direction` into a preferred orientation vector
             let preferred_direction = match axis {
                 Axis::X => Vector3::x(),
                 Axis::Y => Vector3::y(),
                 Axis::Z => Vector3::z(),
-                Axis::CylinderZ => panic!("Should not be here"),
+                Axis::Cylinder => panic!("Should not be here"),
             } * direction.to_sign();
 
             // Check orientation consistency with the preferred vector
@@ -516,7 +644,7 @@ mod tests {
                 ParryPoint::new(0.5, -0.51, value),
                 ParryPoint::new(0.5, 0.51, value),
             ],
-            Axis::CylinderZ => panic!("Such test is not supported"),
+            Axis::Cylinder => panic!("Such test is not supported"),
         }
     }
 
