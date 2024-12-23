@@ -100,6 +100,7 @@ mod camera_controller;
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
+#[cfg(feature = "stroke_planning")]
 #[path = "path_plan/rrt_to.rs"]
 mod rrt_to;
 
@@ -119,6 +120,9 @@ pub mod engraving;
 #[cfg(feature = "allow_filesystem")]
 mod tests;
 
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/cylindric_mesh.rs"]
+pub mod cylindric_mesh;
 
 
 

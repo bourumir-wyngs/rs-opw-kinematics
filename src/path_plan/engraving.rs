@@ -1,4 +1,4 @@
-use nalgebra::Isometry3;
+use nalgebra::{Isometry3, UnitQuaternion, Vector3};
 use std::ops::Range;
 
 use crate::calipers::largest_fitting_rectangle;
@@ -201,8 +201,8 @@ pub fn build_engraving_path_cylindric(
     // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
-        .filter_map(|point| 
-            projector.project_cylindric_with_axis(mesh, point, projection_radius, direction, Axis::Z))
+        .filter_map(|point|
+            projector.project_cylindric_with_axis(&mesh, point, projection_radius, direction, Axis::Z))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

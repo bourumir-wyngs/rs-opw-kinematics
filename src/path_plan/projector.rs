@@ -181,7 +181,7 @@ impl Projector {
         if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
             let intersection_point = ray_origin + ray_direction * toi;
             return Some(ParryPoint::from(intersection_point));
-        }
+        } 
 
         // If no intersection is found, return None
         None

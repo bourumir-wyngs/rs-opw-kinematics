@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_read_trimesh::load_trimesh;
+use rs_opw_kinematics::cylindric_mesh::create_cylindric_mesh;
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
@@ -98,12 +99,20 @@ fn write_isometries_to_json(
 
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
-    let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    // let mut mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    
+    let mesh = create_cylindric_mesh(0.1, 1.0, 64, Axis::Z);
+    
     let path = generate_R_waypoints(1.0, 0.01);
 
+    /* // Goblet 
     let engraving = build_engraving_path_cylindric(&mesh, &path, 
-      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;
-    
+      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;      
+    */
+
+    let engraving = build_engraving_path_cylindric(&mesh, &path,
+                                                   0.5, -0.2.. 0.2, 0. ..1.0*PI, RayDirection::FromPositive)?;
+
     //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
     // pose rotation observed
