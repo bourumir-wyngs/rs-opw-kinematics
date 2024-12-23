@@ -139,7 +139,7 @@ impl Projector {
         point: &geo::Point<f32>,
         radius: f32,
         axis: Axis,
-    ) -> Option<ParryPoint<f32>> {
+    ) -> Option<(ParryPoint<f32>, Vector3<f32>)> {
         const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
         let theta = point.x();
 
@@ -185,9 +185,18 @@ impl Projector {
         let ray = Ray::new(ray_origin.into(), ray_direction);
 
         // Step 5: Use mesh.cast_ray to find the intersection
-        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
-            let intersection_point = ray_origin + ray_direction * toi;
-            return Some(ParryPoint::from(intersection_point));
+        if let Some(intersection) =
+            mesh.cast_ray_and_get_normal(&Isometry3::identity(), &ray, FAR, true)
+        {
+            let intersection_point = ray_origin + ray_direction * intersection.time_of_impact;
+            return Some((
+                ParryPoint::from(intersection_point),
+                Vector3::new(
+                    intersection.normal.x,
+                    intersection.normal.y,
+                    intersection.normal.z,
+                ),
+            ));
         }
 
         // If no intersection is found, return None
@@ -274,7 +283,8 @@ impl Projector {
             return None;
         }
 
-        self.compute_plane_isometry(central_point, valid_points, axis, false, direction)
+        //self.compute_plane_isometry(central_point, valid_points, axis, false, direction)
+        None
     }
 
     pub fn project_cylindric(
@@ -335,13 +345,7 @@ impl Projector {
                 return None;
             }
 
-            self.compute_plane_isometry(
-                central_point,
-                valid_points,
-                Axis::Cylinder,
-                true,
-                direction,
-            )
+            None
         } else {
             println!("Central point projection NONE");
             None
@@ -382,7 +386,7 @@ impl Projector {
             println!("Central point projection: {:?}", central_point);
 
             // Step 2: Generate points on a circle around the cylinder axis
-            let mut valid_points: Vec<Point3<f32>> = Vec::with_capacity(self.check_points);
+            let mut valid_points = Vec::with_capacity(self.check_points);
 
             for i in 0..self.check_points {
                 let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
@@ -400,7 +404,7 @@ impl Projector {
                         angle.to_degrees(),
                         intersection
                     );
-                    valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
+                    valid_points.push(intersection);
                 } else {
                     println!("No intersection at angle {}", angle.to_degrees());
                 }
@@ -419,14 +423,13 @@ impl Projector {
         }
     }
 
-
-
     fn build_rotation_matrix_from_normal(average_normal: Vector3<f32>) -> Matrix3<f32> {
         // Normalize the normal vector (new z-axis)
         let z_axis = average_normal.normalize();
 
         // Choose a reference vector far from z (e.g., global X-axis)
-        let reference = if z_axis.z.abs() < 0.9999 { // Not aligned with vertical
+        let reference = if z_axis.z.abs() < 0.9999 {
+            // Not aligned with vertical
             Vector3::new(1.0, 0.0, 0.0)
         } else {
             Vector3::new(0.0, 1.0, 0.0) // Use Y-axis if aligned with vertical
@@ -597,30 +600,47 @@ impl Projector {
 
     fn compute_plane_isometry(
         &self,
-        centroid: ParryPoint<f32>,
-        points: Vec<Point3<f32>>,
+        centroid: (ParryPoint<f32>, Vector3<f32>),
+        points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
         axis: Axis,
         cylindric: bool,
         direction: RayDirection,
     ) -> Option<Isometry3<f32>> {
-        // Convert Point3<f32> to Vector3<f32> for average_plane_orientation
-        let vectors: Vec<Vector3<f32>> = points.into_iter().map(|p| p.coords).collect();
+        let mut plane_points = Vec::with_capacity(points.len());
+        for (point, normal) in points {
+            plane_points.push(point.coords.into());
+        }
+        let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
+        let quaternion;
 
-        // Call average_plane_orientation to compute the plane's orientation
-        let orientation = self.average_plane_orientation(&vectors, axis, cylindric, direction);
-        if orientation.is_none() {
-            return None;
+        if axis == Axis::Z {
+            // Vectors X and Y are unstable when using z as a reference axis.
+            let z_axis = Vector3::x();
+            let twisted = UnitQuaternion::rotation_between(&z_axis, &avg_normal).unwrap();
+            // Rotate 270 degrees around Y to untwist
+            let decomposition = self.decompose_swing_twist(twisted, &z_axis);
+            quaternion = Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0));
+        } else if Axis::X == axis {
+            // We get the opposited desired direction of normals with Parry for this case.
+            // To compensate, take -Z axis raturh thatn Z
+            let z_axis = - Vector3::z();
+            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
+        } else {
+            let z_axis = Vector3::z();
+            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
         }
 
-        // Combine the rotation with the translation (centroid) into an Isometry3
-        Some(Isometry3::from_parts(
-            centroid.coords.into(),
-            if self.normals_inward {
-                orientation.unwrap().inverse()
+        if let Some(quaternion) = quaternion {
+            let qfinal = if false && self.normals_inward {
+                quaternion.inverse()
             } else {
-                orientation.unwrap()
-            },
-        ))
+                quaternion
+            };
+            // Combine the rotation with the translation (centroid) into an Isometry3
+            Some(Isometry3::from_parts(centroid.0.coords.into(), qfinal))
+        } else {
+            None
+        }
     }
 }
 

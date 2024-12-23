@@ -136,19 +136,26 @@ fn write_isometries_to_json(
 
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
-    // let mut mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::Y;
+    let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    let axis = Axis::Z;
 
-    let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
+    //let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
 
-    // let path = generate_R_waypoints(1.0, 0.01);
-    let path = generate_square_points(200);
+    let path = generate_R_waypoints(1.0, 0.01);
+    //let path = generate_square_points(200);
 
-    /* // Goblet
-    let engraving = build_engraving_path_cylindric(&mesh, &path,
-      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;
-    */
+    // Goblet
+    let engraving = build_engraving_path_cylindric(
+        &mesh,
+        &path,
+        0.5,
+        0.4 ..0.58,
+        0. ..0.5 * PI,
+        axis,
+        RayDirection::FromPositive,
+    )?;
 
+    /*
     let engraving = build_engraving_path_cylindric(
         &mesh,
         &path,
@@ -156,8 +163,10 @@ fn main() -> Result<(), String> {
         0. ..0.2,
         0. ..2.0 * 4.0/5.0 * PI,
         axis,
-        RayDirection::FromNegative,
+        RayDirection::FromPositive,
     )?;
+    
+     */
 
     //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
