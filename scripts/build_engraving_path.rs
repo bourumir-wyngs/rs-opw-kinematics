@@ -153,10 +153,10 @@ fn main() -> Result<(), String> {
         &mesh,
         &path,
         0.5,
-        -0.2..0.2,
-        0. ..1.0 * PI,
+        0. ..0.2,
+        0. ..2.0 * 4.0/5.0 * PI,
         axis,
-        RayDirection::FromPositive,
+        RayDirection::FromNegative,
     )?;
 
     //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
