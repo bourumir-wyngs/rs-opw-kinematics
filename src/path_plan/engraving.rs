@@ -141,6 +141,7 @@ pub fn build_engraving_path_cylindric(
     projection_radius: f32,
     height: std::ops::Range<f32>,
     angle: Range<f32>,
+    axis: Axis,
     direction: RayDirection,
 ) -> Result<Vec<Isometry3<f32>>, String> {
     use std::f32::consts::PI;
@@ -202,7 +203,7 @@ pub fn build_engraving_path_cylindric(
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
         .filter_map(|point|
-            projector.project_cylindric_with_axis(&mesh, point, projection_radius, direction, Axis::Z))
+            projector.project_cylindric_with_axis(&mesh, point, projection_radius, direction, axis))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

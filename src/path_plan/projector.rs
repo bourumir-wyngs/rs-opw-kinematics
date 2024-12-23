@@ -132,28 +132,26 @@ impl Projector {
         axis: Axis,
     ) -> Option<ParryPoint<f32>> {
         const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
-
+        let theta = point.x();
+        
         // Step 1: Convert cylindrical coordinates to Cartesian based on the axis.
         let (x, y, z) = match axis {
             Axis::Z => {
-                let theta = point.x();
                 let x = radius * theta.cos(); // X coordinate on cylinder's surface
                 let y = radius * theta.sin(); // Y coordinate on cylinder's surface
                 let z = point.y(); // Z remains unchanged
                 (x, y, z)
             }
             Axis::X => {
-                let theta = point.y();
                 let y = radius * theta.cos(); // Y coordinate on cylinder's surface
                 let z = radius * theta.sin(); // Z coordinate on cylinder's surface
-                let x = point.x(); // X remains unchanged
+                let x = point.y(); // X remains unchanged
                 (x, y, z)
             }
             Axis::Y => {
-                let theta = point.y();
                 let x = radius * theta.cos(); // X coordinate on cylinder's surface
                 let z = radius * theta.sin(); // Z coordinate on cylinder's surface
-                let y = point.x(); // Y remains unchanged
+                let y = point.y(); // Y remains unchanged
                 (x, y, z)
             }
             _ => {

@@ -1,12 +1,14 @@
-use std::f32::consts::PI;
-use nalgebra::{Isometry3};
-use rs_opw_kinematics::engraving::{build_engraving_path_cylindric, build_engraving_path_side_projected};
+use nalgebra::Isometry3;
+use rs_cxx_ros2_opw_bridge::sender::Sender;
+use rs_opw_kinematics::cylindric_mesh::create_cylindric_mesh;
+use rs_opw_kinematics::engraving::{
+    build_engraving_path_cylindric, build_engraving_path_side_projected,
+};
 use rs_opw_kinematics::projector::{Axis, RayDirection};
+use rs_read_trimesh::load_trimesh;
+use std::f32::consts::PI;
 use std::fs::File;
 use std::io::Write;
-use rs_cxx_ros2_opw_bridge::sender::Sender;
-use rs_read_trimesh::load_trimesh;
-use rs_opw_kinematics::cylindric_mesh::create_cylindric_mesh;
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
@@ -31,21 +33,22 @@ fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
     };
 
     // Generate points for the curved part (half-circle)
-    let generate_half_circle = |center: (f32, f32), radius: f32, start_angle: f32, end_angle: f32| {
-        let mut points = Vec::new();
-        let arc_length = radius * (end_angle - start_angle).abs(); // Arc length of the curve
-        let num_points = (arc_length / min_dist).ceil() as usize; // Number of points based on min_dist
-        let step = (end_angle - start_angle) / num_points as f32;
+    let generate_half_circle =
+        |center: (f32, f32), radius: f32, start_angle: f32, end_angle: f32| {
+            let mut points = Vec::new();
+            let arc_length = radius * (end_angle - start_angle).abs(); // Arc length of the curve
+            let num_points = (arc_length / min_dist).ceil() as usize; // Number of points based on min_dist
+            let step = (end_angle - start_angle) / num_points as f32;
 
-        for i in 0..=num_points {
-            let angle = start_angle + i as f32 * step;
-            let x = center.0 + radius * angle.cos();
-            let y = center.1 - radius * angle.sin();
-            points.push((x, y));
-        }
+            for i in 0..=num_points {
+                let angle = start_angle + i as f32 * step;
+                let x = center.0 + radius * angle.cos();
+                let y = center.1 - radius * angle.sin();
+                points.push((x, y));
+            }
 
-        points
-    };
+            points
+        };
 
     // Step 1: Generate points for the vertical line from bottom-left to top-left
     waypoints.extend(generate_line((0.0, 0.0), (0.0, height)));
@@ -56,16 +59,50 @@ fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
         half_circle_center,
         half_circle_radius,
         -PI / 2.0, // Start at the bottom of the half-circle
-        PI / 2.0   // End at the top of the half-circle
+        PI / 2.0,  // End at the top of the half-circle
     ));
 
     // Step 3: Generate points for the line from circle's top to vertical midpoint
-    waypoints.extend(generate_line((0.0, height * 0.75 - half_circle_radius), (0.0, height * 0.5)));
+    waypoints.extend(generate_line(
+        (0.0, height * 0.75 - half_circle_radius),
+        (0.0, height * 0.5),
+    ));
 
     // Step 4: Generate points for the diagonal stroke
     waypoints.extend(generate_line((0.0, height * 0.5), (width * 0.5, 0.0)));
 
     waypoints
+}
+
+fn generate_square_points(n: usize) -> Vec<(f32, f32)> {
+    let mut points = Vec::with_capacity(4 * n); // Pre-allocate capacity for 4 sides
+    let step = 2.0 / (n as f32 - 1.0); // Distance between consecutive points, including corners
+
+    // Bottom side: From (-1, -1) to (1, -1)
+    for i in 0..n {
+        let x = -1.0 + i as f32 * step;
+        points.push((x, -1.0));
+    }
+
+    // Right side: From (1, -1) to (1, 1)
+    for i in 0..n {
+        let y = -1.0 + i as f32 * step;
+        points.push((1.0, y));
+    }
+
+    // Top side: From (1, 1) to (-1, 1)
+    for i in 0..n {
+        let x = 1.0 - i as f32 * step;
+        points.push((x, 1.0));
+    }
+
+    // Left side: From (-1, 1) to (-1, -1)
+    for i in 0..n {
+        let y = 1.0 - i as f32 * step;
+        points.push((-1.0, y));
+    }
+
+    points
 }
 
 fn write_isometries_to_json(
@@ -100,24 +137,33 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     // let mut mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    
-    let mesh = create_cylindric_mesh(0.1, 1.0, 64, Axis::Z);
-    
-    let path = generate_R_waypoints(1.0, 0.01);
+    let axis = Axis::Y;
 
-    /* // Goblet 
-    let engraving = build_engraving_path_cylindric(&mesh, &path, 
-      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;      
+    let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
+
+    // let path = generate_R_waypoints(1.0, 0.01);
+    let path = generate_square_points(200);
+
+    /* // Goblet
+    let engraving = build_engraving_path_cylindric(&mesh, &path,
+      0.5, 0.4.. 0.58, 0. ..1.0*PI, RayDirection::FromPositive)?;
     */
 
-    let engraving = build_engraving_path_cylindric(&mesh, &path,
-                                                   0.5, -0.2.. 0.2, 0. ..1.0*PI, RayDirection::FromPositive)?;
+    let engraving = build_engraving_path_cylindric(
+        &mesh,
+        &path,
+        0.5,
+        -0.2..0.2,
+        0. ..1.0 * PI,
+        axis,
+        RayDirection::FromPositive,
+    )?;
 
     //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
-    
+
     // Works
     //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
 
@@ -129,8 +175,12 @@ fn main() -> Result<(), String> {
 
     // Works, shape is not extracted
     //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromPositive)?;
-    
-    println!("Engraving length of {} for the path of length {}", engraving.len(), path.len());
+
+    println!(
+        "Engraving length of {} for the path of length {}",
+        engraving.len(),
+        path.len()
+    );
 
     let sender = Sender::new("127.0.0.1", 5555);
 
@@ -142,13 +192,13 @@ fn main() -> Result<(), String> {
         Err(err) => {
             eprintln!("Failed to send pose message: {}", err);
         }
-    }    
-    
+    }
+
     //return Ok(());
 
     if let Err(e) = write_isometries_to_json("work/isometries.json", engraving) {
-        return Err(e)
+        return Err(e);
     };
-    
+
     Ok(())
 }
