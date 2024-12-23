@@ -61,7 +61,7 @@ pub fn build_engraving_path_side_projected(
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
                 Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
                 Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
-                Axis::Cylinder => panic!("Not implemented"),
+                Axis::Cylinder => unreachable!()
             }
         })
         .collect();
@@ -73,10 +73,18 @@ pub fn build_engraving_path_side_projected(
     };
 
     // Project transformed points onto the mesh
-    Ok(transformed_path
-        .iter()
-        .filter_map(|point| projector.project(mesh, point, ray_direction, axis))
-        .collect())
+    if axis == Axis::Y {
+        // Use our own implementation for Y axis (Parry fails on normal parallel to Y)
+        Ok(transformed_path
+            .iter()
+            .filter_map(|point| projector.project_no_iso(mesh, point, ray_direction, axis))
+            .collect())
+    } else {
+        Ok(transformed_path
+            .iter()
+            .filter_map(|point| projector.project(mesh, point, ray_direction, axis))
+            .collect())
+    }
 }
 
 pub fn axis_aligned_bounding_rectangle(
@@ -203,7 +211,8 @@ pub fn build_engraving_path_cylindric(
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
         .filter_map(|point|
-            projector.project_cylindric_with_axis(&mesh, point, projection_radius, direction, axis))
+            projector.project_cylindric_with_axis(&mesh, point, projection_radius, axis))
+            //projector.project_cylindric_Z(&mesh, point, projection_radius, RayDirection::FromNegative))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

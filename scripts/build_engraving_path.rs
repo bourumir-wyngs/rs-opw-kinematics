@@ -145,6 +145,7 @@ fn main() -> Result<(), String> {
     //let path = generate_square_points(200);
 
     // Goblet
+    /*
     let engraving = build_engraving_path_cylindric(
         &mesh,
         &path,
@@ -154,6 +155,8 @@ fn main() -> Result<(), String> {
         axis,
         RayDirection::FromPositive,
     )?;
+    */
+     
 
     /*
     let engraving = build_engraving_path_cylindric(
@@ -168,7 +171,8 @@ fn main() -> Result<(), String> {
     
      */
 
-    //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::X, RayDirection::FromPositive)?; // works
+    // Z normals opposite
+    let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::Y, RayDirection::FromNegative)?; // works
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
