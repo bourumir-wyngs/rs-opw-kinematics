@@ -1,6 +1,6 @@
 use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
-use rs_opw_kinematics::cylindric_mesh::create_cylindric_mesh;
+use rs_opw_kinematics::synthetic_meshes::{cylinder_mesh, sphere_mesh};
 use rs_opw_kinematics::engraving::{
     build_engraving_path_cylindric, build_engraving_path_side_projected,
 };
@@ -136,13 +136,13 @@ fn write_isometries_to_json(
 
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
-    let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
     let axis = Axis::Z;
 
     //let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
 
-    let path = generate_R_waypoints(1.0, 0.01);
-    //let path = generate_square_points(200);
+    //let path = generate_R_waypoints(1.0, 0.01);
+    let path = generate_square_points(200);
 
     // Goblet
     /*
@@ -171,8 +171,20 @@ fn main() -> Result<(), String> {
     
      */
 
+    // Parry Z: Broken zone opposition X. X: 
+    let engraving = build_engraving_path_cylindric(
+        &sphere_mesh(0.5, 64),
+        &path,
+        1.0,
+        0. ..0.2,
+        0. ..1.99 * PI,
+        axis,
+        RayDirection::FromPositive,
+    )?;
+    
+
     // Z normals opposite
-    let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::Y, RayDirection::FromNegative)?; // works
+    //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::Y, RayDirection::FromNegative)?; // works
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works

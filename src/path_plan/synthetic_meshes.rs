@@ -1,10 +1,10 @@
-use nalgebra::{Point3};
+use crate::projector::Axis;
+use nalgebra::Point3;
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
-use crate::projector::Axis;
 
 /// Create a cylindrical mesh aligned to the given axis.
-pub fn create_cylindric_mesh(
+pub fn cylinder_mesh(
     radius: f32,
     height: f32,
     segments: usize, // Number of segments for approximating the cylinder
@@ -12,7 +12,10 @@ pub fn create_cylindric_mesh(
 ) -> TriMesh {
     let segments = segments as u32;
     let h2 = height / 2.0;
-    assert!(segments >= 3, "There must be at least 3 segments to form a cylinder.");
+    assert!(
+        segments >= 3,
+        "There must be at least 3 segments to form a cylinder."
+    );
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
@@ -85,5 +88,50 @@ pub fn create_cylindric_mesh(
     }
 
     // Create and return the triangular mesh
+    TriMesh::new(vertices, indices)
+}
+
+pub fn sphere_mesh(radius: f32, resolution: usize) -> TriMesh {
+    // Each point in the grid
+    let mut vertices = Vec::with_capacity(((resolution + 1) * (resolution + 1)));
+
+    // 6 indices per quad (2 triangles)
+    let mut indices = Vec::with_capacity((resolution * resolution * 6));
+
+    // Generate vertices using spherical coordinates
+    for i in 0..=resolution {
+        let theta = PI * i as f32 / resolution as f32; // Latitude
+        let sin_theta = theta.sin();
+        let cos_theta = theta.cos();
+
+        for j in 0..=resolution {
+            let phi = 2.0 * PI * j as f32 / resolution as f32; // Longitude
+            let sin_phi = phi.sin();
+            let cos_phi = phi.cos();
+
+            let x = radius * sin_theta * cos_phi;
+            let y = radius * sin_theta * sin_phi;
+            let z = radius * cos_theta;
+
+            vertices.push(Point3::new(x, y, z));
+        }
+    }
+
+    // Generate triangle indices
+    let resolution = resolution as u32;
+    for i in 0..resolution {
+        for j in 0..resolution {
+            let current = i * (resolution + 1) + j;
+            let next = current + resolution + 1;
+
+            // First triangle of the quad
+            indices.push([current, next, current + 1]);
+
+            // Second triangle of the quad
+            indices.push([next, next + 1, current + 1]);
+        }
+    }
+
+    // Create the TriMesh from vertices and triangle indices
     TriMesh::new(vertices, indices)
 }

@@ -121,8 +121,8 @@ pub mod engraving;
 mod tests;
 
 #[cfg(feature = "stroke_planning")]
-#[path = "path_plan/cylindric_mesh.rs"]
-pub mod cylindric_mesh;
+#[path = "path_plan/synthetic_meshes.rs"]
+pub mod synthetic_meshes;
 
 
 

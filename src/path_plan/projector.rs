@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix3, Point3, Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Matrix3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::{Point as ParryPoint, Point};
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -279,9 +279,9 @@ impl Projector {
         self.compute_plane_isometry(central_point, points, axis)
     }
 
-    /// Project computing normals our own way, do not use Parry. 
-    /// It works well on all 3 axes, while Parry has weakness on normal close to 
-    /// parallel to Y. 
+    /// Project computing normals our own way, do not use Parry.
+    /// It works well on all 3 axes, while Parry has weakness on normal close to
+    /// parallel to Y.
     pub fn project_no_iso(
         &self,
         mesh: &TriMesh,
@@ -354,7 +354,7 @@ impl Projector {
 
         // If no intersection is found, return None
         None
-    }    
+    }
 
     /// Old method that projects vertical cylinder around Z axis. Retained as maybe Parry Y axis
     /// problem may need workaround.
@@ -385,7 +385,9 @@ impl Projector {
         }
 
         // Attempt to project the central point.
-        if let Some(central_point) = Self::project_point_cylindric_no_iso(mesh, point, projection_radius) {
+        if let Some(central_point) =
+            Self::project_point_cylindric_no_iso(mesh, point, projection_radius)
+        {
             println!("Central point projection: {:?}", central_point);
 
             // Step 2: Generate points on a circle in the XZ plane
@@ -394,17 +396,18 @@ impl Projector {
             ];
             for i in 0..self.check_points {
                 let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-                let circle_point =
-                    circle_point(&point, self.radius, angle, projection_radius);
+                let circle_point = circle_point(&point, self.radius, angle, projection_radius);
 
                 if let Some(intersection) =
                     Self::project_point_cylindric_no_iso(mesh, &circle_point, projection_radius)
                 {
-                    println!(
-                        "Intersection at angle {}: {:?}",
-                        angle.to_degrees(),
-                        intersection
-                    );
+                    if (false) {
+                        println!(
+                            "Intersection at angle {}: {:?}",
+                            angle.to_degrees(),
+                            intersection
+                        );
+                    }
                     valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
                 } else {
                     println!("No intersection at angle {}", angle.to_degrees());
@@ -417,12 +420,17 @@ impl Projector {
                 return None;
             }
 
-            self.compute_plane_isometry_no_iso(central_point, valid_points, Axis::Cylinder, direction)
+            self.compute_plane_isometry_no_iso(
+                central_point,
+                valid_points,
+                Axis::Cylinder,
+                direction,
+            )
         } else {
             println!("Central point projection NONE");
             None
         }
-    }    
+    }
 
     /// Cylindric project with cylinder around arbitrary axis. This confirmed to work well
     /// except when normal is close to parallel to Y.
@@ -473,11 +481,13 @@ impl Projector {
                     projection_radius,
                     cylinder_axis,
                 ) {
-                    println!(
-                        "Intersection at angle {}: {:?}",
-                        angle.to_degrees(),
-                        intersection
-                    );
+                    if false {
+                        println!(
+                            "Intersection at angle {}: {:?}",
+                            angle.to_degrees(),
+                            intersection
+                        );
+                    }
                     valid_points.push(intersection);
                 } else {
                     println!("No intersection at angle {}", angle.to_degrees());
@@ -563,7 +573,7 @@ impl Projector {
             }
         }
 
-        let z_axis = Vector3::z(); 
+        let z_axis = Vector3::z();
         UnitQuaternion::rotation_between(&z_axis, &average_normal)
     }
 
@@ -593,7 +603,7 @@ impl Projector {
             Axis::X => Vector3::x(),
             Axis::Y => Vector3::y(),
             Axis::Z => Vector3::z(),
-            Axis::Cylinder => Vector3::z()
+            Axis::Cylinder => Vector3::z(),
         } * direction.to_sign();
 
         // Check orientation consistency with the preferred vector
@@ -713,6 +723,12 @@ impl Projector {
         points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
         axis: Axis,
     ) -> Option<Isometry3<f32>> {
+        if points.len() < self.check_points {
+            return None;
+        }
+        let from = points[0].0; // centroid.0;
+        let to = points[1].0;
+
         let mut plane_points = Vec::with_capacity(points.len());
         for (point, normal) in points {
             plane_points.push(point.coords.into());
@@ -723,10 +739,13 @@ impl Projector {
         if axis == Axis::Z {
             // Vectors X and Y are unstable when using z as a reference axis.
             let z_axis = Vector3::x();
-            let twisted = UnitQuaternion::rotation_between(&z_axis, &avg_normal).unwrap();
-            // Rotate 270 degrees around Y to untwist
-            let decomposition = self.decompose_swing_twist(twisted, &z_axis);
-            quaternion = Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0));
+            if let Some(twisted) = UnitQuaternion::rotation_between(&z_axis, &avg_normal) {
+                // Rotate 270 degrees around Y to untwist
+                let decomposition = self.decompose_swing_twist(twisted, &z_axis);
+                quaternion = Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0));
+            } else {
+                quaternion = None;
+            }
         } else if Axis::Y == axis {
             let z_axis = Vector3::z();
             quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
@@ -738,11 +757,50 @@ impl Projector {
         }
 
         if let Some(quaternion) = quaternion {
+            let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
+
             // Combine the rotation with the translation (centroid) into an Isometry3
             Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
         } else {
             None
         }
+    }
+
+    /// Align the quaternion's X-axis to the vector connecting two points, while preserving its Z-axis.
+    fn _align_quaternion_x_to_points(
+        quaternion: UnitQuaternion<f64>,
+        target_x: &Vector3<f64>
+    ) -> UnitQuaternion<f64> {
+        let current_x = quaternion * Vector3::x();
+        let rotation_axis = current_x.normalize().cross(&target_x);
+        if rotation_axis.magnitude_squared() < 1E-6 {
+            return quaternion; // No rotation needed if already aligned
+        }
+
+        let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
+        let rotation_angle = dot_product.acos();
+        
+        let local_z = quaternion * Vector3::z();
+        let alignment_quaternion = UnitQuaternion::from_axis_angle(&Unit::new_normalize(local_z), rotation_angle);
+
+        alignment_quaternion * quaternion
+    }
+    
+
+    fn align_quaternion_x_to_points(
+        quaternion: UnitQuaternion<f32>,
+        p1: Point3<f32>,
+        p2: Point3<f32>,
+    ) -> UnitQuaternion<f32> {
+        let mut q = quaternion.cast::<f64>();
+        let w1 = Point3::new(p1.x as f64, p1.y as f64, p1.z as f64);
+        let w2 = Point3::new(p2.x as f64, p2.y as f64, p2.z as f64);
+        let vector = Vector3::new(w2.x - w1.x, w2.y - w1.y, w2.z - w1.z).normalize();
+        
+        for i in 0..3 {
+            q = Self::_align_quaternion_x_to_points(q, &vector);            
+        }
+        q.cast::<f32>()
     }
 
     fn compute_plane_isometry_no_iso(
@@ -770,7 +828,7 @@ impl Projector {
                 orientation.unwrap()
             },
         ))
-    }   
+    }
 }
 
 #[cfg(test)]
