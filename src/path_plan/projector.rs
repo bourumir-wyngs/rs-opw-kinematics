@@ -928,7 +928,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
@@ -958,7 +958,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, &expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, &expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
@@ -988,7 +988,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
@@ -1018,7 +1018,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, &expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, &expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
@@ -1048,7 +1048,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
@@ -1078,7 +1078,7 @@ mod tests {
 
             assert!(
                 result
-                    .map(|res| points_are_close(&res, expected, TOLERANCE))
+                    .map(|res| points_are_close(&res.0, expected, TOLERANCE))
                     .unwrap_or(false),
                 "Projection failed for point {:?}: expected {:?}, got {:?}",
                 test_point,
