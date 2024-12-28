@@ -1,6 +1,6 @@
 use bevy_egui::egui::emath::normalized_angle;
 use nalgebra::{Isometry3, Matrix3, OMatrix, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
-use parry3d::math::{Point as ParryPoint, Point};
+use parry3d::math::{Point as ParryPoint};
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
@@ -816,6 +816,32 @@ impl Projector {
         let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
         normalized_angle
     }
+    
+    /// Determines which axis the vector connecting two points is most perpendicular to.
+    pub fn find_most_perpendicular_axis_between_points(point1: &ParryPoint<f32>, point2: &ParryPoint<f32>) -> Axis {
+        // Compute the vector connecting the two points
+        let vector = point2 - point1;
+
+        // Basis vectors for the X, Y, and Z axes
+        let x_axis = Vector3::new(1.0, 0.0, 0.0);
+        let y_axis = Vector3::new(0.0, 1.0, 0.0);
+        let z_axis = Vector3::new(0.0, 0.0, 1.0);
+
+        // Compute the absolute values of the dot products with the connecting vector
+        let dot_x = vector.dot(&x_axis).abs();
+        let dot_y = vector.dot(&y_axis).abs();
+        let dot_z = vector.dot(&z_axis).abs();
+
+        // Compare the dot products and return the axis with the smallest absolute value
+        if dot_x <= dot_y && dot_x <= dot_z {
+            Axis::X
+        } else if dot_y <= dot_x && dot_y <= dot_z {
+            Axis::Y
+        } else {
+            Axis::Z
+        }
+    }    
+    
 
     fn compute_plane_isometry(
         &self,
@@ -828,6 +854,8 @@ impl Projector {
         }
         let from = points[0].0; // centroid.0;
         let to = points[1].0;
+        
+        let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
         let mut plane_points = Vec::with_capacity(points.len());
         for (point, normal) in points {
