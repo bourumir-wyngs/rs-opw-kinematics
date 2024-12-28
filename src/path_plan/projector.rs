@@ -1,4 +1,5 @@
-use nalgebra::{Isometry3, Matrix3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
+use bevy_egui::egui::emath::normalized_angle;
+use nalgebra::{Isometry3, Matrix3, OMatrix, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::{Point as ParryPoint, Point};
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -218,19 +219,34 @@ impl Projector {
         // Step 4: Create the ray
         let ray = Ray::new(ray_origin.into(), ray_direction);
 
-        // Step 5: Use mesh.cast_ray to find the intersection
         if let Some(intersection) =
             mesh.cast_ray_and_get_normal(&Isometry3::identity(), &ray, FAR, true)
         {
             let intersection_point = ray_origin + ray_direction * intersection.time_of_impact;
-            return Some((
-                ParryPoint::from(intersection_point),
-                Vector3::new(
-                    intersection.normal.x,
-                    intersection.normal.y,
-                    intersection.normal.z,
-                ),
-            ));
+
+            if true || intersection_point.x > 0.0 {
+                return Some((
+                    ParryPoint::from(intersection_point),
+                    Vector3::new(
+                        intersection.normal.x,
+                        intersection.normal.y,
+                        intersection.normal.z,
+                    ),
+                ));
+            } else {
+                let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), PI);
+                let alt_point = geo::Point::new(point.x() + PI, point.y());
+                // This call must account for use 180 degree rotation for the mesh as well
+                let iso = Self::project_point_cylindric_with_axis(mesh, &alt_point, radius, axis);
+                if let Some(iso) = iso {
+                    let orig_point = rotation * iso.0;
+                    return Some((
+                        ParryPoint::from(orig_point),
+                        //rotation * iso.1
+                        iso.1,
+                    ));
+                }
+            }
         }
 
         // If no intersection is found, return None
@@ -501,6 +517,7 @@ impl Projector {
             }
 
             self.compute_plane_isometry(central_point, valid_points, cylinder_axis)
+            // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
         } else {
             println!("Central point projection NONE");
             None
@@ -717,7 +734,21 @@ impl Projector {
         swing * fixed_twist
     }
 
-    fn compute_plane_isometry(
+    fn set_twist_x(
+        &self,
+        decomposition: &(UnitQuaternion<f32>, UnitQuaternion<f32>),
+        fixed_angle: f32,
+    ) -> UnitQuaternion<f32> {
+        // Decompose the quaternion into swing and twist
+        let axis = Vector3::x_axis();
+        let (swing, _twist) = decomposition;
+        let fixed_twist = UnitQuaternion::from_axis_angle(&axis, fixed_angle);
+
+        // Combine the swing with the new twist
+        swing * fixed_twist
+    }
+
+    fn compute_plane_isometry_averaging(
         &self,
         centroid: (ParryPoint<f32>, Vector3<f32>),
         points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
@@ -729,11 +760,11 @@ impl Projector {
         let from = points[0].0; // centroid.0;
         let to = points[1].0;
 
-        let mut plane_points = Vec::with_capacity(points.len());
-        for (point, normal) in points {
-            plane_points.push(point.coords.into());
+        let mut plane_normals = Vec::with_capacity(points.len());
+        for (_point, normal) in points {
+            plane_normals.push(normal);
         }
-        let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
+        let avg_normal = Self::compute_normal_sum_parallel(&plane_normals).normalize();
         let quaternion;
 
         if axis == Axis::Z {
@@ -766,26 +797,146 @@ impl Projector {
         }
     }
 
+    /// Determine the octant for the projection of a normal onto the XY plane.
+    ///
+    /// # Arguments
+    /// * `normal` - A reference to a `Vector3<f32>` representing the normal vector.
+    ///
+    /// # Returns
+    /// The octant number (1 through 8) indicating the region of the XY plane.
+    pub fn XY_normalized_angle(normal: &Vector3<f32>) -> f32 {
+        // Project the normal onto the XY plane.
+        let projected_x = normal.x;
+        let projected_y = normal.y;
+
+        // Compute the angle (in radians) of the projection w.r.t. the positive X axis.
+        let angle = projected_y.atan2(projected_x).to_degrees();
+
+        // Normalize the angle to a range of 0 to 360 degrees.
+        let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
+        normalized_angle
+    }
+
+    fn compute_plane_isometry(
+        &self,
+        centroid: (ParryPoint<f32>, Vector3<f32>),
+        points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
+        axis: Axis,
+    ) -> Option<Isometry3<f32>> {
+        if points.len() < self.check_points {
+            return None;
+        }
+        let from = points[0].0; // centroid.0;
+        let to = points[1].0;
+
+        let mut plane_points = Vec::with_capacity(points.len());
+        for (point, normal) in points {
+            plane_points.push(point.coords.into());
+        }
+        let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
+        let quaternion;
+
+        if axis == Axis::Z {
+            enum Strategy {
+                X,
+                Y,
+                Z,
+            }
+            // Determine the octant based on the angle and use the approach that is the most
+            // robust there
+            let angle = Self::XY_normalized_angle(&avg_normal);
+            let strategy = match angle {
+                -1.0..=45.0 => Strategy::X, // Y, Z possible 
+                45.0..=90.0 => Strategy::Y,
+                90.0..=135.0 => Strategy::Y,
+                135.0..=180.0 => Strategy::Y,
+                180.0..=225.0 => Strategy::Z,
+                225.0..=270.0 => Strategy::Z,
+                270.0..=315.0 => Strategy::Z,
+                315.0..=361.0 => Strategy::X, // Z possible
+                _ => unreachable!(), // The angle is always in the range [0, 360)
+            };
+
+            quaternion = match strategy {
+                // Solutions have broken regions so we must bridge over
+                Strategy::X => {
+                    let r_axis = Vector3::x();
+                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                        // Rotate 270 degrees around Y to untwist
+                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                        Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0))
+                    } else {
+                        None
+                    }
+                }
+                Strategy::Y => {
+                    let r_axis = Vector3::y();
+                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                        // Rotate 270 degrees around Y to untwist
+                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                        Some(self.set_twist_x(&decomposition, 1.0 * PI / 2.0))
+                    } else {
+                        None
+                    }
+                }
+                Strategy::Z => {
+                    let r_axis = Vector3::z();
+                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                        // Rotate 270 degrees around Y to untwist
+                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                        Some(self.set_twist_y(&decomposition, PI))
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else if Axis::Y == axis {
+            let z_axis = Vector3::z();
+            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
+        } else if Axis::X == axis {
+            let z_axis = Vector3::z();
+            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
+        } else {
+            unreachable!()
+        }
+
+        /*if let Some(quaternion) = quaternion {
+            return Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
+        } else {
+            return None
+        }
+        */
+
+        if let Some(quaternion) = quaternion {
+            let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
+
+            // Combine the rotation with the translation (centroid) into an Isometry3
+            Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
+        } else {
+            None
+        }
+    }
+
     /// Align the quaternion's X-axis to the vector connecting two points, while preserving its Z-axis.
     fn _align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f64>,
-        target_x: &Vector3<f64>
+        target_x: &Vector3<f64>,
     ) -> UnitQuaternion<f64> {
         let current_x = quaternion * Vector3::x();
         let rotation_axis = current_x.normalize().cross(&target_x);
         if rotation_axis.magnitude_squared() < 1E-6 {
-            return quaternion; // No rotation needed if already aligned
+            // return quaternion; // No rotation needed if already aligned
         }
 
         let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
         let rotation_angle = dot_product.acos();
-        
+
         let local_z = quaternion * Vector3::z();
-        let alignment_quaternion = UnitQuaternion::from_axis_angle(&Unit::new_normalize(local_z), rotation_angle);
+        let alignment_quaternion =
+            UnitQuaternion::from_axis_angle(&Unit::new_normalize(local_z), rotation_angle);
 
         alignment_quaternion * quaternion
     }
-    
 
     fn align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f32>,
@@ -796,9 +947,9 @@ impl Projector {
         let w1 = Point3::new(p1.x as f64, p1.y as f64, p1.z as f64);
         let w2 = Point3::new(p2.x as f64, p2.y as f64, p2.z as f64);
         let vector = Vector3::new(w2.x - w1.x, w2.y - w1.y, w2.z - w1.z).normalize();
-        
+
         for i in 0..3 {
-            q = Self::_align_quaternion_x_to_points(q, &vector);            
+            q = Self::_align_quaternion_x_to_points(q, &vector);
         }
         q.cast::<f32>()
     }

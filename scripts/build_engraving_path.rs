@@ -105,6 +105,22 @@ fn generate_square_points(n: usize) -> Vec<(f32, f32)> {
     points
 }
 
+fn generate_raster_points(r: usize, n: usize) -> Vec<(f32, f32)> {
+    let mut points = Vec::new();
+    let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
+    let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a line
+
+    for i in 0..r {
+        let y = -1.0 + i as f32 * y_step; // Calculate the y-coordinate for the row
+        for j in 0..n {
+            let x = -1.0 + j as f32 * x_step; // Calculate the x-coordinate for each point in the row
+            points.push((x, y)); // Add the point to the list
+        }
+    }
+
+    points
+}
+
 fn write_isometries_to_json(
     file_path: &str,
     isometries: Vec<Isometry3<f32>>,
@@ -142,7 +158,8 @@ fn main() -> Result<(), String> {
     //let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
 
     //let path = generate_R_waypoints(1.0, 0.01);
-    let path = generate_square_points(200);
+    // let path = generate_square_points(200);
+    let path = generate_raster_points(40, 200);
 
     // Goblet
     /*
@@ -173,11 +190,11 @@ fn main() -> Result<(), String> {
 
     // Parry Z: Broken zone opposition X. X: 
     let engraving = build_engraving_path_cylindric(
-        &sphere_mesh(0.5, 64),
+        &sphere_mesh(0.5, 512),
         &path,
         1.0,
-        0. ..0.2,
-        0. ..1.99 * PI,
+        -1.5 ..1.5,
+        0. ..2.0 * PI,
         axis,
         RayDirection::FromPositive,
     )?;
@@ -210,7 +227,39 @@ fn main() -> Result<(), String> {
     let sender = Sender::new("127.0.0.1", 5555);
 
     // Handle the result of `send_pose_message`
-    match sender.send_pose_message32(&engraving) {
+    fn filter_valid_poses(poses: &Vec<Isometry3<f32>>) -> Vec<Isometry3<f32>> {
+        poses
+            .iter()
+            .filter(|pose| {
+                // Extract translation and rotation components
+                let translation = pose.translation.vector;
+                let rotation = pose.rotation;
+
+                // Check for NaN values in translation and rotation
+                if translation.x.is_nan() || translation.y.is_nan() || translation.z.is_nan() ||
+                    rotation.i.is_nan() || rotation.j.is_nan() || rotation.k.is_nan() || rotation.w.is_nan() {
+                    return false; // NaN values -> invalid
+                }
+
+                // Check for zero-length quaternion
+                let quaternion_magnitude = (rotation.i.powi(2)
+                    + rotation.j.powi(2)
+                    + rotation.k.powi(2)
+                    + rotation.w.powi(2))
+                    .sqrt();
+                if quaternion_magnitude < 1e-6 { // Threshold to consider near zero-length
+                    return false; // Zero-length quaternion -> invalid
+                }
+
+                // Pose passes all checks -> valid
+                true
+            })
+            .cloned()
+            .collect()
+    }    
+    
+    
+    match sender.send_pose_message32(&filter_valid_poses(&engraving)) {
         Ok(_) => {
             println!("Pose message sent successfully.");
         }
@@ -219,7 +268,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    //return Ok(());
+    return Ok(());
 
     if let Err(e) = write_isometries_to_json("work/isometries.json", engraving) {
         return Err(e);
