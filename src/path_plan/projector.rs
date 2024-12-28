@@ -1,6 +1,6 @@
 use bevy_egui::egui::emath::normalized_angle;
 use nalgebra::{Isometry3, Matrix3, OMatrix, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
-use parry3d::math::{Point as ParryPoint};
+use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
@@ -797,13 +797,6 @@ impl Projector {
         }
     }
 
-    /// Determine the octant for the projection of a normal onto the XY plane.
-    ///
-    /// # Arguments
-    /// * `normal` - A reference to a `Vector3<f32>` representing the normal vector.
-    ///
-    /// # Returns
-    /// The octant number (1 through 8) indicating the region of the XY plane.
     pub fn XY_normalized_angle(normal: &Vector3<f32>) -> f32 {
         // Project the normal onto the XY plane.
         let projected_x = normal.x;
@@ -816,9 +809,25 @@ impl Projector {
         let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
         normalized_angle
     }
-    
+
+    pub fn XZ_normalized_angle(normal: &Vector3<f32>) -> f32 {
+        // Project the normal onto the XZ plane
+        let projected_x = normal.x;
+        let projected_z = normal.z;
+
+        // Compute the angle (in radians) of the projection w.r.t. the positive X axis
+        let angle = projected_z.atan2(projected_x).to_degrees();
+
+        // Normalize the angle to a range of 0 to 360 degrees
+        let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
+        normalized_angle
+    }
+
     /// Determines which axis the vector connecting two points is most perpendicular to.
-    pub fn find_most_perpendicular_axis_between_points(point1: &ParryPoint<f32>, point2: &ParryPoint<f32>) -> Axis {
+    pub fn find_most_perpendicular_axis_between_points(
+        point1: &ParryPoint<f32>,
+        point2: &ParryPoint<f32>,
+    ) -> Axis {
         // Compute the vector connecting the two points
         let vector = point2 - point1;
 
@@ -840,21 +849,20 @@ impl Projector {
         } else {
             Axis::Z
         }
-    }    
-    
+    }
 
     fn compute_plane_isometry(
         &self,
         centroid: (ParryPoint<f32>, Vector3<f32>),
         points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
-        axis: Axis,
+        _axis: Axis,
     ) -> Option<Isometry3<f32>> {
         if points.len() < self.check_points {
             return None;
         }
         let from = points[0].0; // centroid.0;
         let to = points[1].0;
-        
+
         let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
         let mut plane_points = Vec::with_capacity(points.len());
@@ -868,14 +876,18 @@ impl Projector {
             X,
             Y,
             Z,
+            OFF,
+            Z_SPEC,
         }
         // Determine the octant based on the angle and use the approach that is the most
         // robust there
         let angle = Self::XY_normalized_angle(&avg_normal);
-        let strategy;
-        
+        let mut strategy;
+        let flip;
+        let mut align = true;
+
         if axis == Axis::Z {
-             strategy = match angle {
+            strategy = match angle {
                 -1.0..=45.0 => Strategy::X, // Y, Z possible
                 45.0..=90.0 => Strategy::Y,
                 90.0..=135.0 => Strategy::Y,
@@ -884,24 +896,36 @@ impl Projector {
                 225.0..=270.0 => Strategy::Z,
                 270.0..=315.0 => Strategy::Z,
                 315.0..=361.0 => Strategy::X, // Z possible
-                _ => unreachable!(), // The angle is always in the range [0, 360)
+                _ => unreachable!(),          // The angle is always in the range [0, 360)
             };
-
+            flip = false;
         } else if Axis::Y == axis {
+            flip = true;
             strategy = match angle {
                 -1.0..=45.0 => Strategy::X,
                 45.0..=90.0 => Strategy::X,
-                
-                90.0..=135.0 => Strategy::Y,
-                135.0..=180.0 => Strategy::Y,
-                
+
+                // This case we need to differentiate also by XZ angle
+                90.0..=180.0 => match Self::XZ_normalized_angle(&avg_normal) {
+                    -1.0..=45.0 => Strategy::X,       // Unreachable?
+                    45.0..=90.0 => Strategy::X,       // Unreachable?
+                    90.0..=135.0 => Strategy::Z_SPEC, // Problematic
+                    135.0..=180.0 => Strategy::X,
+                    180.0..=225.0 => Strategy::X,
+                    225.0..=270.0 => Strategy::X,
+                    270.0..=315.0 => Strategy::X,
+                    315.0..=361.0 => Strategy::X,
+                    _ => unreachable!(), // The angle is always in the range [0, 360)
+                },
+
                 180.0..=225.0 => Strategy::Z,
                 225.0..=270.0 => Strategy::Z,
-                
+
                 270.0..=315.0 => Strategy::X,
-                315.0..=361.0 => Strategy::X, 
+                315.0..=361.0 => Strategy::X,
+
                 _ => unreachable!(), // The angle is always in the range [0, 360)
-            }            
+            };
         } else if Axis::X == axis {
             strategy = match angle {
                 -1.0..=45.0 => Strategy::Y,
@@ -911,9 +935,10 @@ impl Projector {
                 180.0..=225.0 => Strategy::X,
                 225.0..=270.0 => Strategy::X,
                 270.0..=315.0 => Strategy::Z,
-                315.0..=361.0 => Strategy::X, 
+                315.0..=361.0 => Strategy::X,
                 _ => unreachable!(), // The angle is always in the range [0, 360)
-            }
+            };
+            flip = false;
         } else {
             unreachable!()
         }
@@ -927,7 +952,8 @@ impl Projector {
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
                     let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                    Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0))
+                    let twist_by = if flip { PI / 2.0 } else { 3.0 * PI / 2.0 };
+                    Some(self.set_twist_y(&decomposition, twist_by))
                 } else {
                     None
                 }
@@ -937,30 +963,42 @@ impl Projector {
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
                     let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                    Some(self.set_twist_x(&decomposition, 1.0 * PI / 2.0))
+                    let twist_by = if flip { 3.0 * PI / 2.0 } else { PI / 2.0 };
+                    Some(self.set_twist_x(&decomposition, twist_by))
                 } else {
                     None
                 }
+            }
+            Strategy::Z_SPEC => {
+                let r_axis = Vector3::z();
+                if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                    Some(twisted)
+                } else {
+                    None
+                }
+                
             }
             Strategy::Z => {
                 let r_axis = Vector3::z();
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
                     let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                    Some(self.set_twist_y(&decomposition, PI))
+                    let twist_by = if flip { 0. } else { PI };
+                    Some(self.set_twist_y(&decomposition, twist_by))
                 } else {
                     None
                 }
             }
+            Strategy::OFF => None,
         };
-        
 
-        /*if let Some(quaternion) = quaternion {
-            return Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
-        } else {
-            return None
+        if !align {
+            if let Some(quaternion) = quaternion {
+                return Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion));
+            } else {
+                return None;
+            }
         }
-        */
 
         if let Some(quaternion) = quaternion {
             let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
@@ -973,14 +1011,15 @@ impl Projector {
     }
 
     /// Align the quaternion's X-axis to the vector connecting two points, while preserving its Z-axis.
-    fn _align_quaternion_x_to_points(
+    fn __align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f64>,
         target_x: &Vector3<f64>,
     ) -> UnitQuaternion<f64> {
         let current_x = quaternion * Vector3::x();
         let rotation_axis = current_x.normalize().cross(&target_x);
-        if rotation_axis.magnitude_squared() < 1E-6 {
+        if rotation_axis.magnitude_squared() < 1E-2 {
             // return quaternion; // No rotation needed if already aligned
+            // this is wrong as it may require flipping
         }
 
         let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
@@ -992,6 +1031,35 @@ impl Projector {
 
         alignment_quaternion * quaternion
     }
+
+    /// Align a quaternion's X-axis to the given target X-axis with a precise alignment check
+    fn _align_quaternion_x_to_points(
+        quaternion: UnitQuaternion<f64>,
+        target_x: &Vector3<f64>,
+    ) -> UnitQuaternion<f64> {
+        let threshold = 0.005 * 3.14 / 180.0; // Minimum angular difference (in radians) to trigger alignment
+        
+        // Step 1: Get the current X-axis of the quaternion
+        let current_x = quaternion * Vector3::x();
+
+        // Step 2: Compute the angle between the current and target X-axes
+        let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
+        let angle_misalignment = dot_product.acos();
+
+        // Step 3: Check if alignment is required
+        if angle_misalignment < threshold {
+            // Already aligned within the threshold, return original quaternion
+            return quaternion;
+        }
+
+        // Step 4: Compute the rotation needed to align the X-axis
+        let rotation_axis = current_x.cross(&target_x).normalize();
+        let alignment_quaternion =
+            UnitQuaternion::from_axis_angle(&Unit::new_normalize(rotation_axis), angle_misalignment);
+
+        // Step 5: Apply the rotation to align the quaternion
+        alignment_quaternion * quaternion
+    }    
 
     fn align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f32>,

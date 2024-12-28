@@ -73,7 +73,7 @@ pub fn build_engraving_path_side_projected(
     };
 
     // Project transformed points onto the mesh
-    if axis == Axis::Y {
+    if true {
         // Use our own implementation for Y axis (Parry fails on normal parallel to Y)
         Ok(transformed_path
             .iter()
