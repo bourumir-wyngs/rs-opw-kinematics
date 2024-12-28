@@ -153,12 +153,13 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::Z;
+    let axis = Axis::Y;
 
-    //let mesh = create_cylindric_mesh(0.2, 1.0, 64, axis);
+    //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
+    let mesh = sphere_mesh(0.5, 512);
 
     //let path = generate_R_waypoints(1.0, 0.01);
-    // let path = generate_square_points(200);
+    //let path = generate_square_points(200);
     let path = generate_raster_points(40, 200);
 
     // Goblet
@@ -188,9 +189,10 @@ fn main() -> Result<(), String> {
     
      */
 
-    // Parry Z: Broken zone opposition X. X: 
+    // Parry Z: Broken zone opposition X. X:
+    
     let engraving = build_engraving_path_cylindric(
-        &sphere_mesh(0.5, 512),
+        &mesh,
         &path,
         1.0,
         -1.5 ..1.5,
@@ -198,6 +200,7 @@ fn main() -> Result<(), String> {
         axis,
         RayDirection::FromPositive,
     )?;
+    
     
 
     // Z normals opposite

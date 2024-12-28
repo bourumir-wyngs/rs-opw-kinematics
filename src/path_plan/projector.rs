@@ -836,17 +836,19 @@ impl Projector {
         let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
         let quaternion;
 
+        enum Strategy {
+            X,
+            Y,
+            Z,
+        }
+        // Determine the octant based on the angle and use the approach that is the most
+        // robust there
+        let angle = Self::XY_normalized_angle(&avg_normal);
+        let strategy;
+        
         if axis == Axis::Z {
-            enum Strategy {
-                X,
-                Y,
-                Z,
-            }
-            // Determine the octant based on the angle and use the approach that is the most
-            // robust there
-            let angle = Self::XY_normalized_angle(&avg_normal);
-            let strategy = match angle {
-                -1.0..=45.0 => Strategy::X, // Y, Z possible 
+             strategy = match angle {
+                -1.0..=45.0 => Strategy::X, // Y, Z possible
                 45.0..=90.0 => Strategy::Y,
                 90.0..=135.0 => Strategy::Y,
                 135.0..=180.0 => Strategy::Y,
@@ -857,48 +859,73 @@ impl Projector {
                 _ => unreachable!(), // The angle is always in the range [0, 360)
             };
 
-            quaternion = match strategy {
-                // Solutions have broken regions so we must bridge over
-                Strategy::X => {
-                    let r_axis = Vector3::x();
-                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
-                        // Rotate 270 degrees around Y to untwist
-                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                        Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0))
-                    } else {
-                        None
-                    }
-                }
-                Strategy::Y => {
-                    let r_axis = Vector3::y();
-                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
-                        // Rotate 270 degrees around Y to untwist
-                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                        Some(self.set_twist_x(&decomposition, 1.0 * PI / 2.0))
-                    } else {
-                        None
-                    }
-                }
-                Strategy::Z => {
-                    let r_axis = Vector3::z();
-                    if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
-                        // Rotate 270 degrees around Y to untwist
-                        let decomposition = self.decompose_swing_twist(twisted, &r_axis);
-                        Some(self.set_twist_y(&decomposition, PI))
-                    } else {
-                        None
-                    }
-                }
-            }
         } else if Axis::Y == axis {
-            let z_axis = Vector3::z();
-            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
+            strategy = match angle {
+                -1.0..=45.0 => Strategy::X,
+                45.0..=90.0 => Strategy::X,
+                
+                90.0..=135.0 => Strategy::Y,
+                135.0..=180.0 => Strategy::Y,
+                
+                180.0..=225.0 => Strategy::Z,
+                225.0..=270.0 => Strategy::Z,
+                
+                270.0..=315.0 => Strategy::X,
+                315.0..=361.0 => Strategy::X, 
+                _ => unreachable!(), // The angle is always in the range [0, 360)
+            }            
         } else if Axis::X == axis {
-            let z_axis = Vector3::z();
-            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
+            strategy = match angle {
+                -1.0..=45.0 => Strategy::Y,
+                45.0..=90.0 => Strategy::Y,
+                90.0..=135.0 => Strategy::Y,
+                135.0..=180.0 => Strategy::Y,
+                180.0..=225.0 => Strategy::X,
+                225.0..=270.0 => Strategy::X,
+                270.0..=315.0 => Strategy::Z,
+                315.0..=361.0 => Strategy::X, 
+                _ => unreachable!(), // The angle is always in the range [0, 360)
+            }
         } else {
             unreachable!()
         }
+
+        // https://www.onlogic.com/store/hx310/
+        // https://www.onlogic.com/store/hx511/
+        quaternion = match strategy {
+            // Solutions have broken regions so we must bridge over
+            Strategy::X => {
+                let r_axis = Vector3::x();
+                if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                    // Rotate 270 degrees around Y to untwist
+                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0))
+                } else {
+                    None
+                }
+            }
+            Strategy::Y => {
+                let r_axis = Vector3::y();
+                if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                    // Rotate 270 degrees around Y to untwist
+                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    Some(self.set_twist_x(&decomposition, 1.0 * PI / 2.0))
+                } else {
+                    None
+                }
+            }
+            Strategy::Z => {
+                let r_axis = Vector3::z();
+                if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                    // Rotate 270 degrees around Y to untwist
+                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    Some(self.set_twist_y(&decomposition, PI))
+                } else {
+                    None
+                }
+            }
+        };
+        
 
         /*if let Some(quaternion) = quaternion {
             return Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
