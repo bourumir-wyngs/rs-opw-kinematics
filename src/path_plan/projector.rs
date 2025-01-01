@@ -524,28 +524,6 @@ impl Projector {
         }
     }
 
-    fn build_rotation_matrix_from_normal(average_normal: Vector3<f32>) -> Matrix3<f32> {
-        // Normalize the normal vector (new z-axis)
-        let z_axis = average_normal.normalize();
-
-        // Choose a reference vector far from z (e.g., global X-axis)
-        let reference = if z_axis.z.abs() < 0.9999 {
-            // Not aligned with vertical
-            Vector3::new(1.0, 0.0, 0.0)
-        } else {
-            Vector3::new(0.0, 1.0, 0.0) // Use Y-axis if aligned with vertical
-        };
-
-        // Compute x_axis via Gram-Schmidt to ensure it's perpendicular to z_axis
-        let x_axis = (reference - z_axis * reference.dot(&z_axis)).normalize();
-
-        // Compute y_axis as orthogonal to both z_axis and x_axis
-        let y_axis = z_axis.cross(&x_axis).normalize();
-
-        // Combine x, y, and z axes into a rotation matrix
-        Matrix3::from_columns(&[x_axis, y_axis, z_axis])
-    }
-
     fn average_plane_orientation(
         &self,
         points: &[Vector3<f32>],
@@ -635,9 +613,9 @@ impl Projector {
             average_normal = -average_normal; // Make it instead close to parallel
             let q = UnitQuaternion::rotation_between(&z_axis, &average_normal);
             if let Some(q) = q {
-                let swing_twist = self.decompose_swing_twist(q, &z_axis);
+                let swing_twist = Projector::decompose_swing_twist(q, &z_axis);
                 // Flip 180 degrees
-                return Some(self.set_twist_y(&swing_twist, PI));
+                return Some(Projector::twist_y(&swing_twist, PI));
             }
         }
         UnitQuaternion::rotation_between(&z_axis, &average_normal)
@@ -703,7 +681,6 @@ impl Projector {
 
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
     fn decompose_swing_twist(
-        &self,
         quaternion: UnitQuaternion<f32>,
         axis: &Vector3<f32>,
     ) -> (UnitQuaternion<f32>, UnitQuaternion<f32>) {
@@ -718,10 +695,10 @@ impl Projector {
 
         (swing, twist)
     }
+    
 
     /// Sets the twist of a quaternion to a fixed angle (in radians) around a specified axis.
-    fn set_twist_y(
-        &self,
+    fn twist_y(
         decomposition: &(UnitQuaternion<f32>, UnitQuaternion<f32>),
         fixed_angle: f32,
     ) -> UnitQuaternion<f32> {
@@ -734,8 +711,7 @@ impl Projector {
         swing * fixed_twist
     }
 
-    fn set_twist_x(
-        &self,
+    fn twist_x(
         decomposition: &(UnitQuaternion<f32>, UnitQuaternion<f32>),
         fixed_angle: f32,
     ) -> UnitQuaternion<f32> {
@@ -772,8 +748,8 @@ impl Projector {
             let z_axis = Vector3::x();
             if let Some(twisted) = UnitQuaternion::rotation_between(&z_axis, &avg_normal) {
                 // Rotate 270 degrees around Y to untwist
-                let decomposition = self.decompose_swing_twist(twisted, &z_axis);
-                quaternion = Some(self.set_twist_y(&decomposition, 3.0 * PI / 2.0));
+                let decomposition = Projector::decompose_swing_twist(twisted, &z_axis);
+                quaternion = Some(Projector::twist_y(&decomposition, 3.0 * PI / 2.0));
             } else {
                 quaternion = None;
             }
@@ -910,7 +886,7 @@ impl Projector {
                     -1.0..=45.0 => Strategy::X,       // Unreachable?
                     45.0..=90.0 => Strategy::X,       // Unreachable?
                     90.0..=135.0 => Strategy::Z_SPEC, // Problematic
-                    135.0..=180.0 => Strategy::X,
+                    135.0..=185.0 => Strategy::Z_SPEC, //Strategy::X, // THIS
                     180.0..=225.0 => Strategy::X,
                     225.0..=270.0 => Strategy::X,
                     270.0..=315.0 => Strategy::X,
@@ -919,7 +895,9 @@ impl Projector {
                 },
 
                 180.0..=225.0 => Strategy::Z,
-                225.0..=270.0 => Strategy::Z,
+
+                225.0..=250.0 => Strategy::Z,                
+                250.0..=270.0 => Strategy::X, 
 
                 270.0..=315.0 => Strategy::X,
                 315.0..=361.0 => Strategy::X,
@@ -951,9 +929,9 @@ impl Projector {
                 let r_axis = Vector3::x();
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
-                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    let decomposition = Projector::decompose_swing_twist(twisted, &r_axis);
                     let twist_by = if flip { PI / 2.0 } else { 3.0 * PI / 2.0 };
-                    Some(self.set_twist_y(&decomposition, twist_by))
+                    Some(Projector::twist_y(&decomposition, twist_by))
                 } else {
                     None
                 }
@@ -962,9 +940,9 @@ impl Projector {
                 let r_axis = Vector3::y();
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
-                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    let decomposition = Projector::decompose_swing_twist(twisted, &r_axis);
                     let twist_by = if flip { 3.0 * PI / 2.0 } else { PI / 2.0 };
-                    Some(self.set_twist_x(&decomposition, twist_by))
+                    Some(Projector::twist_x(&decomposition, twist_by))
                 } else {
                     None
                 }
@@ -976,15 +954,14 @@ impl Projector {
                 } else {
                     None
                 }
-                
             }
             Strategy::Z => {
                 let r_axis = Vector3::z();
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     // Rotate 270 degrees around Y to untwist
-                    let decomposition = self.decompose_swing_twist(twisted, &r_axis);
+                    let decomposition = Projector::decompose_swing_twist(twisted, &r_axis);
                     let twist_by = if flip { 0. } else { PI };
-                    Some(self.set_twist_y(&decomposition, twist_by))
+                    Some(Projector::twist_y(&decomposition, twist_by))
                 } else {
                     None
                 }
@@ -1037,8 +1014,9 @@ impl Projector {
         quaternion: UnitQuaternion<f64>,
         target_x: &Vector3<f64>,
     ) -> UnitQuaternion<f64> {
-        let threshold = 0.005 * 3.14 / 180.0; // Minimum angular difference (in radians) to trigger alignment
-        
+        // Minimum angular difference (in radians) to trigger alignment
+        const ALIGNMENT_THRESHOLD: f64 = 0.01 * std::f64::consts::PI / 180.0;
+
         // Step 1: Get the current X-axis of the quaternion
         let current_x = quaternion * Vector3::x();
 
@@ -1047,19 +1025,21 @@ impl Projector {
         let angle_misalignment = dot_product.acos();
 
         // Step 3: Check if alignment is required
-        if angle_misalignment < threshold {
+        if angle_misalignment < ALIGNMENT_THRESHOLD {
             // Already aligned within the threshold, return original quaternion
             return quaternion;
         }
 
         // Step 4: Compute the rotation needed to align the X-axis
         let rotation_axis = current_x.cross(&target_x).normalize();
-        let alignment_quaternion =
-            UnitQuaternion::from_axis_angle(&Unit::new_normalize(rotation_axis), angle_misalignment);
+        let alignment_quaternion = UnitQuaternion::from_axis_angle(
+            &Unit::new_normalize(rotation_axis),
+            angle_misalignment,
+        );
 
         // Step 5: Apply the rotation to align the quaternion
         alignment_quaternion * quaternion
-    }    
+    }
 
     fn align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f32>,
