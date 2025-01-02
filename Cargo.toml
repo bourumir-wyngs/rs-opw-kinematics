@@ -20,7 +20,7 @@ nalgebra = "0.33"
 rand = "0.8" # Now is needed for path planner
 
 
-geo = "0.25"
+geo = "0.29"
 serde = { version = "1.0", features = ["derive"] } # For JSON serialization/deserialization
 serde_json = "1.0.133"
 
@@ -40,7 +40,7 @@ parry3d = { version = "0.17", optional = true }
 rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
-rs-read-trimesh = { version = "0.1.0", optional = true } # patched ply-rs
+rs-read-trimesh = { version = "0.1.1", optional = true } # patched ply-rs
 
 # Needed for visualization. Only relevant packages are included.
 bevy = { version = "0.12", default-features = false, features = [
