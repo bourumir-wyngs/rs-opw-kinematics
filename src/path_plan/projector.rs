@@ -66,15 +66,6 @@ impl Axis {
         }
     }
 
-    pub fn vector(&self) -> Vector3<f32> {
-        match self {
-            Axis::X => Vector3::x(),
-            Axis::Y => Vector3::y(),
-            Axis::Z => Vector3::z(),
-            Axis::Cylinder => unreachable!(),
-        }
-    }
-
     /// Generates a point on a circle around the given point along the specified axis.
     pub fn axis_aligned_circle_point(
         &self,
@@ -207,7 +198,7 @@ impl Projector {
         };
         let ray = Ray::new(ray_origin.into(), ray_direction);
 
-        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
+        if let Some(toi) = mesh.cast_local_ray(&ray, FAR, true) {
             return Some(ray_origin + ray_direction * toi);
         }
         None
@@ -485,29 +476,6 @@ impl Projector {
         UnitQuaternion::rotation_between(&z_axis, &average_normal)
     }
 
-    #[allow(dead_code)]
-    fn compute_normal_sum_sequential(points: &[Vector3<f32>]) -> Vector3<f32> {
-        let mut normal_sum = Vector3::zeros();
-        for i in 0..points.len() {
-            for j in (i + 1)..points.len() {
-                for k in (j + 1)..points.len() {
-                    // Compute vectors on the plane
-                    let v1 = points[j] - points[i];
-                    let v2 = points[k] - points[i];
-
-                    // Compute normal of the triangle
-                    let normal = v1.cross(&v2);
-
-                    // Accumulate normals (ignoring magnitude)
-                    if normal.norm() > 0.0 {
-                        normal_sum += normal.normalize();
-                    }
-                }
-            }
-        }
-        normal_sum
-    }
-
     fn compute_normal_sum_parallel(points: &[Vector3<f32>]) -> Vector3<f32> {
         use nalgebra::Vector3;
         use rayon::iter::{IndexedParallelIterator, ParallelIterator};
@@ -585,7 +553,7 @@ impl Projector {
         swing * fixed_twist
     }
 
-    pub fn XY_normalized_angle(normal: &Vector3<f32>) -> f32 {
+    fn XY_normalized_angle(normal: &Vector3<f32>) -> f32 {
         // Project the normal onto the XY plane.
         let projected_x = normal.x;
         let projected_y = normal.y;
@@ -598,7 +566,7 @@ impl Projector {
         normalized_angle
     }
 
-    pub fn XZ_normalized_angle(normal: &Vector3<f32>) -> f32 {
+    fn XZ_normalized_angle(normal: &Vector3<f32>) -> f32 {
         // Project the normal onto the XZ plane
         let projected_x = normal.x;
         let projected_z = normal.z;
@@ -612,7 +580,7 @@ impl Projector {
     }
 
     /// Determines which axis the vector connecting two points is most perpendicular to.
-    pub fn find_most_perpendicular_axis_between_points(
+    fn find_most_perpendicular_axis_between_points(
         point1: &ParryPoint<f32>,
         point2: &ParryPoint<f32>,
     ) -> Axis {
