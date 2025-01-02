@@ -101,13 +101,11 @@ pub fn sphere_mesh(radius: f32, resolution: usize) -> TriMesh {
     // Generate vertices using spherical coordinates
     for i in 0..=resolution {
         let theta = PI * i as f32 / resolution as f32; // Latitude
-        let sin_theta = theta.sin();
-        let cos_theta = theta.cos();
+        let (sin_theta, cos_theta) = theta.sin_cos();
 
         for j in 0..=resolution {
             let phi = 2.0 * PI * j as f32 / resolution as f32; // Longitude
-            let sin_phi = phi.sin();
-            let cos_phi = phi.cos();
+            let (sin_phi, cos_phi) = phi.sin_cos();
 
             let x = radius * sin_theta * cos_phi;
             let y = radius * sin_theta * sin_phi;
@@ -116,7 +114,7 @@ pub fn sphere_mesh(radius: f32, resolution: usize) -> TriMesh {
             vertices.push(Point3::new(x, y, z));
         }
     }
-
+    
     // Generate triangle indices
     let resolution = resolution as u32;
     for i in 0..resolution {

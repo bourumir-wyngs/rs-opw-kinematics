@@ -109,7 +109,7 @@ impl Projector {
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
-    ) -> Option<(ParryPoint<f32>, Vector3<f32>)> {
+    ) -> Option<ParryPoint<f32>> {
         const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
 
         // Compute ray origin and direction using Direction methods
@@ -122,14 +122,7 @@ impl Projector {
             mesh.cast_ray_and_get_normal(&Isometry3::identity(), &ray, FAR, true)
         {
             let intersection_point = ray_origin + ray_direction * intersection.time_of_impact;
-            return Some((
-                ParryPoint::from(intersection_point),
-                Vector3::new(
-                    intersection.normal.x,
-                    intersection.normal.y,
-                    intersection.normal.z,
-                ),
-            ));
+            return Some(ParryPoint::from(intersection_point));
         }
 
         // If no intersection is found, return None
@@ -173,27 +166,28 @@ impl Projector {
         point: &geo::Point<f32>,
         radius: f32,
         axis: Axis,
-    ) -> Option<(ParryPoint<f32>, Vector3<f32>)> {
+    ) -> Option<ParryPoint<f32>> {
         const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
         let theta = point.x();
-
+        let (sin_theta, cos_theta) = theta.sin_cos(); 
+        
         // Step 1: Convert cylindrical coordinates to Cartesian based on the axis.
         let (x, y, z) = match axis {
             Axis::Z => {
-                let x = radius * theta.cos(); // X coordinate on cylinder's surface
-                let y = radius * theta.sin(); // Y coordinate on cylinder's surface
+                let x = radius * cos_theta; // X coordinate on cylinder's surface
+                let y = radius * sin_theta; // Y coordinate on cylinder's surface
                 let z = point.y(); // Z remains unchanged
                 (x, y, z)
             }
             Axis::X => {
-                let y = radius * theta.cos(); // Y coordinate on cylinder's surface
-                let z = radius * theta.sin(); // Z coordinate on cylinder's surface
+                let y = radius * cos_theta; // Y coordinate on cylinder's surface
+                let z = radius * sin_theta; // Z coordinate on cylinder's surface
                 let x = point.y(); // X remains unchanged
                 (x, y, z)
             }
             Axis::Y => {
-                let x = radius * theta.cos(); // X coordinate on cylinder's surface
-                let z = radius * theta.sin(); // Z coordinate on cylinder's surface
+                let x = radius * cos_theta; // X coordinate on cylinder's surface
+                let z = radius * sin_theta; // Z coordinate on cylinder's surface
                 let y = point.y(); // Y remains unchanged
                 (x, y, z)
             }
@@ -219,33 +213,10 @@ impl Projector {
         let ray = Ray::new(ray_origin.into(), ray_direction);
 
         if let Some(intersection) =
-            mesh.cast_ray_and_get_normal(&Isometry3::identity(), &ray, FAR, true)
+            mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true)
         {
-            let intersection_point = ray_origin + ray_direction * intersection.time_of_impact;
-
-            if true || intersection_point.x > 0.0 {
-                return Some((
-                    ParryPoint::from(intersection_point),
-                    Vector3::new(
-                        intersection.normal.x,
-                        intersection.normal.y,
-                        intersection.normal.z,
-                    ),
-                ));
-            } else {
-                let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), PI);
-                let alt_point = geo::Point::new(point.x() + PI, point.y());
-                // This call must account for use 180 degree rotation for the mesh as well
-                let iso = Self::project_point_cylindric_with_axis(mesh, &alt_point, radius, axis);
-                if let Some(iso) = iso {
-                    let orig_point = rotation * iso.0;
-                    return Some((
-                        ParryPoint::from(orig_point),
-                        //rotation * iso.1
-                        iso.1,
-                    ));
-                }
-            }
+            let intersection_point = ray_origin + ray_direction * intersection;
+            return Some(intersection_point);
         }
 
         // If no intersection is found, return None
@@ -269,7 +240,7 @@ impl Projector {
 
         for i in 0..self.check_points {
             let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-            let circle_point = axis.axis_aligned_circle_point(&central_point.0, self.radius, angle);
+            let circle_point = axis.axis_aligned_circle_point(&central_point, self.radius, angle);
 
             if let Some(intersection) = Self::project_point(mesh, &circle_point, direction, axis) {
                 if false {
@@ -291,7 +262,7 @@ impl Projector {
             return None;
         }
 
-        self.compute_plane_isometry(central_point, points, axis)
+        self.compute_plane_isometry(central_point, points)
     }
 
     /// Project computing normals our own way, do not use Parry.
@@ -334,41 +305,6 @@ impl Projector {
         }
 
         self.compute_plane_isometry_no_iso(central_point, points, axis, direction)
-    }
-
-    pub fn project_point_cylindric_no_iso(
-        mesh: &TriMesh,
-        point: &geo::Point<f32>,
-        radius: f32,
-    ) -> Option<ParryPoint<f32>> {
-        const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
-
-        use parry3d::query::Ray;
-
-        // Step 1: Convert cylindrical coordinates to Cartesian
-        let theta = point.x();
-        let x = radius * theta.cos(); // X coordinate on cylinder's surface
-        let y = radius * theta.sin(); // Y coordinate on cylinder's surface
-        let z = point.y(); // Z remains unchanged
-
-        // Step 2: Create the ray origin from the cylindrical surface point
-        let ray_origin = ParryPoint::new(x, y, z);
-
-        // Step 3: Compute the ray direction (parallel to XY toward Z axis)
-        // Pointing inward from the cylinder's surface
-        let ray_direction = Vector3::new(-x, -y, 0.0).normalize(); // Normalized direction in XY plane
-
-        // Step 4: Create the ray
-        let ray = Ray::new(ray_origin.into(), ray_direction);
-
-        // Step 5: Use mesh.cast_ray to find the intersection
-        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
-            let intersection_point = ray_origin + ray_direction * toi;
-            return Some(ParryPoint::from(intersection_point));
-        }
-
-        // If no intersection is found, return None
-        None
     }
 
     /// Cylindric project with cylinder around arbitrary axis. This confirmed to work well
@@ -431,7 +367,7 @@ impl Projector {
                         Some(intersection)
                     } else {
                         if false {
-                            println!("No intersection at angle {}", angle.to_degrees());                            
+                            println!("No intersection at angle {}", angle.to_degrees());
                         }
                         None
                     }
@@ -448,7 +384,7 @@ impl Projector {
                 return None;
             }
 
-            self.compute_plane_isometry(central_point, valid_points, cylinder_axis)
+            self.compute_plane_isometry(central_point, valid_points)
             // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
         } else {
             //println!("Central point projection NONE");
@@ -522,13 +458,13 @@ impl Projector {
                 return None;
             }
 
-            self.compute_plane_isometry(central_point, valid_points, cylinder_axis)
+            self.compute_plane_isometry(central_point, valid_points)
             // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
         } else {
             //println!("Central point projection NONE");
             None
         }
-    }    
+    }
 
     fn average_plane_orientation_no_iso(
         &self,
@@ -737,20 +673,19 @@ impl Projector {
 
     fn compute_plane_isometry(
         &self,
-        centroid: (ParryPoint<f32>, Vector3<f32>),
-        points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
-        _axis: Axis,
+        centroid: ParryPoint<f32>,
+        points: Vec<ParryPoint<f32>>,
     ) -> Option<Isometry3<f32>> {
         if points.len() < self.check_points {
             return None;
         }
-        let from = points[0].0; // centroid.0;
-        let to = points[1].0;
+        let from = points[0]; // centroid.0;
+        let to = points[1];
 
         let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
         let mut plane_points = Vec::with_capacity(points.len());
-        for (point, normal) in points {
+        for point in points {
             plane_points.push(point.coords.into());
         }
         let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
@@ -818,12 +753,12 @@ impl Projector {
         } else if Axis::X == axis {
             (
                 match angle {
-                    -1.0..=45.0 =>  Strategy::Y,
+                    -1.0..=45.0 => Strategy::Y,
                     45.0..=90.0 => Strategy::Y,
                     90.0..=135.0 => Strategy::Y,
                     135.0..=180.0 => Strategy::Y,
                     180.0..=225.0 => Strategy::Z,
-                    225.0..=270.0 => Strategy::Z, 
+                    225.0..=270.0 => Strategy::Z,
                     270.0..=315.0 => Strategy::ZSpecTwistX, //Strategy::Z, // One edge still broken here
                     315.0..=361.0 => Strategy::ZSpecTwistX, // X and Y differently broken, X middle, Z and Y - negative Z zone
                     _ => unreachable!(), // The angle is always in the range [0, 360)
@@ -896,7 +831,7 @@ impl Projector {
             let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
 
             // Combine the rotation with the translation (centroid) into an Isometry3
-            Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
+            Some(Isometry3::from_parts(centroid.coords.into(), quaternion))
         } else {
             None
         }
