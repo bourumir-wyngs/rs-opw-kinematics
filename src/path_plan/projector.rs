@@ -369,7 +369,6 @@ impl Projector {
             }
 
             self.compute_plane_isometry(valid_points)
-            // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
         } else {
             //println!("Central point projection NONE");
             None
@@ -690,14 +689,14 @@ impl Projector {
         let (strategy, flip) = if axis == Axis::Z {
             (
                 match angle {
-                    -1.0..=45.0 => Strategy::X, // Y, Z possible
-                    45.0..=90.0 => Strategy::Y,
-                    90.0..=135.0 => Strategy::Y,
-                    135.0..=180.0 => Strategy::Y,
+                    -1.0..=45.0 =>  Strategy::X, // Y, Z possible
+                    45.0..=90.0 => Strategy::X,
+                    90.0..=135.0 => Strategy::Z, 
+                    135.0..=180.0 => Strategy::Z,
                     180.0..=225.0 => Strategy::Z,
-                    225.0..=270.0 => Strategy::Z,
-                    270.0..=315.0 => Strategy::Z,
-                    315.0..=361.0 => Strategy::X, // Z possible
+                    225.0..=270.0 => Strategy::Y,
+                    270.0..=315.0 => Strategy::X,  
+                    315.0..=361.0 => Strategy::X, 
                     _ => unreachable!(),          // The angle is always in the range [0, 360)
                 },
                 false,
@@ -818,28 +817,6 @@ impl Projector {
         } else {
             None
         }
-    }
-
-    /// Align the quaternion's X-axis to the vector connecting two points, while preserving its Z-axis.
-    fn __align_quaternion_x_to_points(
-        quaternion: UnitQuaternion<f64>,
-        target_x: &Vector3<f64>,
-    ) -> UnitQuaternion<f64> {
-        let current_x = quaternion * Vector3::x();
-        let rotation_axis = current_x.normalize().cross(&target_x);
-        if rotation_axis.magnitude_squared() < 1E-2 {
-            // return quaternion; // No rotation needed if already aligned
-            // this is wrong as it may require flipping
-        }
-
-        let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
-        let rotation_angle = dot_product.acos();
-
-        let local_z = quaternion * Vector3::z();
-        let alignment_quaternion =
-            UnitQuaternion::from_axis_angle(&Unit::new_normalize(local_z), rotation_angle);
-
-        alignment_quaternion * quaternion
     }
 
     /// Align a quaternion's X-axis to the given target X-axis with a precise alignment check
