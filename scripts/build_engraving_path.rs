@@ -153,7 +153,7 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     // let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::Y;
+    let axis = Axis::X;
 
     //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
     let mesh = sphere_mesh(0.5, 512);

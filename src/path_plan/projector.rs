@@ -818,12 +818,12 @@ impl Projector {
         } else if Axis::X == axis {
             (
                 match angle {
-                    -1.0..=45.0 => Strategy::Y,
-                    45.0..=90.0 => Strategy::Y,
-                    90.0..=135.0 => Strategy::Y,
-                    135.0..=180.0 => Strategy::Y,
-                    180.0..=225.0 => Strategy::X,
-                    225.0..=270.0 => Strategy::X,
+                    -1.0..=45.0 =>  Strategy::OFF, //Strategy::Y,
+                    45.0..=90.0 => Strategy::OFF, //Strategy::Y,
+                    90.0..=135.0 => Strategy::OFF, //Strategy::Y,
+                    135.0..=180.0 => Strategy::OFF, //Strategy::Y,
+                    180.0..=225.0 => Strategy::Z,
+                    225.0..=270.0 => Strategy::Z, 
                     270.0..=315.0 => Strategy::Z,
                     315.0..=361.0 => Strategy::ZSpecTwistX, // X and Y differently broken, X middle, Z and Y - negative Z zone
                     _ => unreachable!(), // The angle is always in the range [0, 360)
