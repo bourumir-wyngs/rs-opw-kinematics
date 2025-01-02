@@ -143,14 +143,13 @@ fn find_min_max(path: &Vec<(f32, f32)>) -> ((f32, f32), (f32, f32)) {
     ((path_min_x, path_min_y), (path_max_x, path_max_y))
 }
 
-pub fn build_engraving_path_cylindric(
+pub fn project_from_cylinder_to_mesh(
     mesh: &TriMesh,
     path: &Vec<(f32, f32)>,
     projection_radius: f32,
     height: std::ops::Range<f32>,
     angle: Range<f32>,
     axis: Axis,
-    direction: RayDirection,
 ) -> Result<Vec<Isometry3<f32>>, String> {
     use std::f32::consts::PI;
     // Validate inputs using range methods.

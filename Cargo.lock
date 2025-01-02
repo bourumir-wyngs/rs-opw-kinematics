@@ -3665,6 +3665,7 @@ dependencies = [
  "kdtree",
  "nalgebra",
  "num-traits",
+ "once_cell",
  "parry3d",
  "rand",
  "rayon",

@@ -169,9 +169,9 @@ impl Projector {
     ) -> Option<ParryPoint<f32>> {
         const FAR: f32 = 100.0; // Unit is assumed to be meters, enough for the robotic cell
         let theta = point.x();
-        let (sin_theta, cos_theta) = theta.sin_cos(); 
-        
-        // Step 1: Convert cylindrical coordinates to Cartesian based on the axis.
+        let (sin_theta, cos_theta) = theta.sin_cos();
+
+        // Convert cylindrical coordinates to Cartesian based on the axis.
         let (x, y, z) = match axis {
             Axis::Z => {
                 let x = radius * cos_theta; // X coordinate on cylinder's surface
@@ -192,34 +192,24 @@ impl Projector {
                 (x, y, z)
             }
             _ => {
-                panic!("Unsupported axis for cylindrical projection");
+                unreachable!("Unsupported axis for cylindrical projection");
             }
         };
 
-        // Step 2: Create the ray origin from the cylindrical surface point
         let ray_origin = ParryPoint::new(x, y, z);
-
-        // Step 3: Compute the ray direction (pointing inward to the cylinder's axis)
         let ray_direction = match axis {
             Axis::Z => Vector3::new(-x, -y, 0.0).normalize(), // Direction in XY toward Z axis
             Axis::X => Vector3::new(0.0, -y, -z).normalize(), // Direction in YZ toward X axis
             Axis::Y => Vector3::new(-x, 0.0, -z).normalize(), // Direction in XZ toward Y axis
             _ => {
-                panic!("Unsupported axis for cylindrical projection");
+                unreachable!("Unsupported axis for cylindrical projection");
             }
         };
-
-        // Step 4: Create the ray
         let ray = Ray::new(ray_origin.into(), ray_direction);
 
-        if let Some(intersection) =
-            mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true)
-        {
-            let intersection_point = ray_origin + ray_direction * intersection;
-            return Some(intersection_point);
+        if let Some(toi) = mesh.cast_ray(&Isometry3::identity(), &ray, FAR, true) {
+            return Some(ray_origin + ray_direction * toi);
         }
-
-        // If no intersection is found, return None
         None
     }
 
@@ -339,38 +329,35 @@ impl Projector {
         if let Some(central_point) =
             Self::project_point_cylindric_with_axis(mesh, point, projection_radius, cylinder_axis)
         {
-            //println!("Central point projection: {:?}", central_point);
-
             use rayon::prelude::*; // Import Rayon traits for parallel iteration
 
             // Generate points on a circle around the cylinder axis
-            let intersection_points: Vec<_> = (0..self.check_points)
+            let intersection_points = (0..self.check_points + 1)
                 .into_par_iter() // Convert to a parallel iterator
                 .filter_map(|i| {
-                    let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-                    let circle_point = circle_point(&point, self.radius, angle, projection_radius);
-                    Self::project_point_cylindric_with_axis(
-                        mesh,
-                        &circle_point,
-                        projection_radius,
-                        cylinder_axis,
-                    )
-                })
-                .collect(); 
+                    if i == 0 {
+                        // Central point is the first in the list
+                        Some(central_point)
+                    } else {
+                        let angle = 2.0 * PI * ( (i - 1) as f32) / (self.check_points as f32);
+                        let circle_point =
+                            circle_point(&point, self.radius, angle, projection_radius);
+                        Self::project_point_cylindric_with_axis(
+                            mesh,
+                            &circle_point,
+                            projection_radius,
+                            cylinder_axis,
+                        )
+                    }
+                });
 
-            let mut valid_points = Vec::with_capacity(intersection_points.len() + 1); // Pre-allocate space
-            valid_points.push(central_point); // Add the central point
-            valid_points.extend(intersection_points); // Extend with the valid intersections
-
-            // Ensure enough valid points exist for plane fitting
+            let valid_points: Vec<ParryPoint<f32>> = intersection_points.collect();
             if valid_points.len() < 3 {
                 println!("Not enough valid points for regression.");
                 return None;
             }
-
             self.compute_plane_isometry(valid_points)
         } else {
-            //println!("Central point projection NONE");
             None
         }
     }
@@ -561,11 +548,9 @@ impl Projector {
         quaternion: UnitQuaternion<f32>,
         axis: &Vector3<f32>,
     ) -> (UnitQuaternion<f32>, UnitQuaternion<f32>) {
-        let axis = axis.normalize(); // Ensure the axis is normalized
         let dot = quaternion.i * axis.x + quaternion.j * axis.y + quaternion.k * axis.z;
-
         let twist =
-            Quaternion::new(quaternion.w, axis.x * dot, axis.y * dot, axis.z * dot).normalize();
+            Quaternion::new(quaternion.w, axis.x * dot, axis.y * dot, axis.z * dot);
 
         let twist = UnitQuaternion::from_quaternion(twist);
         let swing = quaternion * twist.inverse();
@@ -666,10 +651,7 @@ impl Projector {
 
         let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
-        let mut plane_points = Vec::with_capacity(points.len());
-        for point in points {
-            plane_points.push(point.coords.into());
-        }
+        let plane_points: Vec<_> = points.iter().map(|p| p.coords).collect();
         let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
         let quaternion;
 
@@ -689,15 +671,15 @@ impl Projector {
         let (strategy, flip) = if axis == Axis::Z {
             (
                 match angle {
-                    -1.0..=45.0 =>  Strategy::X, // Y, Z possible
+                    -1.0..=45.0 => Strategy::X, // Y, Z possible
                     45.0..=90.0 => Strategy::X,
-                    90.0..=135.0 => Strategy::Z, 
+                    90.0..=135.0 => Strategy::Z,
                     135.0..=180.0 => Strategy::Z,
                     180.0..=225.0 => Strategy::Z,
                     225.0..=270.0 => Strategy::Y,
-                    270.0..=315.0 => Strategy::X,  
-                    315.0..=361.0 => Strategy::X, 
-                    _ => unreachable!(),          // The angle is always in the range [0, 360)
+                    270.0..=315.0 => Strategy::X,
+                    315.0..=361.0 => Strategy::X,
+                    _ => unreachable!(),
                 },
                 false,
             )
@@ -709,15 +691,15 @@ impl Projector {
 
                     // This case we need to differentiate also by XZ angle
                     90.0..=180.0 => match Self::XZ_normalized_angle(&avg_normal) {
-                        -1.0..=45.0 => Strategy::X,       // Unreachable?
-                        45.0..=90.0 => Strategy::X,       // Unreachable?
-                        90.0..=135.0 => Strategy::ZSpec,  // Problematic
-                        135.0..=185.0 => Strategy::ZSpec, //Strategy::X, // THIS
+                        -1.0..=45.0 => Strategy::X, 
+                        45.0..=90.0 => Strategy::X, 
+                        90.0..=135.0 => Strategy::ZSpec,
+                        135.0..=185.0 => Strategy::ZSpec, 
                         180.0..=225.0 => Strategy::X,
                         225.0..=270.0 => Strategy::X,
                         270.0..=315.0 => Strategy::X,
                         315.0..=361.0 => Strategy::X,
-                        _ => unreachable!(), // The angle is always in the range [0, 360)
+                        _ => unreachable!(), 
                     },
 
                     180.0..=225.0 => Strategy::Z,
@@ -728,7 +710,7 @@ impl Projector {
                     270.0..=315.0 => Strategy::X,
                     315.0..=361.0 => Strategy::X,
 
-                    _ => unreachable!(), // The angle is always in the range [0, 360)
+                    _ => unreachable!(), 
                 },
                 true,
             )
@@ -741,9 +723,9 @@ impl Projector {
                     135.0..=180.0 => Strategy::Y,
                     180.0..=225.0 => Strategy::Z,
                     225.0..=270.0 => Strategy::Z,
-                    270.0..=315.0 => Strategy::ZSpecTwistX, //Strategy::Z, // One edge still broken here
-                    315.0..=361.0 => Strategy::ZSpecTwistX, // X and Y differently broken, X middle, Z and Y - negative Z zone
-                    _ => unreachable!(), // The angle is always in the range [0, 360)
+                    270.0..=315.0 => Strategy::ZSpecTwistX, 
+                    315.0..=361.0 => Strategy::ZSpecTwistX, 
+                    _ => unreachable!(), 
                 },
                 false,
             )
@@ -824,30 +806,18 @@ impl Projector {
         quaternion: UnitQuaternion<f64>,
         target_x: &Vector3<f64>,
     ) -> UnitQuaternion<f64> {
-        // Minimum angular difference (in radians) to trigger alignment
         const ALIGNMENT_THRESHOLD: f64 = 0.01 * std::f64::consts::PI / 180.0;
-
-        // Step 1: Get the current X-axis of the quaternion
         let current_x = quaternion * Vector3::x();
-
-        // Step 2: Compute the angle between the current and target X-axes
         let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
         let angle_misalignment = dot_product.acos();
-
-        // Step 3: Check if alignment is required
         if angle_misalignment < ALIGNMENT_THRESHOLD {
-            // Already aligned within the threshold, return original quaternion
             return quaternion;
         }
-
-        // Step 4: Compute the rotation needed to align the X-axis
-        let rotation_axis = current_x.cross(&target_x).normalize();
+        let rotation_axis = current_x.cross(&target_x);
         let alignment_quaternion = UnitQuaternion::from_axis_angle(
             &Unit::new_normalize(rotation_axis),
             angle_misalignment,
         );
-
-        // Step 5: Apply the rotation to align the quaternion
         alignment_quaternion * quaternion
     }
 

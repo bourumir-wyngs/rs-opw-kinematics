@@ -2,7 +2,7 @@ use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::synthetic_meshes::{cylinder_mesh, sphere_mesh};
 use rs_opw_kinematics::engraving::{
-    build_engraving_path_cylindric, build_engraving_path_side_projected,
+    project_from_cylinder_to_mesh, build_engraving_path_side_projected,
 };
 use rs_opw_kinematics::projector::{Axis, RayDirection};
 use rs_read_trimesh::load_trimesh;
@@ -154,7 +154,7 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     // let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::Z;
+    let axis = Axis::Y;
 
     //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
     let t_mesh = Instant::now();
@@ -182,14 +182,13 @@ fn main() -> Result<(), String> {
 
     // Raster
     let t_ep = Instant::now();
-    let engraving = build_engraving_path_cylindric(
+    let engraving = project_from_cylinder_to_mesh(
         &mesh,
         &path,
         1.0,
         -1.5 ..1.5,
         0. ..2.0 * PI,
         axis,
-        RayDirection::FromPositive,
     )?;
     let el_ep = t_ep.elapsed();
     
@@ -264,11 +263,14 @@ fn main() -> Result<(), String> {
         }
     }
 
-    return Ok(());
+    //return Ok(());
 
-    if let Err(e) = write_isometries_to_json("work/isometries.json", engraving) {
+    if let Err(e) = write_isometries_to_json(
+        &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
+        engraving,
+    ) {
         return Err(e);
-    };
+    }
 
     Ok(())
 }

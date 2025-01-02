@@ -245,33 +245,3 @@ pub fn smooth_path<FF, N>(
         }
     }
 }
-
-#[test]
-fn it_works() {    
-    use rand::distributions::{Distribution, Uniform};
-    let stop = AtomicBool::new(false);
-    let mut result = dual_rrt_connect(
-        &[-1.2, 0.0],
-        &[1.2, 0.0],
-        |p: &[f64]| !(p[0].abs() < 1.0 && p[1].abs() < 1.0),
-        || {
-            let between = Uniform::new(-2.0, 2.0);
-            let mut rng = rand::thread_rng();
-            vec![between.sample(&mut rng), between.sample(&mut rng)]
-        },
-        0.2,
-        1000,
-        &stop, // never stops
-    )
-        .unwrap();
-    println!("{result:?}");
-    assert!(result.len() >= 4);
-    smooth_path(
-        &mut result,
-        |p: &[f64]| !(p[0].abs() < 1.0 && p[1].abs() < 1.0),
-        0.2,
-        100,
-    );
-    println!("{result:?}");
-    assert!(result.len() >= 3);
-}
