@@ -202,7 +202,7 @@ pub fn build_engraving_path_cylindric(
 
     // Step 3: Create a projector for projecting transformed path points
     let projector = Projector {
-        check_points: 36,     // Defined number of normals to check
+        check_points: 12,     // Defined number of normals to check
         normals_inward: true, // Force normals to point inward
         radius: 0.02,         // Radius, defined as PROJECTOR_RADIUS
     };

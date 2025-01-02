@@ -106,7 +106,7 @@ fn generate_square_points(n: usize) -> Vec<(f32, f32)> {
 }
 
 fn generate_raster_points(r: usize, n: usize) -> Vec<(f32, f32)> {
-    let mut points = Vec::new();
+    let mut points = Vec::with_capacity(r*n);
     let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
     let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a line
 
