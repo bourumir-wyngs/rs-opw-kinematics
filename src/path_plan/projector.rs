@@ -1,5 +1,4 @@
-use bevy_egui::egui::emath::normalized_angle;
-use nalgebra::{Isometry3, Matrix3, OMatrix, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -372,82 +371,6 @@ impl Projector {
         None
     }
 
-    /// Old method that projects vertical cylinder around Z axis. Retained as maybe Parry Y axis
-    /// problem may need workaround.
-    pub fn project_cylindric_Z(
-        &self,
-        mesh: &TriMesh,
-        point: &geo::Point<f32>,
-        projection_radius: f32,
-        direction: RayDirection,
-    ) -> Option<Isometry3<f32>> {
-        pub fn circle_point(
-            central_point: &geo::Point<f32>, // Center of the circle in 3D
-            radius: f32,                     // Circle radius
-            theta: f32,                      // Angle (in radians) for parametric circle point
-            projection_radius: f32,          // Diameter of the cylinder
-        ) -> geo::Point<f32> {
-            // Step 1: Compute the meter_rad_factor
-            let meter_rad_factor = projection_radius / 2.0;
-
-            // Step 2: Compute the Z coordinate (vertical position)
-            let z = central_point.y() + radius * theta.sin();
-
-            // Step 3: Compute the X coordinate, representing angular displacement in meters
-            let theta_x = central_point.x() + radius * theta.cos() * meter_rad_factor;
-
-            // Step 4: Return the 2D point in (theta_x, z)
-            geo::Point::new(theta_x, z)
-        }
-
-        // Attempt to project the central point.
-        if let Some(central_point) =
-            Self::project_point_cylindric_no_iso(mesh, point, projection_radius)
-        {
-            println!("Central point projection: {:?}", central_point);
-
-            // Step 2: Generate points on a circle in the XZ plane
-            let mut valid_points: Vec<Point3<f32>> = vec![
-                Point3::new(central_point.x, central_point.y, central_point.z), // Include the central point
-            ];
-            for i in 0..self.check_points {
-                let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
-                let circle_point = circle_point(&point, self.radius, angle, projection_radius);
-
-                if let Some(intersection) =
-                    Self::project_point_cylindric_no_iso(mesh, &circle_point, projection_radius)
-                {
-                    if (false) {
-                        println!(
-                            "Intersection at angle {}: {:?}",
-                            angle.to_degrees(),
-                            intersection
-                        );
-                    }
-                    valid_points.push(Point3::new(intersection.x, intersection.y, intersection.z));
-                } else {
-                    println!("No intersection at angle {}", angle.to_degrees());
-                }
-            }
-
-            // Ensure enough valid points exist
-            if valid_points.len() < 3 {
-                println!("Not enough valid points for regression.");
-                return None;
-            }
-
-            self.compute_plane_isometry_no_iso(
-                central_point,
-                valid_points,
-                Axis::Cylinder,
-                direction,
-            )
-        } else {
-            println!("Central point projection NONE");
-            None
-        }
-    }
-
     /// Cylindric project with cylinder around arbitrary axis. This confirmed to work well
     /// except when normal is close to parallel to Y.
     pub fn project_cylindric_with_axis(
@@ -480,7 +403,90 @@ impl Projector {
         if let Some(central_point) =
             Self::project_point_cylindric_with_axis(mesh, point, projection_radius, cylinder_axis)
         {
-            println!("Central point projection: {:?}", central_point);
+            //println!("Central point projection: {:?}", central_point);
+
+            use rayon::prelude::*; // Import Rayon traits for parallel iteration
+
+            // Generate points on a circle around the cylinder axis
+            let intersection_points: Vec<_> = (0..self.check_points)
+                .into_par_iter() // Convert to a parallel iterator
+                .filter_map(|i| {
+                    let angle = 2.0 * PI * (i as f32) / (self.check_points as f32);
+                    let circle_point = circle_point(&point, self.radius, angle, projection_radius);
+
+                    // Use project_point_cylindric_with_axis for circle points
+                    if let Some(intersection) = Self::project_point_cylindric_with_axis(
+                        mesh,
+                        &circle_point,
+                        projection_radius,
+                        cylinder_axis,
+                    ) {
+                        if false {
+                            println!(
+                                "Intersection at angle {}: {:?}",
+                                angle.to_degrees(),
+                                intersection
+                            );
+                        }
+                        Some(intersection)
+                    } else {
+                        if false {
+                            println!("No intersection at angle {}", angle.to_degrees());                            
+                        }
+                        None
+                    }
+                })
+                .collect(); // Collect results into `valid_points`
+
+            let mut valid_points = Vec::with_capacity(intersection_points.len() + 1); // Pre-allocate space
+            valid_points.push(central_point); // Add the central point
+            valid_points.extend(intersection_points); // Extend with the valid intersections
+
+            // Ensure enough valid points exist for plane fitting
+            if valid_points.len() < 3 {
+                println!("Not enough valid points for regression.");
+                return None;
+            }
+
+            self.compute_plane_isometry(central_point, valid_points, cylinder_axis)
+            // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
+        } else {
+            //println!("Central point projection NONE");
+            None
+        }
+    }
+
+    pub fn project_cylindric_with_axis_sequential(
+        &self,
+        mesh: &TriMesh,
+        point: &geo::Point<f32>,
+        projection_radius: f32,
+        cylinder_axis: Axis,
+    ) -> Option<Isometry3<f32>> {
+        pub fn circle_point(
+            central_point: &geo::Point<f32>, // Center of the circle in 3D
+            radius: f32,                     // Circle radius
+            theta: f32,                      // Angle (in radians) for parametric circle point
+            projection_radius: f32,          // Diameter of the cylinder
+        ) -> geo::Point<f32> {
+            // Compute the meter_rad_factor
+            let meter_rad_factor = projection_radius / 2.0;
+
+            // Compute the Z coordinate (for the axis)
+            let z = central_point.y() + radius * theta.sin();
+
+            // Compute the X coordinate, representing angular displacement in meters
+            let theta_x = central_point.x() + radius * theta.cos() * meter_rad_factor;
+
+            // Return the 2D point in (theta_x, z)
+            geo::Point::new(theta_x, z)
+        }
+
+        // Attempt to project the central point using the updated project_point_cylindric_with_axis.
+        if let Some(central_point) =
+            Self::project_point_cylindric_with_axis(mesh, point, projection_radius, cylinder_axis)
+        {
+            //println!("Central point projection: {:?}", central_point);
 
             // Generate points on a circle around the cylinder axis
             let mut valid_points = Vec::with_capacity(self.check_points + 1);
@@ -519,58 +525,10 @@ impl Projector {
             self.compute_plane_isometry(central_point, valid_points, cylinder_axis)
             // self.compute_plane_isometry_averaging(central_point, valid_points, cylinder_axis)
         } else {
-            println!("Central point projection NONE");
+            //println!("Central point projection NONE");
             None
         }
-    }
-
-    fn average_plane_orientation(
-        &self,
-        points: &[Vector3<f32>],
-        axis: Axis,
-        cylindric: bool,
-        direction: RayDirection,
-    ) -> Option<UnitQuaternion<f32>> {
-        if points.len() < 3 {
-            return None;
-        }
-
-        // Accumulate normals
-        let normal_sum = Self::compute_normal_sum_parallel(points);
-
-        // Average the normals
-        let mut average_normal = normal_sum.normalize();
-
-        // Ensure the normal vector is valid
-        if average_normal.norm() == 0.0 {
-            return None;
-        }
-
-        // Fix the normal for the case we have it opposite. For centerwise projection,
-        // this is not yet supported.
-        if !cylindric {
-            // Convert `axis` and `direction` into a preferred orientation vector
-            let preferred_direction = match axis {
-                Axis::X => Vector3::x(),
-                Axis::Y => Vector3::y(),
-                Axis::Z => Vector3::z(),
-                Axis::Cylinder => unreachable!(),
-            } * direction.to_sign();
-
-            // Check orientation consistency with the preferred vector
-            if average_normal.dot(&preferred_direction) < 0.0 {
-                // Flip the normal if it's pointing away from the preferred direction
-                average_normal = -average_normal;
-            }
-        } else {
-            if direction == RayDirection::FromNegative {
-                average_normal = -average_normal;
-            }
-        }
-
-        let z_axis = Vector3::z();
-        UnitQuaternion::rotation_between(&z_axis, &average_normal)
-    }
+    }    
 
     fn average_plane_orientation_no_iso(
         &self,
@@ -695,7 +653,6 @@ impl Projector {
 
         (swing, twist)
     }
-    
 
     /// Sets the twist of a quaternion to a fixed angle (in radians) around a specified axis.
     fn twist_y(
@@ -722,55 +679,6 @@ impl Projector {
 
         // Combine the swing with the new twist
         swing * fixed_twist
-    }
-
-    fn compute_plane_isometry_averaging(
-        &self,
-        centroid: (ParryPoint<f32>, Vector3<f32>),
-        points: Vec<(ParryPoint<f32>, Vector3<f32>)>,
-        axis: Axis,
-    ) -> Option<Isometry3<f32>> {
-        if points.len() < self.check_points {
-            return None;
-        }
-        let from = points[0].0; // centroid.0;
-        let to = points[1].0;
-
-        let mut plane_normals = Vec::with_capacity(points.len());
-        for (_point, normal) in points {
-            plane_normals.push(normal);
-        }
-        let avg_normal = Self::compute_normal_sum_parallel(&plane_normals).normalize();
-        let quaternion;
-
-        if axis == Axis::Z {
-            // Vectors X and Y are unstable when using z as a reference axis.
-            let z_axis = Vector3::x();
-            if let Some(twisted) = UnitQuaternion::rotation_between(&z_axis, &avg_normal) {
-                // Rotate 270 degrees around Y to untwist
-                let decomposition = Projector::decompose_swing_twist(twisted, &z_axis);
-                quaternion = Some(Projector::twist_y(&decomposition, 3.0 * PI / 2.0));
-            } else {
-                quaternion = None;
-            }
-        } else if Axis::Y == axis {
-            let z_axis = Vector3::z();
-            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
-        } else if Axis::X == axis {
-            let z_axis = Vector3::z();
-            quaternion = UnitQuaternion::rotation_between(&z_axis, &avg_normal);
-        } else {
-            unreachable!()
-        }
-
-        if let Some(quaternion) = quaternion {
-            let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
-
-            // Combine the rotation with the translation (centroid) into an Isometry3
-            Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion))
-        } else {
-            None
-        }
     }
 
     pub fn XY_normalized_angle(normal: &Vector3<f32>) -> f32 {
@@ -848,78 +756,83 @@ impl Projector {
         let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
         let quaternion;
 
+        #[derive(Debug, Copy, Clone, PartialEq, Eq)]
         enum Strategy {
             X,
             Y,
             Z,
             OFF,
-            Z_SPEC,
+            ZSpec,
+            ZSpecTwistX,
         }
         // Determine the octant based on the angle and use the approach that is the most
         // robust there
         let angle = Self::XY_normalized_angle(&avg_normal);
-        let mut strategy;
-        let flip;
-        let mut align = true;
 
-        if axis == Axis::Z {
-            strategy = match angle {
-                -1.0..=45.0 => Strategy::X, // Y, Z possible
-                45.0..=90.0 => Strategy::Y,
-                90.0..=135.0 => Strategy::Y,
-                135.0..=180.0 => Strategy::Y,
-                180.0..=225.0 => Strategy::Z,
-                225.0..=270.0 => Strategy::Z,
-                270.0..=315.0 => Strategy::Z,
-                315.0..=361.0 => Strategy::X, // Z possible
-                _ => unreachable!(),          // The angle is always in the range [0, 360)
-            };
-            flip = false;
+        let (strategy, flip) = if axis == Axis::Z {
+            (
+                match angle {
+                    -1.0..=45.0 => Strategy::X, // Y, Z possible
+                    45.0..=90.0 => Strategy::Y,
+                    90.0..=135.0 => Strategy::Y,
+                    135.0..=180.0 => Strategy::Y,
+                    180.0..=225.0 => Strategy::Z,
+                    225.0..=270.0 => Strategy::Z,
+                    270.0..=315.0 => Strategy::Z,
+                    315.0..=361.0 => Strategy::X, // Z possible
+                    _ => unreachable!(),          // The angle is always in the range [0, 360)
+                },
+                false,
+            )
         } else if Axis::Y == axis {
-            flip = true;
-            strategy = match angle {
-                -1.0..=45.0 => Strategy::X,
-                45.0..=90.0 => Strategy::X,
+            (
+                match angle {
+                    -1.0..=45.0 => Strategy::X,
+                    45.0..=90.0 => Strategy::X,
 
-                // This case we need to differentiate also by XZ angle
-                90.0..=180.0 => match Self::XZ_normalized_angle(&avg_normal) {
-                    -1.0..=45.0 => Strategy::X,       // Unreachable?
-                    45.0..=90.0 => Strategy::X,       // Unreachable?
-                    90.0..=135.0 => Strategy::Z_SPEC, // Problematic
-                    135.0..=185.0 => Strategy::Z_SPEC, //Strategy::X, // THIS
-                    180.0..=225.0 => Strategy::X,
-                    225.0..=270.0 => Strategy::X,
+                    // This case we need to differentiate also by XZ angle
+                    90.0..=180.0 => match Self::XZ_normalized_angle(&avg_normal) {
+                        -1.0..=45.0 => Strategy::X,       // Unreachable?
+                        45.0..=90.0 => Strategy::X,       // Unreachable?
+                        90.0..=135.0 => Strategy::ZSpec,  // Problematic
+                        135.0..=185.0 => Strategy::ZSpec, //Strategy::X, // THIS
+                        180.0..=225.0 => Strategy::X,
+                        225.0..=270.0 => Strategy::X,
+                        270.0..=315.0 => Strategy::X,
+                        315.0..=361.0 => Strategy::X,
+                        _ => unreachable!(), // The angle is always in the range [0, 360)
+                    },
+
+                    180.0..=225.0 => Strategy::Z,
+
+                    225.0..=250.0 => Strategy::Z,
+                    250.0..=270.0 => Strategy::X,
+
                     270.0..=315.0 => Strategy::X,
                     315.0..=361.0 => Strategy::X,
+
                     _ => unreachable!(), // The angle is always in the range [0, 360)
                 },
-
-                180.0..=225.0 => Strategy::Z,
-
-                225.0..=250.0 => Strategy::Z,                
-                250.0..=270.0 => Strategy::X, 
-
-                270.0..=315.0 => Strategy::X,
-                315.0..=361.0 => Strategy::X,
-
-                _ => unreachable!(), // The angle is always in the range [0, 360)
-            };
+                true,
+            )
         } else if Axis::X == axis {
-            strategy = match angle {
-                -1.0..=45.0 => Strategy::Y,
-                45.0..=90.0 => Strategy::Y,
-                90.0..=135.0 => Strategy::Y,
-                135.0..=180.0 => Strategy::Y,
-                180.0..=225.0 => Strategy::X,
-                225.0..=270.0 => Strategy::X,
-                270.0..=315.0 => Strategy::Z,
-                315.0..=361.0 => Strategy::X,
-                _ => unreachable!(), // The angle is always in the range [0, 360)
-            };
-            flip = false;
+            (
+                match angle {
+                    -1.0..=45.0 => Strategy::Y,
+                    45.0..=90.0 => Strategy::Y,
+                    90.0..=135.0 => Strategy::Y,
+                    135.0..=180.0 => Strategy::Y,
+                    180.0..=225.0 => Strategy::X,
+                    225.0..=270.0 => Strategy::X,
+                    270.0..=315.0 => Strategy::Z,
+                    315.0..=361.0 => Strategy::ZSpecTwistX, // X and Y differently broken, X middle, Z and Y - negative Z zone
+                    _ => unreachable!(), // The angle is always in the range [0, 360)
+                },
+                false,
+            )
         } else {
             unreachable!()
-        }
+        };
 
         // https://www.onlogic.com/store/hx310/
         // https://www.onlogic.com/store/hx511/
@@ -947,10 +860,20 @@ impl Projector {
                     None
                 }
             }
-            Strategy::Z_SPEC => {
+            Strategy::ZSpec => {
                 let r_axis = Vector3::z();
                 if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
                     Some(twisted)
+                } else {
+                    None
+                }
+            }
+            Strategy::ZSpecTwistX => {
+                let r_axis = Vector3::z();
+                if let Some(twisted) = UnitQuaternion::rotation_between(&r_axis, &avg_normal) {
+                    let decomposition = Projector::decompose_swing_twist(twisted, &r_axis);
+                    let twist_by = PI;
+                    Some(Projector::twist_x(&decomposition, twist_by))
                 } else {
                     None
                 }
@@ -968,14 +891,6 @@ impl Projector {
             }
             Strategy::OFF => None,
         };
-
-        if !align {
-            if let Some(quaternion) = quaternion {
-                return Some(Isometry3::from_parts(centroid.0.coords.into(), quaternion));
-            } else {
-                return None;
-            }
-        }
 
         if let Some(quaternion) = quaternion {
             let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);

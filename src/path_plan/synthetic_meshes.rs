@@ -93,10 +93,10 @@ pub fn cylinder_mesh(
 
 pub fn sphere_mesh(radius: f32, resolution: usize) -> TriMesh {
     // Each point in the grid
-    let mut vertices = Vec::with_capacity(((resolution + 1) * (resolution + 1)));
+    let mut vertices = Vec::with_capacity((resolution + 1) * (resolution + 1));
 
     // 6 indices per quad (2 triangles)
-    let mut indices = Vec::with_capacity((resolution * resolution * 6));
+    let mut indices = Vec::with_capacity(resolution * resolution * 6);
 
     // Generate vertices using spherical coordinates
     for i in 0..=resolution {
