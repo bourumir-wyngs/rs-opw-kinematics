@@ -1,10 +1,10 @@
-use nalgebra::{Isometry3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3};
 use std::ops::Range;
 
 use crate::calipers::largest_fitting_rectangle;
 use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
 use parry3d::math::Point as ParryPoint;
-use parry3d::shape::{TriMesh};
+use parry3d::shape::TriMesh;
 
 use crate::projector::{Axis, Projector, RayDirection};
 
@@ -61,7 +61,6 @@ pub fn build_engraving_path_side_projected(
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
                 Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
                 Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
-                Axis::Cylinder => unreachable!()
             }
         })
         .collect();
@@ -69,22 +68,13 @@ pub fn build_engraving_path_side_projected(
     let projector = Projector {
         check_points: PROJECTOR_CHECK_POINTS,
         radius: PROJECTOR_RADIUS,
-        normals_inward: true,
     };
 
-    // Project transformed points onto the mesh
-    if true {
-        // Use our own implementation for Y axis (Parry fails on normal parallel to Y)
-        Ok(transformed_path
-            .iter()
-            .filter_map(|point| projector.project_no_iso(mesh, point, ray_direction, axis))
-            .collect())
-    } else {
-        Ok(transformed_path
-            .iter()
-            .filter_map(|point| projector.project(mesh, point, ray_direction, axis))
-            .collect())
-    }
+    // Use our own implementation for Y axis (Parry fails on normal parallel to Y)
+    Ok(transformed_path
+        .iter()
+        .filter_map(|point| projector.project_flat(mesh, point, ray_direction, axis))
+        .collect())
 }
 
 pub fn axis_aligned_bounding_rectangle(
@@ -103,7 +93,6 @@ pub fn axis_aligned_bounding_rectangle(
             Axis::X => GeoPoint::new(vertex.y * scale, vertex.z * scale), // YZ plane
             Axis::Y => GeoPoint::new(vertex.x * scale, vertex.z * scale), // XZ plane
             Axis::Z => GeoPoint::new(vertex.x * scale, vertex.y * scale), // XY plane
-            Axis::Cylinder => panic!("Not implemented"),
         })
         .collect();
 
@@ -191,7 +180,7 @@ pub fn project_from_cylinder_to_mesh(
         .map(|(x, y)| {
             // The direction here is selected so that the image would not be mirrored when
             // projected
-            let theta = (x - path_min_x) * scale_x; 
+            let theta = (x - path_min_x) * scale_x;
             let z = (y - path_min_y) * scale_y + height.start;
             let x = theta;
 
@@ -202,16 +191,16 @@ pub fn project_from_cylinder_to_mesh(
     // Step 3: Create a projector for projecting transformed path points
     let projector = Projector {
         check_points: 24,     // Defined number of normals to check
-        normals_inward: true, // Force normals to point inward
         radius: 0.02,         // Radius, defined as PROJECTOR_RADIUS
     };
 
     // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
     let isometries: Vec<Isometry3<f32>> = transformed_path
         .iter()
-        .filter_map(|point|
-            projector.project_cylindric_with_axis(&mesh, point, projection_radius, axis))
-            //projector.project_cylindric_Z(&mesh, point, projection_radius, RayDirection::FromNegative))
+        .filter_map(|point| {
+            projector.project_cylindric(&mesh, point, projection_radius, axis)
+        })
+        //projector.project_cylindric_Z(&mesh, point, projection_radius, RayDirection::FromNegative))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

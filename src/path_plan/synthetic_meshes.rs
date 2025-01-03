@@ -31,7 +31,6 @@ pub fn cylinder_mesh(
             Axis::X => Point3::new(-h2, radius * cos, radius * sin),
             Axis::Y => Point3::new(radius * cos, -h2, radius * sin),
             Axis::Z => Point3::new(radius * cos, radius * sin, -h2),
-            Axis::Cylinder => unreachable!(),
         };
         vertices.push(base_vertex);
 
@@ -40,7 +39,6 @@ pub fn cylinder_mesh(
             Axis::X => Point3::new(h2, radius * cos, radius * sin),
             Axis::Y => Point3::new(radius * cos, h2, radius * sin),
             Axis::Z => Point3::new(radius * cos, radius * sin, h2),
-            Axis::Cylinder => unreachable!(),
         };
         vertices.push(top_vertex);
     }
@@ -68,13 +66,11 @@ pub fn cylinder_mesh(
         Axis::X => Point3::new(-h2, 0.0, 0.0),
         Axis::Y => Point3::new(0.0, -h2, 0.0),
         Axis::Z => Point3::new(0.0, 0.0, -h2),
-        Axis::Cylinder => unreachable!(),
     });
     vertices.push(match axis {
         Axis::X => Point3::new(h2, 0.0, 0.0),
         Axis::Y => Point3::new(0.0, h2, 0.0),
         Axis::Z => Point3::new(0.0, 0.0, h2),
-        Axis::Cylinder => unreachable!(),
     });
 
     for i in 0..segments as u32 {

@@ -19,7 +19,6 @@
 use kdtree::distance::squared_euclidean;
 use num_traits::float::Float;
 use num_traits::identities::Zero;
-use rand::distributions::{Distribution, Uniform};
 use std::fmt::Debug;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -189,59 +188,3 @@ where
     Err("failed".to_string())
 }
 
-/// select random two points, and try to connect.
-pub fn smooth_path<FF, N>(
-    path: &mut Vec<Vec<N>>,
-    mut is_free: FF,
-    extend_length: N,
-    num_max_try: usize,
-    stop: &AtomicBool,
-) where
-    FF: FnMut(&[N]) -> bool,
-    N: Float + Debug,
-{
-    if path.len() < 3 {
-        return;
-    }
-    let mut rng = rand::thread_rng();
-    for _ in 0..num_max_try {
-        if stop.load(Ordering::Relaxed) {
-            break
-        }
-        let range1 = Uniform::new(0, path.len() - 2);
-        let ind1 = range1.sample(&mut rng);
-        let range2 = Uniform::new(ind1 + 2, path.len());
-        let ind2 = range2.sample(&mut rng);
-        let mut base_point = path[ind1].clone();
-        let point2 = path[ind2].clone();
-        let mut is_searching = true;
-        while is_searching {
-            let diff_dist = squared_euclidean(&base_point, &point2).sqrt();
-            if diff_dist < extend_length {
-                // reached!
-                // remove path[ind1+1] ... path[ind2-1]
-                let remove_index = ind1 + 1;
-                for _ in 0..(ind2 - ind1 - 1) {
-                    path.remove(remove_index);
-                }
-                if path.len() == 2 {
-                    return;
-                }
-                is_searching = false;
-            } else {
-                let check_point = base_point
-                    .iter()
-                    .zip(point2.iter())
-                    .map(|(near, target)| *near + (*target - *near) * extend_length / diff_dist)
-                    .collect::<Vec<_>>();
-                if !is_free(&check_point) {
-                    // trapped
-                    is_searching = false;
-                } else {
-                    // continue to extend
-                    base_point = check_point;
-                }
-            }
-        }
-    }
-}

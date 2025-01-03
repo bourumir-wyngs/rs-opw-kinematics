@@ -1,6 +1,6 @@
 use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
-use rs_opw_kinematics::synthetic_meshes::{cylinder_mesh, sphere_mesh};
+use rs_opw_kinematics::synthetic_meshes::{sphere_mesh};
 use rs_opw_kinematics::engraving::{
     project_from_cylinder_to_mesh, build_engraving_path_side_projected,
 };
@@ -154,7 +154,7 @@ fn write_isometries_to_json(
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
     // let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::Y;
+    let axis = Axis::X;
 
     //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
     let t_mesh = Instant::now();
@@ -164,7 +164,8 @@ fn main() -> Result<(), String> {
     //let path = generate_square_points(200);
     let el_mesh = t_mesh.elapsed();
     let t_path = Instant::now();
-    let path = generate_raster_points(40, 200);
+    //let path = generate_raster_points(40, 200); // Cyliner
+    let path = generate_raster_points(20, 20); // Axis
     let el_path = t_path.elapsed();
     // Goblet
     /*
@@ -181,6 +182,7 @@ fn main() -> Result<(), String> {
      
 
     // Raster
+    /*
     let t_ep = Instant::now();
     let engraving = project_from_cylinder_to_mesh(
         &mesh,
@@ -193,10 +195,14 @@ fn main() -> Result<(), String> {
     let el_ep = t_ep.elapsed();
     
     println!("Mesh {:?}, path {:?}, engraving {:?}", el_mesh, el_path, el_ep);
+
+     */
     
 
     // Z normals opposite
-    //let engraving = build_engraving_path_side_projected(&mesh, &path, Axis::Z, RayDirection::FromNegative)?; 
+    let axis = Axis::Y; // Z roof broken FromPositive
+    let direction = RayDirection::FromNegative;
+    let engraving = build_engraving_path_side_projected(&mesh, &path, axis, direction)?;
 
     // pose rotation observed
     //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
@@ -266,7 +272,8 @@ fn main() -> Result<(), String> {
     //return Ok(());
 
     if let Err(e) = write_isometries_to_json(
-        &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
+        //&format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
+        &format!("src/tests/data/projector/dir_on_sphere_{:?}_{:?}.json", axis, direction),
         engraving,
     ) {
         return Err(e);

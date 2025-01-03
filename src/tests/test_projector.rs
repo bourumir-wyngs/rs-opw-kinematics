@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::engraving::project_from_cylinder_to_mesh;
+    use crate::engraving::{build_engraving_path_side_projected, project_from_cylinder_to_mesh};
     use crate::projector::{Axis, RayDirection};
     use crate::synthetic_meshes::sphere_mesh;
     use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
@@ -92,55 +92,7 @@ mod tests {
         points
     }
 
-    /// Project rectanglar mesh rolled into cylinder, on the surface of sphere.
-    fn cyl_on_sphere(axis: Axis) -> Result<(), String> {
-        fn isometry_approx_eq(a: &Isometry3<f32>, b: &Isometry3<f32>, tolerance: f32) -> bool {
-            // Compare translation components
-            let translation_eq = (a.translation.vector - b.translation.vector).norm() <= tolerance;
-
-            // Compare rotation components
-            let relative_rotation = a.rotation.inverse() * b.rotation; // Relative rotation: `b` relative to `a`
-            let angle_difference = relative_rotation.angle(); // Angular difference in radians
-            let rotation_eq = angle_difference <= tolerance;
-
-            translation_eq && rotation_eq
-        }
-
-        static SPHERE_MESH: Lazy<Arc<TriMesh>> = Lazy::new(|| {
-            let t_start = Instant::now();
-            let mesh = sphere_mesh(0.5, 256);
-            println!("Sphere mesh built in {:?}", t_start.elapsed());
-            Arc::new(mesh) // Store inside an Arc for thread-safe reuse
-        });
-        
-        let path = format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis);
-        let projections = read_isometries_from_file(&path).expect("Cannot read test data");
-
-        //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
-        let t_mesh = Instant::now();
-        let mesh = &SPHERE_MESH;
-
-        let el_mesh = t_mesh.elapsed();
-        let t_path = Instant::now();
-        let path = generate_raster_points(40, 200);
-        let el_path = t_path.elapsed();
-
-        let t_ep = Instant::now();
-        let engraving = project_from_cylinder_to_mesh(
-            &mesh,
-            &path,
-            1.0,
-            -1.5..1.5,
-            0. ..2.0 * PI,
-            axis,
-        )?;
-        let el_ep = t_ep.elapsed();
-
-        println!(
-            "Cylinder, axis {:?}, on sphere: path {:?}, engraving {:?}",
-            axis, el_path, el_ep
-        );
-
+    fn assert_path(projections: Vec<Isometry3<f32>>, engraving: Vec<Isometry3<f32>>) {
         // Assert that the lengths of `projections` and `engraving` are the same
         assert_eq!(
             projections.len(),
@@ -157,10 +109,62 @@ mod tests {
                 proj,
                 engr
             );
-        }        
+        }
+    }    
+
+    fn isometry_approx_eq(a: &Isometry3<f32>, b: &Isometry3<f32>, tolerance: f32) -> bool {
+        // Compare translation components
+        let translation_eq = (a.translation.vector - b.translation.vector).norm() <= tolerance;
+
+        // Compare rotation components
+        let relative_rotation = a.rotation.inverse() * b.rotation; // Relative rotation: `b` relative to `a`
+        let angle_difference = relative_rotation.angle(); // Angular difference in radians
+        let rotation_eq = angle_difference <= tolerance;
+
+        translation_eq && rotation_eq
+    }
+
+    static SPHERE_MESH: Lazy<Arc<TriMesh>> = Lazy::new(|| {
+        let t_start = Instant::now();
+        let mesh = sphere_mesh(0.5, 256);
+        println!("Sphere mesh built in {:?}", t_start.elapsed());
+        Arc::new(mesh) // Store inside an Arc for thread-safe reuse
+    });
+
+
+    /// Project rectanglar mesh rolled into cylinder, on the surface of sphere.
+    fn cyl_on_sphere(axis: Axis) -> Result<(), String> {
+        let json_path = format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis);
+        let projections = read_isometries_from_file(&json_path).expect("Cannot read test data");
+        let path = generate_raster_points(40, 200);
+
+        let t_ep = Instant::now();
+        let engraving = project_from_cylinder_to_mesh(
+            &(&SPHERE_MESH),
+            &path,
+            1.0,
+            -1.5..1.5,
+            0. ..2.0 * PI,
+            axis,
+        )?;
         
+        println!(
+            "Cylinder, axis {:?}, on sphere: engraving {:?}",
+            axis, t_ep.elapsed()
+        );
+
+        assert_path(projections, engraving);
         Ok(())
     }
+
+    fn dir_on_sphere(axis: Axis, direction: RayDirection) -> Result<(), String> {
+        let json_path = format!("src/tests/data/projector/dir_on_sphere_{:?}_{:?}.json", axis, direction);
+        let projections = read_isometries_from_file(&json_path).expect("Cannot read test data");
+        let path = generate_raster_points(20, 20);
+        let engraving = build_engraving_path_side_projected(&SPHERE_MESH, &path, axis, direction)?;
+        assert_path(projections, engraving);        
+        Ok(())
+    }    
 
     #[test]
     fn test_cyl_on_sphere_x() -> Result<(), String> {
@@ -179,4 +183,42 @@ mod tests {
         cyl_on_sphere(Axis::Z)?;
         Ok(())
     }
+
+    #[test]
+    fn test_dir_on_sphere_x_pos() -> Result<(), String> {
+        dir_on_sphere(Axis::X, RayDirection::FromPositive)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_on_sphere_y_pos() -> Result<(), String> {
+        dir_on_sphere(Axis::Y, RayDirection::FromPositive)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_on_sphere_z_pos() -> Result<(), String> {
+        dir_on_sphere(Axis::Z, RayDirection::FromPositive)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_on_sphere_x_neg() -> Result<(), String> {
+        dir_on_sphere(Axis::X, RayDirection::FromNegative)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_on_sphere_y_neg() -> Result<(), String> {
+        dir_on_sphere(Axis::Y, RayDirection::FromNegative)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_on_sphere_z_neg() -> Result<(), String> {
+        dir_on_sphere(Axis::Z, RayDirection::FromNegative)?;
+        Ok(())
+    }
+
+
 }
