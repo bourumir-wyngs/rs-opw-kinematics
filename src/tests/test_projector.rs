@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::engraving::{build_engraving_path_side_projected, project_from_cylinder_to_mesh};
+    use crate::engraving::{build_engraving_path_side_projected, generate_raster_points, project_from_cylinder_to_mesh};
     use crate::projector::{Axis, RayDirection};
     use crate::synthetic_meshes::sphere_mesh;
     use nalgebra::{Quaternion, Translation3, UnitQuaternion};
@@ -12,7 +12,7 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
     use std::time::Instant;
-    use crate::annotations::AnnotatedPose;
+    use crate::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 
     fn read_isometries_from_file(file_path: &str) -> Result<Vec<AnnotatedPose>, String> {
         let mut file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
@@ -75,22 +75,6 @@ mod tests {
         }
 
         Ok(isometries)
-    }
-
-    fn generate_raster_points(r: usize, n: usize) -> Vec<(f32, f32)> {
-        let mut points = Vec::with_capacity(r * n);
-        let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
-        let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a line
-
-        for i in 0..r {
-            let y = -1.0 + i as f32 * y_step; // Calculate the y-coordinate for the row
-            for j in 0..n {
-                let x = -1.0 + j as f32 * x_step; // Calculate the x-coordinate for each point in the row
-                points.push((x, y)); // Add the point to the list
-            }
-        }
-
-        points
     }
 
     fn assert_path(projections: Vec<AnnotatedPose>, engraving: Vec<AnnotatedPose>) {

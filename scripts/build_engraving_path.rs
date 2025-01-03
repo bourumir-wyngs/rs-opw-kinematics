@@ -1,10 +1,11 @@
 use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
-use rs_opw_kinematics::synthetic_meshes::{sphere_mesh};
+use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use rs_opw_kinematics::engraving::{
-    project_from_cylinder_to_mesh, build_engraving_path_side_projected,
+    build_engraving_path_side_projected, generate_raster_points, project_from_cylinder_to_mesh,
 };
 use rs_opw_kinematics::projector::{Axis, RayDirection};
+use rs_opw_kinematics::synthetic_meshes::sphere_mesh;
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -106,31 +107,15 @@ fn generate_square_points(n: usize) -> Vec<(f32, f32)> {
     points
 }
 
-fn generate_raster_points(r: usize, n: usize) -> Vec<(f32, f32)> {
-    let mut points = Vec::with_capacity(r*n);
-    let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
-    let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a line
-
-    for i in 0..r {
-        let y = -1.0 + i as f32 * y_step; // Calculate the y-coordinate for the row
-        for j in 0..n {
-            let x = -1.0 + j as f32 * x_step; // Calculate the x-coordinate for each point in the row
-            points.push((x, y)); // Add the point to the list
-        }
-    }
-
-    points
-}
-
 fn write_isometries_to_json(
     file_path: &str,
-    isometries: Vec<Isometry3<f32>>,
+    isometries: &Vec<AnnotatedPose>,
 ) -> Result<(), String> {
     let mut json_output = String::from("[");
 
     for (i, iso) in isometries.iter().enumerate() {
-        let translation = iso.translation;
-        let rotation = iso.rotation;
+        let translation = iso.pose.translation;
+        let rotation = iso.pose.rotation;
 
         json_output.push_str(&format!(
             "{{\"position\":{{\"x\":{},\"y\":{},\"z\":{}}},\"rotation\":{{\"x\":{},\"y\":{},\"z\":{},\"w\":{}}}}}\n",
@@ -151,20 +136,97 @@ fn write_isometries_to_json(
     Ok(())
 }
 
+fn filter_valid_poses(poses: &Vec<AnnotatedPose>) -> Vec<Isometry3<f64>> {
+    poses
+        .iter()
+        .filter(|pose| {
+            // Extract translation and rotation components
+            let translation = pose.pose.translation.vector;
+            let rotation = pose.pose.rotation;
+
+            // Check for NaN values in translation and rotation
+            if translation.x.is_nan()
+                || translation.y.is_nan()
+                || translation.z.is_nan()
+                || rotation.i.is_nan()
+                || rotation.j.is_nan()
+                || rotation.k.is_nan()
+                || rotation.w.is_nan()
+            {
+                return false; // NaN values -> invalid
+            }
+
+            // Check for zero-length quaternion
+            let quaternion_magnitude =
+                (rotation.i.powi(2) + rotation.j.powi(2) + rotation.k.powi(2) + rotation.w.powi(2))
+                    .sqrt();
+            if quaternion_magnitude < 1e-6 {
+                // Threshold to consider near zero-length
+                return false; // Zero-length quaternion -> invalid
+            }
+
+            // Pose passes all checks -> valid
+            true
+        })
+        .map(|pose| pose.pose)
+        .collect()
+}
+
+fn generate_flat_projections() -> Result<(), String> {
+    let sender = Sender::new("127.0.0.1", 5555);
+
+    let mesh = sphere_mesh(0.5, 256);
+    let path = generate_raster_points(20, 20);
+    let mut shape = Vec::new();
+
+    for axis in [Axis::X, Axis::Y, Axis::Z] {
+        for direction in [RayDirection::FromPositive, RayDirection::FromNegative] {
+            let engraving = build_engraving_path_side_projected(&mesh, &path, axis, direction)?;
+            println!(
+                "Engraving length of {} for the path of length {}",
+                engraving.len(),
+                path.len()
+            );
+            //send_message(&sender, &engraving)?;
+            if false {
+                write_isometries_to_json(
+                    &format!(
+                        "src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json",
+                        axis, direction
+                    ),
+                    &engraving,
+                )?;
+            };
+            shape.extend(engraving);
+        }
+    }
+    send_message(&sender, &shape)?;
+    Ok(())
+}
+
+fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), String> {
+    match sender.send_pose_message(&filter_valid_poses(&engraving)) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 fn main() -> Result<(), String> {
+    generate_flat_projections()?;
+    return Ok(());
     // Load the mesh from a PLY file
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
 
     //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
     let t_mesh = Instant::now();
     let mesh = sphere_mesh(0.5, 256);
-
     //let path = generate_R_waypoints(1.0, 0.01);
     //let path = generate_square_points(200);
+
     let el_mesh = t_mesh.elapsed();
     let t_path = Instant::now();
-    //let path = generate_raster_points(40, 200); // Cyliner
-    let path = generate_raster_points(20, 20); // Axis
+    let path = generate_raster_points(40, 200); // Cylinder
+                                                //let path = generate_raster_points(20, 20); // Axis
     let el_path = t_path.elapsed();
     // Goblet
     /*
@@ -178,89 +240,23 @@ fn main() -> Result<(), String> {
         RayDirection::FromPositive,
     )?;
     */
-     
 
     // Raster
-    // Z normals opposite
-    let axis = Axis::Y; // Z roof broken FromPositive
-    let direction = RayDirection::FromNegative;
+    let axis = Axis::Z;
 
     let t_ep = Instant::now();
-    /*
-    let engraving = project_from_cylinder_to_mesh(
-        &mesh,
-        &path,
-        1.0,
-        -1.5 ..1.5,
-        0. ..2.0 * PI,
-        axis,
-    )?;
+    let engraving =
+        project_from_cylinder_to_mesh(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
     let el_ep = t_ep.elapsed();
-    
-    println!("Mesh {:?}, path {:?}, engraving {:?}", el_mesh, el_path, el_ep);
-    */
-
-    
-
-    let engraving = build_engraving_path_side_projected(&mesh, &path, axis, direction)?;
-
-    // pose rotation observed
-    //let engraving = build_engraving_path(&mesh, &path, Axis::X, RayDirection::FromNegative)?; // works
-
-    // Works
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromPositive)?;
-
-    // Works
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
-
-    // Works, shape is not extracted
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromNegative)?;
-
-    // Works, shape is not extracted
-    //let engraving = build_engraving_path(&mesh, &path, Axis::Z, RayDirection::FromPositive)?;
 
     println!(
-        "Engraving length of {} for the path of length {}",
-        engraving.len(),
-        path.len()
+        "Mesh {:?}, path {:?}, engraving {:?}",
+        el_mesh, el_path, el_ep
     );
 
     let sender = Sender::new("127.0.0.1", 5555);
 
-    // Handle the result of `send_pose_message`
-    fn filter_valid_poses(poses: &Vec<Isometry3<f32>>) -> Vec<Isometry3<f32>> {
-        poses
-            .iter()
-            .filter(|pose| {
-                // Extract translation and rotation components
-                let translation = pose.translation.vector;
-                let rotation = pose.rotation;
-
-                // Check for NaN values in translation and rotation
-                if translation.x.is_nan() || translation.y.is_nan() || translation.z.is_nan() ||
-                    rotation.i.is_nan() || rotation.j.is_nan() || rotation.k.is_nan() || rotation.w.is_nan() {
-                    return false; // NaN values -> invalid
-                }
-
-                // Check for zero-length quaternion
-                let quaternion_magnitude = (rotation.i.powi(2)
-                    + rotation.j.powi(2)
-                    + rotation.k.powi(2)
-                    + rotation.w.powi(2))
-                    .sqrt();
-                if quaternion_magnitude < 1e-6 { // Threshold to consider near zero-length
-                    return false; // Zero-length quaternion -> invalid
-                }
-
-                // Pose passes all checks -> valid
-                true
-            })
-            .cloned()
-            .collect()
-    }    
-    
-    
-    match sender.send_pose_message32(&filter_valid_poses(&engraving)) {
+    match sender.send_pose_message(&filter_valid_poses(&engraving)) {
         Ok(_) => {
             println!("Pose message sent successfully.");
         }
@@ -271,13 +267,8 @@ fn main() -> Result<(), String> {
 
     //return Ok(());
 
-    if let Err(e) = write_isometries_to_json(
-        //&format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
-        &format!("src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json", axis, direction),
-        engraving,
-    ) {
-        return Err(e);
-    }
-
-    Ok(())
+    write_isometries_to_json(
+        &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
+        &engraving,
+    )
 }

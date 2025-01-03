@@ -4,17 +4,49 @@ use crate::calipers::largest_fitting_rectangle;
 use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
 use parry3d::math::Point as ParryPoint;
 use parry3d::shape::TriMesh;
-use crate::annotations::AnnotatedPose;
+use crate::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use crate::projector::{Axis, Projector, RayDirection};
 
 const MARGIN: f32 = 0.04;
 const PROJECTOR_CHECK_POINTS: usize = 16;
 const PROJECTOR_RADIUS: f32 = 0.02;
 
+pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
+    let mut points = Vec::with_capacity(r * n);
+    let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
+    let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a row
+
+    for i in 0..r {
+        let y = -1.0 + i as f32 * y_step; // Calculate the y-coordinate for the row
+
+        // Conditional to alternate row directions
+        if i % 2 == 0 {
+            // Even row: left-to-right
+            for j in 0..n {
+                let x = -1.0 + j as f32 * x_step;
+                points.push(AnnotatedPathStep {
+                    point: (x, y),
+                    flags: PathFlags::FORWARDS,
+                });
+            }
+        } else {
+            // Odd row: right-to-left
+            for j in (0..n).rev() {
+                let x = -1.0 + j as f32 * x_step;
+                points.push(AnnotatedPathStep {
+                    point: (x, y),
+                    flags: PathFlags::BACKWARDS,
+                });
+            }
+        }
+    }
+    points
+}
+
 /// Build a series of poses for "engraving" over the mesh.
 pub fn build_engraving_path_side_projected(
     mesh: &TriMesh,
-    path: &Vec<(f32, f32)>,
+    path: &Vec<AnnotatedPathStep>,
     axis: Axis,
     ray_direction: RayDirection,
 ) -> Result<Vec<AnnotatedPose>, String> {
@@ -31,17 +63,25 @@ pub fn build_engraving_path_side_projected(
     let rect_height = top_right.y() - bottom_left.y();
 
     // Calculate dimensions of the path
-    let path_min_x = path.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+    let path_min_x = path
+        .iter()
+        .map(|step| step.point.0)  // Access point and its x coordinate
+        .fold(f32::INFINITY, f32::min);
     let path_max_x = path
         .iter()
-        .map(|(x, _)| *x)
-        .fold(f32::NEG_INFINITY, f32::max);
-    let path_min_y = path.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
-    let path_max_y = path
-        .iter()
-        .map(|(_, y)| *y)
+        .map(|step| step.point.0)  // Access point and its x coordinate
         .fold(f32::NEG_INFINITY, f32::max);
 
+    let path_min_y = path
+        .iter()
+        .map(|step| step.point.1)  // Access point and its y coordinate
+        .fold(f32::INFINITY, f32::min);
+    let path_max_y = path
+        .iter()
+        .map(|step| step.point.1)  // Access point and its y coordinate
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    // Compute path width and height
     let path_width = path_max_x - path_min_x;
     let path_height = path_max_y - path_min_y;
 
@@ -52,9 +92,10 @@ pub fn build_engraving_path_side_projected(
     // Transform the path to fit into the bounding rectangle based on the axis
     let transformed_path: Vec<ParryPoint<f32>> = path
         .iter()
-        .map(|(x, y)| {
-            let x_2d = (x - path_min_x) * scale_x + bottom_left.x() + MARGIN;
-            let y_2d = (y - path_min_y) * scale_y + bottom_left.y() + MARGIN;
+        .map(|step| {
+            let x_2d = (step.point.0 - path_min_x) * scale_x + bottom_left.x() + MARGIN;
+            let y_2d = (step.point.1 - path_min_y) * scale_y + bottom_left.y() + MARGIN;
+
             // Place in 3D space
             match axis {
                 Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
@@ -106,13 +147,16 @@ pub fn axis_aligned_bounding_rectangle(
     Ok((lff.0 / scale, lff.1 / scale))
 }
 
-fn find_min_max(path: &Vec<(f32, f32)>) -> ((f32, f32), (f32, f32)) {
+fn find_min_max(path: &Vec<AnnotatedPathStep>) -> ((f32, f32), (f32, f32)) {
     // Initialize min and max values to INFINITY and NEG_INFINITY.
     let (mut path_min_x, mut path_max_x) = (f32::INFINITY, f32::NEG_INFINITY);
     let (mut path_min_y, mut path_max_y) = (f32::INFINITY, f32::NEG_INFINITY);
 
     // Iterate over all points in the path to determine min and max values for x and y.
-    for &(x, y) in path {
+    for step in path {
+        let x = step.point.0; // Access the x coordinate
+        let y = step.point.1; // Access the y coordinate
+
         if x < path_min_x {
             path_min_x = x;
         }
@@ -133,9 +177,9 @@ fn find_min_max(path: &Vec<(f32, f32)>) -> ((f32, f32), (f32, f32)) {
 
 pub fn project_from_cylinder_to_mesh(
     mesh: &TriMesh,
-    path: &Vec<(f32, f32)>,
+    path: &Vec<AnnotatedPathStep>,
     projection_radius: f32,
-    height: std::ops::Range<f32>,
+    height: Range<f32>,
     angle: Range<f32>,
     axis: Axis,
 ) -> Result<Vec<AnnotatedPose>, String> {
@@ -176,14 +220,15 @@ pub fn project_from_cylinder_to_mesh(
     // Transform the path into cylindrical coordinates
     let transformed_path: Vec<GeoPoint<f32>> = path
         .iter()
-        .map(|(x, y)| {
-            // The direction here is selected so that the image would not be mirrored when
-            // projected
+        .map(|step| {
+            let x = step.point.0; // Access the x coordinate
+            let y = step.point.1; // Access the y coordinate
+
+            // The direction here is selected so that the image would not be mirrored when projected
             let theta = (x - path_min_x) * scale_x;
             let z = (y - path_min_y) * scale_y + height.start;
-            let x = theta;
 
-            GeoPoint::new(x, z)
+            GeoPoint::new(theta, z)
         })
         .collect();
 

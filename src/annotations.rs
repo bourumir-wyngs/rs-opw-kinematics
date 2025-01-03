@@ -76,6 +76,12 @@ pub struct AnnotatedJoints {
     pub flags: PathFlags,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct AnnotatedPathStep {
+    pub point: (f32, f32),
+    pub flags: PathFlags,
+}
+
 impl AnnotatedPose {
     pub(crate) fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
