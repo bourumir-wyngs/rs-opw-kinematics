@@ -158,7 +158,7 @@ mod tests {
     }
 
     fn dir_on_sphere(axis: Axis, direction: RayDirection) -> Result<(), String> {
-        let json_path = format!("src/tests/data/projector/dir_on_sphere_{:?}_{:?}.json", axis, direction);
+        let json_path = format!("src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json", axis, direction);
         let projections = read_isometries_from_file(&json_path).expect("Cannot read test data");
         let path = generate_raster_points(20, 20);
         let engraving = build_engraving_path_side_projected(&SPHERE_MESH, &path, axis, direction)?;

@@ -153,8 +153,7 @@ fn write_isometries_to_json(
 
 fn main() -> Result<(), String> {
     // Load the mesh from a PLY file
-    // let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-    let axis = Axis::X;
+    //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
 
     //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
     let t_mesh = Instant::now();
@@ -182,8 +181,12 @@ fn main() -> Result<(), String> {
      
 
     // Raster
-    /*
+    // Z normals opposite
+    let axis = Axis::Y; // Z roof broken FromPositive
+    let direction = RayDirection::FromNegative;
+
     let t_ep = Instant::now();
+    /*
     let engraving = project_from_cylinder_to_mesh(
         &mesh,
         &path,
@@ -195,13 +198,10 @@ fn main() -> Result<(), String> {
     let el_ep = t_ep.elapsed();
     
     println!("Mesh {:?}, path {:?}, engraving {:?}", el_mesh, el_path, el_ep);
+    */
 
-     */
     
 
-    // Z normals opposite
-    let axis = Axis::Y; // Z roof broken FromPositive
-    let direction = RayDirection::FromNegative;
     let engraving = build_engraving_path_side_projected(&mesh, &path, axis, direction)?;
 
     // pose rotation observed
@@ -273,7 +273,7 @@ fn main() -> Result<(), String> {
 
     if let Err(e) = write_isometries_to_json(
         //&format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
-        &format!("src/tests/data/projector/dir_on_sphere_{:?}_{:?}.json", axis, direction),
+        &format!("src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json", axis, direction),
         engraving,
     ) {
         return Err(e);
