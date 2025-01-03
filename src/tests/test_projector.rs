@@ -3,7 +3,7 @@ mod tests {
     use crate::engraving::{build_engraving_path_side_projected, project_from_cylinder_to_mesh};
     use crate::projector::{Axis, RayDirection};
     use crate::synthetic_meshes::sphere_mesh;
-    use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
+    use nalgebra::{Quaternion, Translation3, UnitQuaternion};
     use once_cell::sync::Lazy;
     use parry3d::shape::TriMesh;
     use serde_json::Value;
@@ -12,8 +12,9 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
     use std::time::Instant;
-    
-    fn read_isometries_from_file(file_path: &str) -> Result<Vec<Isometry3<f32>>, String> {
+    use crate::annotations::AnnotatedPose;
+
+    fn read_isometries_from_file(file_path: &str) -> Result<Vec<AnnotatedPose>, String> {
         let mut file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
         let mut content = String::new();
         file.read_to_string(&mut content)
@@ -69,7 +70,7 @@ mod tests {
 
             // Combine into an Isometry3
             let isometry =
-                Isometry3::from_parts(translation, UnitQuaternion::from_quaternion(quaternion));
+                AnnotatedPose::from_parts(translation, UnitQuaternion::from_quaternion(quaternion));
             isometries.push(isometry);
         }
 
@@ -92,7 +93,7 @@ mod tests {
         points
     }
 
-    fn assert_path(projections: Vec<Isometry3<f32>>, engraving: Vec<Isometry3<f32>>) {
+    fn assert_path(projections: Vec<AnnotatedPose>, engraving: Vec<AnnotatedPose>) {
         // Assert that the lengths of `projections` and `engraving` are the same
         assert_eq!(
             projections.len(),
@@ -112,12 +113,12 @@ mod tests {
         }
     }    
 
-    fn isometry_approx_eq(a: &Isometry3<f32>, b: &Isometry3<f32>, tolerance: f32) -> bool {
+    fn isometry_approx_eq(a: &AnnotatedPose, b: &AnnotatedPose, tolerance: f64) -> bool {
         // Compare translation components
-        let translation_eq = (a.translation.vector - b.translation.vector).norm() <= tolerance;
+        let translation_eq = (a.pose.translation.vector - b.pose.translation.vector).norm() <= tolerance;
 
         // Compare rotation components
-        let relative_rotation = a.rotation.inverse() * b.rotation; // Relative rotation: `b` relative to `a`
+        let relative_rotation = a.pose.rotation.inverse() * b.pose.rotation; // Relative rotation: `b` relative to `a`
         let angle_difference = relative_rotation.angle(); // Angular difference in radians
         let rotation_eq = angle_difference <= tolerance;
 

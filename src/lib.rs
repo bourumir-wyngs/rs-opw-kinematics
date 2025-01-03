@@ -124,6 +124,9 @@ mod tests;
 #[path = "path_plan/synthetic_meshes.rs"]
 pub mod synthetic_meshes;
 
+#[cfg(feature = "stroke_planning")]
+pub mod annotations;
+
 
 
 

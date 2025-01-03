@@ -1,11 +1,10 @@
-use nalgebra::{Isometry3};
 use std::ops::Range;
 
 use crate::calipers::largest_fitting_rectangle;
 use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
 use parry3d::math::Point as ParryPoint;
 use parry3d::shape::TriMesh;
-
+use crate::annotations::AnnotatedPose;
 use crate::projector::{Axis, Projector, RayDirection};
 
 const MARGIN: f32 = 0.04;
@@ -18,7 +17,7 @@ pub fn build_engraving_path_side_projected(
     path: &Vec<(f32, f32)>,
     axis: Axis,
     ray_direction: RayDirection,
-) -> Result<Vec<Isometry3<f32>>, String> {
+) -> Result<Vec<AnnotatedPose>, String> {
     // Determine a suitable rectangle where we could engrave on the mesh.
     let (bottom_left, top_right) = axis_aligned_bounding_rectangle(mesh, axis)?;
 
@@ -139,7 +138,7 @@ pub fn project_from_cylinder_to_mesh(
     height: std::ops::Range<f32>,
     angle: Range<f32>,
     axis: Axis,
-) -> Result<Vec<Isometry3<f32>>, String> {
+) -> Result<Vec<AnnotatedPose>, String> {
     use std::f32::consts::PI;
     // Validate inputs using range methods.
     if height.start >= height.end {
@@ -195,12 +194,11 @@ pub fn project_from_cylinder_to_mesh(
     };
 
     // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
-    let isometries: Vec<Isometry3<f32>> = transformed_path
+    let isometries: Vec<AnnotatedPose> = transformed_path
         .iter()
         .filter_map(|point| {
             projector.project_cylindric(&mesh, point, projection_radius, axis)
         })
-        //projector.project_cylindric_Z(&mesh, point, projection_radius, RayDirection::FromNegative))
         .collect();
 
     // Step 5: Ensure the result contains valid projections

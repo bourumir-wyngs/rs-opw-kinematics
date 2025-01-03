@@ -3,6 +3,7 @@ use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
+use crate::annotations::AnnotatedPose;
 
 pub struct Projector {
     pub check_points: usize,
@@ -90,7 +91,7 @@ impl Axis {
 impl Projector {
     /// Project without using Parry isometries
     /// (parry has problems for normals close to Y axis)
-    pub fn project_point_flat(
+    pub(crate) fn project_point_flat(
         mesh: &TriMesh,
         point: &ParryPoint<f32>,
         direction: RayDirection,
@@ -119,7 +120,7 @@ impl Projector {
         }
     }
 
-    pub fn project_point_cylindric(
+    pub(crate) fn project_point_cylindric(
         mesh: &TriMesh,
         point: &geo::Point<f32>,
         radius: f32,
@@ -174,7 +175,7 @@ impl Projector {
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
-    ) -> Option<Isometry3<f32>> {
+    ) -> Option<AnnotatedPose> {
         // Project the central point
         let central_point = Self::project_point_flat(mesh, point, direction, axis)?;
         if false {
@@ -215,7 +216,7 @@ impl Projector {
         point: &geo::Point<f32>,
         projection_radius: f32,
         cylinder_axis: Axis,
-    ) -> Option<Isometry3<f32>> {
+    ) -> Option<AnnotatedPose> {
         pub fn circle_point(
             central_point: &geo::Point<f32>, // Center of the circle in 3D
             radius: f32,                     // Circle radius
@@ -459,7 +460,7 @@ impl Projector {
     fn compute_plane_isometry(
         &self,
         points: Vec<ParryPoint<f32>>, // First point is center point, others are arround it in
-    ) -> Option<Isometry3<f32>> {
+    ) -> Option<AnnotatedPose> {
         if points.len() < self.check_points {
             return None;
         }
@@ -613,7 +614,7 @@ impl Projector {
             let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
 
             // Combine the rotation with the translation (centroid) into an Isometry3
-            Some(Isometry3::from_parts(from.coords.into(), quaternion))
+            Some(AnnotatedPose::from_parts(from.coords.into(), quaternion))
         } else {
             None
         }
@@ -661,7 +662,7 @@ impl Projector {
         points: Vec<Point3<f32>>,
         axis: Axis,
         direction: RayDirection,
-    ) -> Option<Isometry3<f32>> {
+    ) -> Option<AnnotatedPose> {
         let from = centroid;
         let to = points[0];
         let vectors: Vec<Vector3<f32>> = points.into_iter().map(|p| p.coords).collect();
@@ -670,7 +671,7 @@ impl Projector {
         let orientation = self.average_plane_orientation_flat_axis(&vectors, axis, direction);
         if let Some(orientation) = orientation {
             let orientation = Projector::align_quaternion_x_to_points(orientation, from, to);
-            Some(Isometry3::from_parts(centroid.coords.into(), orientation))
+            Some(AnnotatedPose::from_parts(centroid.coords.into(), orientation))
         } else {
             None
         }
