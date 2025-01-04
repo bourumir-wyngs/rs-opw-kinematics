@@ -1,15 +1,10 @@
-use std::ops::Range;
-
-use crate::calipers::largest_fitting_rectangle;
-use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
-use parry3d::math::Point as ParryPoint;
-use parry3d::shape::TriMesh;
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
+use crate::calipers::largest_fitting_rectangle;
 use crate::projector::{Axis, Projector, RayDirection};
+use geo::{ConcaveHull, LineString, Point as GeoPoint, Polygon};
+use parry3d::shape::TriMesh;
 
 const MARGIN: f32 = 0.04;
-const PROJECTOR_CHECK_POINTS: usize = 16;
-const PROJECTOR_RADIUS: f32 = 0.02;
 
 pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
     let mut points = Vec::with_capacity(r * n);
@@ -25,7 +20,8 @@ pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
             for j in 0..n {
                 let x = -1.0 + j as f32 * x_step;
                 points.push(AnnotatedPathStep {
-                    point: (x, y),
+                    x,
+                    y,
                     flags: PathFlags::FORWARDS,
                 });
             }
@@ -34,87 +30,14 @@ pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
             for j in (0..n).rev() {
                 let x = -1.0 + j as f32 * x_step;
                 points.push(AnnotatedPathStep {
-                    point: (x, y),
+                    x,
+                    y,
                     flags: PathFlags::BACKWARDS,
                 });
             }
         }
     }
     points
-}
-
-/// Build a series of poses for "engraving" over the mesh.
-pub fn build_engraving_path_side_projected(
-    mesh: &TriMesh,
-    path: &Vec<AnnotatedPathStep>,
-    axis: Axis,
-    ray_direction: RayDirection,
-) -> Result<Vec<AnnotatedPose>, String> {
-    // Determine a suitable rectangle where we could engrave on the mesh.
-    let (bottom_left, top_right) = axis_aligned_bounding_rectangle(mesh, axis)?;
-
-    println!(
-        "top_rights: {:?}, bottom_left: {:?}",
-        bottom_left, top_right
-    );
-
-    // Calculate dimensions of the bounding rectangle
-    let rect_width = top_right.x() - bottom_left.x();
-    let rect_height = top_right.y() - bottom_left.y();
-
-    // Calculate dimensions of the path
-    let path_min_x = path
-        .iter()
-        .map(|step| step.point.0)  // Access point and its x coordinate
-        .fold(f32::INFINITY, f32::min);
-    let path_max_x = path
-        .iter()
-        .map(|step| step.point.0)  // Access point and its x coordinate
-        .fold(f32::NEG_INFINITY, f32::max);
-
-    let path_min_y = path
-        .iter()
-        .map(|step| step.point.1)  // Access point and its y coordinate
-        .fold(f32::INFINITY, f32::min);
-    let path_max_y = path
-        .iter()
-        .map(|step| step.point.1)  // Access point and its y coordinate
-        .fold(f32::NEG_INFINITY, f32::max);
-
-    // Compute path width and height
-    let path_width = path_max_x - path_min_x;
-    let path_height = path_max_y - path_min_y;
-
-    // Compute scaling factors to stretch the path into the bounding rectangle with margins
-    let scale_x = (rect_width - 2.0 * MARGIN) / path_width;
-    let scale_y = (rect_height - 2.0 * MARGIN) / path_height;
-
-    // Transform the path to fit into the bounding rectangle based on the axis
-    let transformed_path: Vec<ParryPoint<f32>> = path
-        .iter()
-        .map(|step| {
-            let x_2d = (step.point.0 - path_min_x) * scale_x + bottom_left.x() + MARGIN;
-            let y_2d = (step.point.1 - path_min_y) * scale_y + bottom_left.y() + MARGIN;
-
-            // Place in 3D space
-            match axis {
-                Axis::X => ParryPoint::new(0.0, x_2d, y_2d),
-                Axis::Y => ParryPoint::new(x_2d, 0.0, y_2d),
-                Axis::Z => ParryPoint::new(x_2d, y_2d, 0.0),
-            }
-        })
-        .collect();
-
-    let projector = Projector {
-        check_points: PROJECTOR_CHECK_POINTS,
-        radius: PROJECTOR_RADIUS,
-    };
-
-    // Use our own implementation for Y axis (Parry fails on normal parallel to Y)
-    Ok(transformed_path
-        .iter()
-        .filter_map(|point| projector.project_flat(mesh, point, ray_direction, axis))
-        .collect())
 }
 
 pub fn axis_aligned_bounding_rectangle(
@@ -147,15 +70,15 @@ pub fn axis_aligned_bounding_rectangle(
     Ok((lff.0 / scale, lff.1 / scale))
 }
 
-fn find_min_max(path: &Vec<AnnotatedPathStep>) -> ((f32, f32), (f32, f32)) {
+pub(crate) fn find_min_max(path: &Vec<AnnotatedPathStep>) -> ((f32, f32), (f32, f32)) {
     // Initialize min and max values to INFINITY and NEG_INFINITY.
     let (mut path_min_x, mut path_max_x) = (f32::INFINITY, f32::NEG_INFINITY);
     let (mut path_min_y, mut path_max_y) = (f32::INFINITY, f32::NEG_INFINITY);
 
     // Iterate over all points in the path to determine min and max values for x and y.
     for step in path {
-        let x = step.point.0; // Access the x coordinate
-        let y = step.point.1; // Access the y coordinate
+        let x = step.x; // Access the x coordinate
+        let y = step.y; // Access the y coordinate
 
         if x < path_min_x {
             path_min_x = x;
@@ -175,84 +98,62 @@ fn find_min_max(path: &Vec<AnnotatedPathStep>) -> ((f32, f32), (f32, f32)) {
     ((path_min_x, path_min_y), (path_max_x, path_max_y))
 }
 
-pub fn project_from_cylinder_to_mesh(
+/// Build a series of poses for "engraving" over the mesh.
+pub fn project_flat_to_rect_on_mesh(
+    projector: &Projector,
     mesh: &TriMesh,
     path: &Vec<AnnotatedPathStep>,
-    projection_radius: f32,
-    height: Range<f32>,
-    angle: Range<f32>,
     axis: Axis,
+    ray_direction: RayDirection,
 ) -> Result<Vec<AnnotatedPose>, String> {
-    use std::f32::consts::PI;
-    // Validate inputs using range methods.
-    if height.start >= height.end {
-        return Err("Invalid height range specified.".to_string());
-    }
-    if angle.start < 0.0 || angle.end > 2.0 * PI {
-        return Err("Angle values must be in the range [0, 2π].".to_string());
-    }
-
-    // Compute angle range directly using range-inclusive methods.
-    let angle_range = if angle.start > angle.end {
-        (2.0 * PI - angle.start) + angle.end
-    } else {
-        angle.end - angle.start
-    };
-
-    // Access height bounds.
-    let height_range = height.end - height.start;
+    // Determine a suitable rectangle where we could engrave on the mesh.
+    let (bottom_left, top_right) = axis_aligned_bounding_rectangle(mesh, axis)?;
 
     println!(
-        "angle_range: {}, height range: {}",
-        angle_range.to_degrees(),
-        height_range
+        "top_rights: {:?}, bottom_left: {:?}",
+        bottom_left, top_right
     );
 
-    let ((path_min_x, path_min_y), (path_max_x, path_max_y)) = find_min_max(&path);
+    // Calculate dimensions of the bounding rectangle
+    let rect_width = top_right.x() - bottom_left.x();
+    let rect_height = top_right.y() - bottom_left.y();
 
+    // Calculate dimensions of the path
+    let path_min_x = path
+        .iter()
+        .map(|step| step.x) // Access point and its x coordinate
+        .fold(f32::INFINITY, f32::min);
+    let path_max_x = path
+        .iter()
+        .map(|step| step.x) // Access point and its x coordinate
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    let path_min_y = path
+        .iter()
+        .map(|step| step.y) // Access point and its y coordinate
+        .fold(f32::INFINITY, f32::min);
+    let path_max_y = path
+        .iter()
+        .map(|step| step.y) // Access point and its y coordinate
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    // Compute path width and height
     let path_width = path_max_x - path_min_x;
     let path_height = path_max_y - path_min_y;
 
-    // Compute scaling factors and offsets
-    let scale_x = angle_range / path_width;
-    let scale_y = height_range / path_height;
+    // Compute scaling factors to stretch the path into the bounding rectangle with margins
+    let scale_x = (rect_width - 2.0 * MARGIN) / path_width;
+    let scale_y = (rect_height - 2.0 * MARGIN) / path_height;
 
-    // Transform the path into cylindrical coordinates
-    let transformed_path: Vec<GeoPoint<f32>> = path
+    // Transform the path to fit into the bounding rectangle based on the axis
+    let transformed_path = path
         .iter()
-        .map(|step| {
-            let x = step.point.0; // Access the x coordinate
-            let y = step.point.1; // Access the y coordinate
-
-            // The direction here is selected so that the image would not be mirrored when projected
-            let theta = (x - path_min_x) * scale_x;
-            let z = (y - path_min_y) * scale_y + height.start;
-
-            GeoPoint::new(theta, z)
+        .map(|step| AnnotatedPathStep {
+            x: (step.x - path_min_x) * scale_x + bottom_left.x() + MARGIN,
+            y: (step.y - path_min_y) * scale_y + bottom_left.y() + MARGIN,
+            flags: step.flags,
         })
         .collect();
 
-    // Step 3: Create a projector for projecting transformed path points
-    let projector = Projector {
-        check_points: 24,     // Defined number of normals to check
-        radius: 0.02,         // Radius, defined as PROJECTOR_RADIUS
-    };
-
-    // Step 4: Project each point on the transformed path to the mesh and collect Isometry3
-    let isometries: Vec<AnnotatedPose> = transformed_path
-        .iter()
-        .filter_map(|point| {
-            projector.project_cylindric(&mesh, point, projection_radius, axis)
-        })
-        .collect();
-
-    // Step 5: Ensure the result contains valid projections
-    if isometries.is_empty() {
-        return Err("Failed to project any points onto the mesh.".to_string());
-    }
-
-    Ok(isometries)
+    projector.project_flat_path(&mesh, &transformed_path, axis, ray_direction)
 }
-
-#[cfg(test)]
-mod tests {}

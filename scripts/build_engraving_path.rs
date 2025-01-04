@@ -2,15 +2,20 @@ use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use rs_opw_kinematics::engraving::{
-    build_engraving_path_side_projected, generate_raster_points, project_from_cylinder_to_mesh,
+    project_flat_to_rect_on_mesh, generate_raster_points,
 };
-use rs_opw_kinematics::projector::{Axis, RayDirection};
+use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::synthetic_meshes::sphere_mesh;
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
+
+static PROJECTOR: Projector = Projector {
+    check_points: 24, // Defined number of normals to check
+    radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
+};
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
@@ -118,11 +123,16 @@ fn write_isometries_to_json(
         let rotation = iso.pose.rotation;
 
         json_output.push_str(&format!(
-            "{{\"position\":{{\"x\":{},\"y\":{},\"z\":{}}},\"rotation\":{{\"x\":{},\"y\":{},\"z\":{},\"w\":{}}}}}\n",
-            translation.x, translation.y, translation.z,
-            rotation.i, rotation.j, rotation.k, rotation.w
+            "{{\"position\":{{\"x\":{},\"y\":{},\"z\":{}}},\"rotation\":{{\"x\":{},\"y\":{},\"z\":{},\"w\":{}}},\"flags\":\"{:?}\"}}\n",
+            translation.x,
+            translation.y,
+            translation.z,
+            rotation.i,
+            rotation.j,
+            rotation.k,
+            rotation.w,
+            iso.flags // Serialize flags as Debug at the end
         ));
-
         if i < isometries.len() - 1 {
             json_output.push_str(",");
         }
@@ -181,14 +191,14 @@ fn generate_flat_projections() -> Result<(), String> {
 
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         for direction in [RayDirection::FromPositive, RayDirection::FromNegative] {
-            let engraving = build_engraving_path_side_projected(&mesh, &path, axis, direction)?;
+            let engraving = project_flat_to_rect_on_mesh(&PROJECTOR, &mesh, &path, axis, direction)?;
             println!(
                 "Engraving length of {} for the path of length {}",
                 engraving.len(),
                 path.len()
             );
             //send_message(&sender, &engraving)?;
-            if false {
+            if true {
                 write_isometries_to_json(
                     &format!(
                         "src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json",
@@ -246,7 +256,7 @@ fn main() -> Result<(), String> {
 
     let t_ep = Instant::now();
     let engraving =
-        project_from_cylinder_to_mesh(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+        PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
     let el_ep = t_ep.elapsed();
 
     println!(

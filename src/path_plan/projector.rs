@@ -1,9 +1,10 @@
+use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
-use crate::annotations::AnnotatedPose;
+use std::ops::Range;
 
 pub struct Projector {
     pub check_points: usize,
@@ -271,6 +272,103 @@ impl Projector {
         } else {
             None
         }
+    }
+
+    pub fn project_cylinder_path(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        projection_radius: f32,
+        height: Range<f32>,
+        angle: Range<f32>,
+        axis: Axis,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        use std::f32::consts::PI;
+        // Validate inputs using range methods.
+        if height.start >= height.end {
+            return Err("Invalid height range specified.".to_string());
+        }
+        if angle.start < 0.0 || angle.end > 2.0 * PI {
+            return Err("Angle values must be in the range [0, 2π].".to_string());
+        }
+
+        // Compute angle range directly using range-inclusive methods.
+        let angle_range = if angle.start > angle.end {
+            (2.0 * PI - angle.start) + angle.end
+        } else {
+            angle.end - angle.start
+        };
+
+        // Access height bounds.
+        let height_range = height.end - height.start;
+        let ((path_min_x, path_min_y), (path_max_x, path_max_y)) =
+            crate::engraving::find_min_max(&path);
+
+        let path_width = path_max_x - path_min_x;
+        let path_height = path_max_y - path_min_y;
+
+        // Compute scaling factors and offsets
+        let scale_x = angle_range / path_width;
+        let scale_y = height_range / path_height;
+
+        // Transform the path into cylindrical coordinates
+        let isometries = path
+            .iter()
+            .map(|step| {
+                // The direction here is selected so that the image would not be mirrored when projected
+                let theta = (step.x - path_min_x) * scale_x;
+                let z = (step.y - path_min_y) * scale_y + height.start;
+
+                (geo::Point::new(theta, z), step.flags)
+            })
+            .filter_map(|step| {
+                if let Some(projected) =
+                    self.project_cylindric(&mesh, &step.0, projection_radius, axis)
+                {
+                    Some(AnnotatedPose {
+                        pose: projected.pose,
+                        // Pass path point flags, projector may add own flags
+                        flags: step.1 | projected.flags,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(isometries)
+    }
+
+    pub fn project_flat_path(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        axis: Axis,
+        ray_direction: RayDirection,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        let isometries = path.into_iter()
+            .map(|step| {
+                let point = match axis {
+                    Axis::X => ParryPoint::new(0.0, step.x, step.y),
+                    Axis::Y => ParryPoint::new(step.x, 0.0, step.y),
+                    Axis::Z => ParryPoint::new(step.x, step.y, 0.0),
+                };
+                (point, step.flags) // Pass flags, we will need
+            })
+            .filter_map(|(point, step_flags)| {
+                if let Some(projected) = self.project_flat(mesh, &point, ray_direction, axis) {
+                    Some(AnnotatedPose {
+                        pose: projected.pose,
+                        // Pass path point flags, projector may add own flags
+                        flags: step_flags | projected.flags,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(isometries)
     }
 
     fn average_plane_orientation_flat_axis(
@@ -671,7 +769,10 @@ impl Projector {
         let orientation = self.average_plane_orientation_flat_axis(&vectors, axis, direction);
         if let Some(orientation) = orientation {
             let orientation = Projector::align_quaternion_x_to_points(orientation, from, to);
-            Some(AnnotatedPose::from_parts(centroid.coords.into(), orientation))
+            Some(AnnotatedPose::from_parts(
+                centroid.coords.into(),
+                orientation,
+            ))
         } else {
             None
         }

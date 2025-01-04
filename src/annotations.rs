@@ -14,49 +14,47 @@ bitflags! {
         /// Position is part of the movement from the initil ("home") pose to the landing
         /// pose. It may include very arbitrary joint movements, so Cartesian stroke
         /// may not work on this part of the trajectory.
-        const ONBOARDING =          0b0000_0010;
+        const ONBOARDING =          1 << 1;
 
         /// Position directly matches one of the stroke poses given in the input.
-        const TRACE =               0b0000_0100;
+        const TRACE =               1 << 2;
 
         /// Position is a linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
         /// but may be important for more developed models that only rotate between
         /// the given joint positions without guarantees that TCP movement is linear.
-        const LIN_INTERP =          0b0000_1000;
+        const LIN_INTERP =          1 << 3;
 
         /// Position corresponds the starting pose ("land") that is normally little above
         /// the start of the required trace
-        const LAND =                0b0001_0000;
+        const LAND =                1 << 4;
 
         /// The tool is movind down from the landing position to the first stroke position.
         /// Activate the tool mechanism if any (start the drill, open sprayer, etc).
-        const LANDING =             0b0010_0000;
+        const LANDING =             1 << 5;
 
         /// Position corresponds the ennding pose ("park") that is normally little above
         /// the end of the required trace. This is the last pose to include into the
         /// output.
-        const PARK =                0b0100_0000;
+        const PARK =                1 << 6;
 
         /// The tool is moving up from the last trace point to the parking position
         /// (shut down the effector mechanism if any)
-        const PARKING =             0b1000_0000;
+        const PARKING =             1 << 7;
 
         /// Used with raster projector, indicates the movement considered "forwards"
-        const FORWARDS =             0b1000_0001;
+        const FORWARDS =             1 << 8;
 
         /// Used with raster projector, indicates the movement considered "backwards"
-        const BACKWARDS =             0b1000_0010;
-
-        ///  Used with raster projector, indicates change of directions (first point in new direction)
-        const U_TURN =             0b1000_0011;
+        const BACKWARDS =            1 << 9;
 
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
 
-        /// Special flag used in debugging to mark out anything of interest
-        const DEBUG = 0b1000_0000_0000_0000;
+        /// Special flag used in debugging to mark out anything of interest. Largest can be stored
+        /// in u32
+        const DEBUG = 1 << 31;
 
         // The movement INTO this pose is Cartesian stroke
         const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();
@@ -78,7 +76,8 @@ pub struct AnnotatedJoints {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AnnotatedPathStep {
-    pub point: (f32, f32),
+    pub x: f32,
+    pub y: f32,
     pub flags: PathFlags,
 }
 
@@ -124,7 +123,10 @@ fn flag_representation(flags: &PathFlags) -> String {
         (PathFlags::CARTESIAN, "CARTESIAN"),
         // Joints-to-joints movement (RRT) flag
         (PathFlags::ONBOARDING, "ONBOARDING"),
-        // Projector flags
+        // Mesh generator flags
+        (PathFlags::FORWARDS, "FORWARDS"),
+        (PathFlags::BACKWARDS, "BACKWARDS"),
+        
         (PathFlags::DEBUG, "DEBUG"),
     ];
 

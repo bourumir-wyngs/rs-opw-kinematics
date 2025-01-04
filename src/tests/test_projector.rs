@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::engraving::{build_engraving_path_side_projected, generate_raster_points, project_from_cylinder_to_mesh};
-    use crate::projector::{Axis, RayDirection};
+    use crate::annotations::AnnotatedPose;
+    use crate::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
+    use crate::projector::{Axis, Projector, RayDirection};
     use crate::synthetic_meshes::sphere_mesh;
     use nalgebra::{Quaternion, Translation3, UnitQuaternion};
     use once_cell::sync::Lazy;
@@ -12,7 +13,6 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
     use std::time::Instant;
-    use crate::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 
     fn read_isometries_from_file(file_path: &str) -> Result<Vec<AnnotatedPose>, String> {
         let mut file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
@@ -95,11 +95,12 @@ mod tests {
                 engr
             );
         }
-    }    
+    }
 
     fn isometry_approx_eq(a: &AnnotatedPose, b: &AnnotatedPose, tolerance: f64) -> bool {
         // Compare translation components
-        let translation_eq = (a.pose.translation.vector - b.pose.translation.vector).norm() <= tolerance;
+        let translation_eq =
+            (a.pose.translation.vector - b.pose.translation.vector).norm() <= tolerance;
 
         // Compare rotation components
         let relative_rotation = a.pose.rotation.inverse() * b.pose.rotation; // Relative rotation: `b` relative to `a`
@@ -116,6 +117,10 @@ mod tests {
         Arc::new(mesh) // Store inside an Arc for thread-safe reuse
     });
 
+    static PROJECTOR: Projector = Projector {
+        check_points: 24, // Defined number of normals to check
+        radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
+    };
 
     /// Project rectanglar mesh rolled into cylinder, on the surface of sphere.
     fn cyl_on_sphere(axis: Axis) -> Result<(), String> {
@@ -124,7 +129,7 @@ mod tests {
         let path = generate_raster_points(40, 200);
 
         let t_ep = Instant::now();
-        let engraving = project_from_cylinder_to_mesh(
+        let engraving = PROJECTOR.project_cylinder_path(
             &(&SPHERE_MESH),
             &path,
             1.0,
@@ -132,10 +137,11 @@ mod tests {
             0. ..2.0 * PI,
             axis,
         )?;
-        
+
         println!(
             "Cylinder, axis {:?}, on sphere: engraving {:?}",
-            axis, t_ep.elapsed()
+            axis,
+            t_ep.elapsed()
         );
 
         assert_path(projections, engraving);
@@ -143,13 +149,17 @@ mod tests {
     }
 
     fn dir_on_sphere(axis: Axis, direction: RayDirection) -> Result<(), String> {
-        let json_path = format!("src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json", axis, direction);
+        let json_path = format!(
+            "src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json",
+            axis, direction
+        );
         let projections = read_isometries_from_file(&json_path).expect("Cannot read test data");
         let path = generate_raster_points(20, 20);
-        let engraving = build_engraving_path_side_projected(&SPHERE_MESH, &path, axis, direction)?;
-        assert_path(projections, engraving);        
+        let engraving =
+            project_flat_to_rect_on_mesh(&PROJECTOR, &SPHERE_MESH, &path, axis, direction)?;
+        assert_path(projections, engraving);
         Ok(())
-    }    
+    }
 
     #[test]
     fn test_cyl_on_sphere_x() -> Result<(), String> {
@@ -204,6 +214,4 @@ mod tests {
         dir_on_sphere(Axis::Z, RayDirection::FromNegative)?;
         Ok(())
     }
-
-
 }
