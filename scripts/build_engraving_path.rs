@@ -198,7 +198,7 @@ fn generate_flat_projections() -> Result<(), String> {
                 path.len()
             );
             //send_message(&sender, &engraving)?;
-            if true {
+            if false {
                 write_isometries_to_json(
                     &format!(
                         "src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json",
