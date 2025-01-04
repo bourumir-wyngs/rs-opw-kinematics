@@ -1,14 +1,13 @@
 use nalgebra::Isometry3;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
-use rs_opw_kinematics::engraving::{
-    project_flat_to_rect_on_mesh, generate_raster_points,
-};
+use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::synthetic_meshes::sphere_mesh;
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
+use std::io;
 use std::io::Write;
 use std::time::Instant;
 
@@ -16,6 +15,12 @@ static PROJECTOR: Projector = Projector {
     check_points: 24, // Defined number of normals to check
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
+
+fn pause() {
+    print!("Press Enter to continue...");
+    io::stdout().flush().unwrap(); // Ensure the prompt is displayed immediately
+    let _ = io::stdin().read_line(&mut String::new()).unwrap(); // Wait for the user to press Enter
+}
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
@@ -191,7 +196,8 @@ fn generate_flat_projections() -> Result<(), String> {
 
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         for direction in [RayDirection::FromPositive, RayDirection::FromNegative] {
-            let engraving = project_flat_to_rect_on_mesh(&PROJECTOR, &mesh, &path, axis, direction)?;
+            let engraving =
+                project_flat_to_rect_on_mesh(&PROJECTOR, &mesh, &path, axis, direction)?;
             println!(
                 "Engraving length of {} for the path of length {}",
                 engraving.len(),
@@ -214,6 +220,39 @@ fn generate_flat_projections() -> Result<(), String> {
     Ok(())
 }
 
+fn generate_cyl_on_sphere() -> Result<(), String> {
+    let path = generate_raster_points(40, 200); // Cylinder
+    let mesh = sphere_mesh(0.5, 256);
+    
+    for axis in [Axis::X, Axis::Y, Axis::Z] {
+        let t_ep = Instant::now();
+        let engraving =
+            PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+
+        println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
+        let sender = Sender::new("127.0.0.1", 5555);
+
+        match sender.send_pose_message(&filter_valid_poses(&engraving)) {
+            Ok(_) => {
+                println!("Pose message sent successfully.");
+            }
+            Err(err) => {
+                eprintln!("Failed to send pose message: {}", err);
+            }
+        }
+        
+        pause();
+
+        if false {
+            write_isometries_to_json(
+                &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
+                &engraving,
+            )?
+        }
+    }
+    Ok(())    
+}
+
 fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), String> {
     match sender.send_pose_message(&filter_valid_poses(&engraving)) {
         Ok(_) => Ok(()),
@@ -222,6 +261,8 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 }
 
 fn main() -> Result<(), String> {
+    generate_cyl_on_sphere()?;
+    return Ok(());
     generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
