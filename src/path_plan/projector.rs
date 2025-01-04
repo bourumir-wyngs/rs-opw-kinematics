@@ -90,8 +90,10 @@ impl Axis {
 }
 
 impl Projector {
-    /// Project without using Parry isometries
-    /// (parry has problems for normals close to Y axis)
+    /// Project point into mesh along the given axis, starting from the given direction.
+    /// 3 axes and 2 directions together allow 6 combinations corresponding the sides of a cube
+    ///
+    /// This method does not compute the orientation, only position.
     pub(crate) fn project_point_flat(
         mesh: &TriMesh,
         point: &ParryPoint<f32>,
@@ -121,6 +123,11 @@ impl Projector {
         }
     }
 
+    /// Project point from the surface of the cylinder surrounding the mesh, onto
+    /// the surface of the mesh. The axis parameter defines the axis of the cylinder,
+    /// always intersecting the origin of the coordinates. 
+    /// 
+    /// This method only computes the point, not coordinates
     pub(crate) fn project_point_cylindric(
         mesh: &TriMesh,
         point: &geo::Point<f32>,
@@ -167,10 +174,13 @@ impl Projector {
         None
     }
 
-    /// Project computing normals our own way, do not use Parry.
-    /// It works well on all 3 axes, while Parry has weakness on normal close to
-    /// parallel to Y.
-    pub fn project_flat(
+    /// Project point into mesh along the given axis, starting from the given direction.
+    /// 3 axes and 2 directions together allow 6 combinations corresponding the sides of a cube
+    /// The normals of the object are always pointing inside, following the projection ray
+    /// (this is the natural direction to position the effector of the robot).
+    ///
+    /// This method produces both position and orientation
+    pub (crate) fn project_flat(
         &self,
         mesh: &TriMesh,
         point: &ParryPoint<f32>,
@@ -209,9 +219,12 @@ impl Projector {
         self.compute_plane_isometry_flat(central_point, points, axis, direction)
     }
 
-    /// Cylindrical project with cylinder around an arbitrary axis. This confirmed to work well
-    /// except when normal is close to parallel to Y.
-    pub fn project_cylindric(
+    /// Project point from the surface of the cylinder surrounding the mesh, onto
+    /// the surface of the mesh. The axis parameter defines the axis of the cylinder,
+    /// always intersecting the origin of the coordinates. The normals (corresponding surface
+    /// of the mesh, not the cylinder) point inward, the natural direction to pass for the
+    /// robot path planning.
+    pub (crate) fn project_cylindric(
         &self,
         mesh: &TriMesh,
         point: &geo::Point<f32>,
@@ -274,6 +287,14 @@ impl Projector {
         }
     }
 
+    /// Project path from the surface of the cylinder surrounding the mesh, onto
+    /// the surface of the mesh. The axis parameter defines the axis of the cylinder,
+    /// always intersecting the origin of the coordinates. The normals (corresponding surface
+    /// of the mesh, not the cylinder) point inward, the natural direction to pass for the
+    /// robot path planning.
+    /// 
+    /// Any flags set on an annotated path will be passed to the projected path.
+    /// Most important, the stroke direction flags will be preserved.
     pub fn project_cylinder_path(
         &self,
         mesh: &TriMesh,
@@ -339,6 +360,13 @@ impl Projector {
         Ok(isometries)
     }
 
+    /// Project point into mesh along the given axis, starting from the given direction.
+    /// 3 axes and 2 directions together allow 6 combinations corresponding the sides of a cube
+    /// The normals of the object are always pointing inside, following the projection ray
+    /// (this is the natural direction to position the effector of the robot).
+    ///
+    /// Any flags set on an annotated path will be passed to the projected path.
+    /// Most important, the stroke direction flags will be preserved.
     pub fn project_flat_path(
         &self,
         mesh: &TriMesh,
@@ -346,7 +374,8 @@ impl Projector {
         axis: Axis,
         ray_direction: RayDirection,
     ) -> Result<Vec<AnnotatedPose>, String> {
-        let isometries = path.into_iter()
+        let isometries = path
+            .into_iter()
             .map(|step| {
                 let point = match axis {
                     Axis::X => ParryPoint::new(0.0, step.x, step.y),
