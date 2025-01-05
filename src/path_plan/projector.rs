@@ -411,10 +411,7 @@ impl Projector {
         }
 
         // Accumulate normals
-        let normal_sum = Self::compute_normal_sum_parallel(points);
-
-        // Average the normals
-        let mut average_normal = normal_sum.normalize();
+        let mut average_normal = Self::avg_normal_sum_parallel(points);
 
         // Ensure the normal vector is valid
         if average_normal.norm() == 0.0 {
@@ -454,7 +451,7 @@ impl Projector {
         UnitQuaternion::rotation_between(&z_axis, &average_normal)
     }
 
-    fn compute_normal_sum_parallel(points: &[Vector3<f32>]) -> Vector3<f32> {
+    fn avgSm_normal_sum_parallel(points: &[Vector3<f32>]) -> Vector3<f32> {
         use nalgebra::Vector3;
         use rayon::iter::{IndexedParallelIterator, ParallelIterator};
         use rayon::prelude::*; // Includes common Rayon traits
@@ -486,7 +483,7 @@ impl Projector {
             })
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
-        normal_sum // Return the accumulated vector
+        normal_sum.normalize() // Return the accumulated vector
     }
 
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
@@ -597,7 +594,7 @@ impl Projector {
         let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
         let plane_points: Vec<_> = points.iter().map(|p| p.coords).collect();
-        let avg_normal = Self::compute_normal_sum_parallel(&plane_points).normalize();
+        let avg_normal = Self::avg_normal_sum_parallel(&plane_points).normalize();
         let quaternion;
 
         #[derive(Debug, Copy, Clone, PartialEq, Eq)]
