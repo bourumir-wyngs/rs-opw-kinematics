@@ -489,14 +489,14 @@ impl Projector {
             })
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
-        normal_sum.normalize() // Return the accumulated vector
+        normal_sum
     }
 
     fn avg_normal_stabilized(points: &[Vector3<f32>]) -> Vector3<f32> {
         use nalgebra::Vector3;
         use rayon::prelude::*; // Rayon parallel iterator traits
 
-        // Threshold to filter out triangles with small area (adjustable, squared millimeters looks fines)
+        // Threshold to filter out triangles with small area (adjustable, 2 or about squared millimeters looks fine)
         const AREA_THRESHOLD: f32 = 2.0 * 1e-6;
 
         // Use Rayon parallel iterator with a thread-safe accumulation
@@ -527,7 +527,7 @@ impl Projector {
             })
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
-           normal_sum.normalize() // Return the accumulated normal
+           normal_sum
     }
 
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
@@ -638,7 +638,13 @@ impl Projector {
         let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
 
         let plane_points: Vec<_> = points.iter().map(|p| p.coords).collect();
-        let avg_normal = Self::avg_normal(&plane_points).normalize();
+        let avg_normal;
+        if let Some(normalized) = Self::avg_normal(&plane_points).try_normalize(1E-8) {
+            avg_normal = normalized;
+        } else {
+            return None;
+        }
+                
         let quaternion;
 
         #[derive(Debug, Copy, Clone, PartialEq, Eq)]
