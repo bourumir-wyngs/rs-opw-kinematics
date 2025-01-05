@@ -1,5 +1,5 @@
 use crate::projector::Axis;
-use nalgebra::Point3;
+use nalgebra::{Point3, Vector3};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
 
@@ -127,5 +127,113 @@ pub fn sphere_mesh(radius: f32, resolution: usize) -> TriMesh {
     }
 
     // Create the TriMesh from vertices and triangle indices
+    TriMesh::new(vertices, indices)
+}
+
+/// Generate a sphere with six recessions (North/South Poles and ±X/±Y axes).
+///
+/// # Parameters:
+/// - `radius`: Radius of the sphere.
+/// - `recession_depth`: Depth of each recession.
+/// - `recession_radius`: Radius of the area affected by the recession.
+/// - `resolution`: Resolution of the sphere (number of latitude and longitude divisions).
+///
+/// # Returns:
+/// A `TriMesh` representing the sphere with six recessions.
+pub fn sphere_with_recessions(
+    radius: f32,
+    recession_depth: f32,
+    recession_radius: f32,
+    resolution: usize,
+) -> TriMesh {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for i in 0..=resolution {
+        let theta = std::f32::consts::PI * i as f32 / resolution as f32; // Latitude angle
+        let sin_theta = theta.sin();
+        let cos_theta = theta.cos();
+
+        for j in 0..=resolution {
+            let phi = 2.0 * std::f32::consts::PI * j as f32 / resolution as f32; // Longitude angle
+            let sin_phi = phi.sin();
+            let cos_phi = phi.cos();
+
+            // Convert spherical coordinates to Cartesian coordinates
+            let mut x = radius * sin_theta * cos_phi;
+            let mut y = radius * sin_theta * sin_phi;
+            let mut z = radius * cos_theta;
+
+            // Apply recession effect for the six recessions
+            // North Pole Recession
+            if z > radius - recession_radius {
+                let distance_to_pole = (x.powi(2) + y.powi(2)).sqrt();
+                if distance_to_pole < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_pole / recession_radius);
+                    z -= recession_depth * recession_factor;
+                }
+            }
+            // South Pole Recession
+            else if z < -(radius - recession_radius) {
+                let distance_to_pole = (x.powi(2) + y.powi(2)).sqrt();
+                if distance_to_pole < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_pole / recession_radius);
+                    z += recession_depth * recession_factor;
+                }
+            }
+            // +X Axis Recession
+            else if x > radius - recession_radius {
+                let distance_to_axis = (y.powi(2) + z.powi(2)).sqrt();
+                if distance_to_axis < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_axis / recession_radius);
+                    x -= recession_depth * recession_factor;
+                }
+            }
+            // -X Axis Recession
+            else if x < -(radius - recession_radius) {
+                let distance_to_axis = (y.powi(2) + z.powi(2)).sqrt();
+                if distance_to_axis < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_axis / recession_radius);
+                    x += recession_depth * recession_factor;
+                }
+            }
+            // +Y Axis Recession
+            else if y > radius - recession_radius {
+                let distance_to_axis = (x.powi(2) + z.powi(2)).sqrt();
+                if distance_to_axis < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_axis / recession_radius);
+                    y -= recession_depth * recession_factor;
+                }
+            }
+            // -Y Axis Recession
+            else if y < -(radius - recession_radius) {
+                let distance_to_axis = (x.powi(2) + z.powi(2)).sqrt();
+                if distance_to_axis < recession_radius {
+                    let recession_factor = 1.0 - (distance_to_axis / recession_radius);
+                    y += recession_depth * recession_factor;
+                }
+            }
+
+            vertices.push(Point3::new(x, y, z));
+        }
+    }
+
+    // Create triangles (faces)
+    for i in 0..resolution {
+        for j in 0..resolution {
+            let current = i * (resolution + 1) + j;
+            let next_row = (i + 1) * (resolution + 1) + j;
+
+            // Two triangles for each quad
+            indices.push([current as u32, next_row as u32, (current + 1) as u32]);
+            indices.push([
+                next_row as u32,
+                (next_row + 1) as u32,
+                (current + 1) as u32,
+            ]);
+        }
+    }
+
+    // Build the TriMesh
     TriMesh::new(vertices, indices)
 }

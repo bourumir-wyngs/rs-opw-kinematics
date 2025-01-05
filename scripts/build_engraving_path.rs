@@ -3,7 +3,7 @@ use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
-use rs_opw_kinematics::synthetic_meshes::sphere_mesh;
+use rs_opw_kinematics::synthetic_meshes::{sphere_mesh, sphere_with_recessions};
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -253,6 +253,39 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
     Ok(())    
 }
 
+fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
+    let path = generate_raster_points(50, 50); // Cylinder
+    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+
+    for axis in [Axis::X, Axis::Y, Axis::Z] {
+        let t_ep = Instant::now();
+        let engraving =
+            PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+
+        println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
+        let sender = Sender::new("127.0.0.1", 5555);
+
+        match sender.send_pose_message(&filter_valid_poses(&engraving)) {
+            Ok(_) => {
+                println!("Pose message sent successfully.");
+            }
+            Err(err) => {
+                eprintln!("Failed to send pose message: {}", err);
+            }
+        }
+
+        pause();
+
+        if false {
+            write_isometries_to_json(
+                &format!("src/tests/data/projector/cyl_on_sphere_recs_{:?}.json", axis),
+                &engraving,
+            )?
+        }
+    }
+    Ok(())
+}
+
 fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), String> {
     match sender.send_pose_message(&filter_valid_poses(&engraving)) {
         Ok(_) => Ok(()),
@@ -260,8 +293,10 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
     }
 }
 
+// https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    generate_cyl_on_sphere()?;
+    //generate_cyl_on_sphere()?;
+    generate_cyl_on_sphere_with_recs()?;
     return Ok(());
     generate_flat_projections()?;
     return Ok(());

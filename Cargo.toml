@@ -41,6 +41,7 @@ rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
 rs-read-trimesh = { version = "0.1.1", optional = true } # patched ply-rs
+ply-rs-bw = "2.0.1"
 
 # Needed for visualization. Only relevant packages are included.
 bevy = { version = "0.12", default-features = false, features = [

@@ -3671,6 +3671,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "parry3d",
+ "ply-rs-bw",
  "rand",
  "rayon",
  "regex",
