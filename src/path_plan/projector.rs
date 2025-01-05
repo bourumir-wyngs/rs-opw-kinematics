@@ -8,6 +8,7 @@ use std::fmt::format;
 use std::ops::Range;
 use bevy_egui::egui::Key::P;
 use rand::prelude::SliceRandom;
+use rand::Rng;
 use rayon::prelude::IntoParallelRefIterator;
 
 pub struct Projector {
@@ -456,7 +457,7 @@ impl Projector {
     }
 
     fn avg_normal(points: &[Vector3<f32>]) -> Vector3<f32> {
-        return Projector::compute_normal_ransac(points);
+        return Projector::avg_normal_stabilized(points);
         use nalgebra::Vector3;
         use rayon::iter::{IndexedParallelIterator, ParallelIterator};
         use rayon::prelude::*; // Includes common Rayon traits
@@ -491,14 +492,16 @@ impl Projector {
         normal_sum.normalize() // Return the accumulated vector
     }
 
-    fn avg_normal_0(points: Vec<&Vector3<f32>>) -> Vector3<f32> {
+    fn avg_normal_stabilized(points: &[Vector3<f32>]) -> Vector3<f32> {
         use nalgebra::Vector3;
-        use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-        use rayon::prelude::*; // Includes common Rayon traits
+        use rayon::prelude::*; // Rayon parallel iterator traits
+
+        // Threshold to filter out triangles with small area (adjustable, squared millimeters looks fines)
+        const AREA_THRESHOLD: f32 = 2.0 * 1e-6;
 
         // Use Rayon parallel iterator with a thread-safe accumulation
         let normal_sum = points
-            .par_iter() // Parallel iteration over the first loop
+            .par_iter() // Parallel iteration over the points
             .enumerate()
             .map(|(i, &point_i)| {
                 let mut local_sum = Vector3::zeros();
@@ -511,10 +514,11 @@ impl Projector {
 
                         // Compute normal of the triangle
                         let normal = v1.cross(&v2);
+                        let area = normal.norm(); // Magnitude represents triangle area
 
-                        // Accumulate normals (ignore magnitude)
-                        if normal.norm() > 0.0 {
-                            local_sum += normal.normalize();
+                        // Filter out small triangles and accumulate weighted normals
+                        if area > AREA_THRESHOLD {
+                            local_sum += normal.normalize() * area; // Weight by area
                         }
                     }
                 }
@@ -523,43 +527,7 @@ impl Projector {
             })
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
-        normal_sum.normalize() // Return the accumulated vector
-    }
-
-    fn compute_normal_ransac(normals: &[Vector3<f32>]) -> Vector3<f32> {
-        use rayon::prelude::*;
-
-        // A threshold value used to measure the angular similarity
-        let angular_thr_cosine = 10.0f32.to_radians().cos();
-
-        // Initialize the best model as the first normal in the array
-        let mut best_model = normals[0].normalize();
-        let mut best_inliers = 0;
-
-        // Iterate over all normals as candidate models (in parallel)
-        normals.iter().for_each(|candidate| {
-            // Normalize the candidate normal
-            let candidate = candidate.normalize();
-
-            // Count the number of inliers and calculate their sum (in parallel)
-            let (inliers_count, inliers_sum): (usize, Vector3<f32>) = normals
-                .par_iter() // Parallel processing of normals
-                .filter(|&n| candidate.dot(n) >= angular_thr_cosine) // Check inlier condition
-                .map(|&n| (1, n)) 
-                .reduce(
-                    || (0, Vector3::zeros()), // Identity value for reduce
-                    |a, b| (a.0 + b.0, a.1 + b.1), // Sum counts and normals
-                );
-
-            // Update the best model in a thread-safe way
-            if inliers_count > best_inliers {
-                best_inliers = inliers_count;
-                best_model = inliers_sum.normalize(); // Normalize the average
-            }
-        });
-
-        // Return the best model
-        best_model
+           normal_sum.normalize() // Return the accumulated normal
     }
 
     /// Decomposes a quaternion into its swing and twist components around a specified axis.

@@ -16,6 +16,8 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
+static WRITE_JSON: bool = false;
+
 fn pause() {
     print!("Press Enter to continue...");
     io::stdout().flush().unwrap(); // Ensure the prompt is displayed immediately
@@ -204,7 +206,7 @@ fn generate_flat_projections() -> Result<(), String> {
                 path.len()
             );
             //send_message(&sender, &engraving)?;
-            if false {
+            if WRITE_JSON {
                 write_isometries_to_json(
                     &format!(
                         "src/tests/data/projector/flat_on_sphere_{:?}_{:?}.json",
@@ -224,7 +226,7 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
     let path = generate_raster_points(40, 200); // Cylinder
     let mesh = sphere_mesh(0.5, 256);
     
-    for axis in [Axis::X, Axis::Y, Axis::Z] {
+    for axis in [Axis::Y, Axis::X, Axis::Z] {
         let t_ep = Instant::now();
         let engraving =
             PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
@@ -243,7 +245,7 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         
         pause();
 
-        if false {
+        if WRITE_JSON {
             write_isometries_to_json(
                 &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
                 &engraving,
@@ -276,7 +278,7 @@ fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
 
         pause();
 
-        if false {
+        if WRITE_JSON {
             write_isometries_to_json(
                 &format!("src/tests/data/projector/cyl_on_sphere_recs_{:?}.json", axis),
                 &engraving,
@@ -295,7 +297,7 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    //generate_cyl_on_sphere()?;
+    generate_cyl_on_sphere()?;
     //generate_cyl_on_sphere_with_recs()?;
     //return Ok(());
     generate_flat_projections()?;
