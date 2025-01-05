@@ -296,8 +296,8 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
     //generate_cyl_on_sphere()?;
-    generate_cyl_on_sphere_with_recs()?;
-    return Ok(());
+    //generate_cyl_on_sphere_with_recs()?;
+    //return Ok(());
     generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
