@@ -125,6 +125,11 @@ mod tests;
 pub mod synthetic_meshes;
 
 #[cfg(feature = "stroke_planning")]
+#[path = "path_plan/uplifter.rs"]
+pub mod uplifter;
+
+
+#[cfg(feature = "stroke_planning")]
 pub mod annotations;
 
 

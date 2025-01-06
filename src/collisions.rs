@@ -111,7 +111,7 @@ impl CollisionTask<'_> {
 }
 
 /// Parry does not support AABB as a "proper" shape so we rewrap it as mesh
-fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
+pub fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
     let min: Point<f32> = aabb.mins;
     let max: Point<f32> = aabb.maxs;
     // Define the 8 vertices of the AABB
@@ -400,7 +400,7 @@ impl RobotBody {
     }
 }
 
-const SUPPORTED: &'static str = "Mesh intersection should be supported by Parry3d";
+pub(crate) const SUPPORTED: &'static str = "Mesh intersection should be supported by Parry3d";
 
 impl RobotBody {
     /// Parallel version with Rayon
