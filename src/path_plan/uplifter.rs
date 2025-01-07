@@ -29,7 +29,7 @@ fn lift_toolhead(
             object_pose,
             object_mesh,
         )
-            .expect(crate::collisions::SUPPORTED)
+        .expect(crate::collisions::SUPPORTED)
         {
             // Toolhead and object are safely separated
             false
@@ -39,7 +39,7 @@ fn lift_toolhead(
             object_pose,
             object_mesh,
         )
-            .expect(crate::collisions::SUPPORTED)
+        .expect(crate::collisions::SUPPORTED)
         {
             // Toolhead and object collides
             true
@@ -64,11 +64,11 @@ fn lift_toolhead(
 
     // Compute the local Z-axis in global coordinates (from the toolhead's orientation)
     // Apply the rotation quaternion to the local Z-axis (0, 0, 1)
-    let local_z_axis = toolhead_pose.rotation * Vector3::z(); 
-    
+    let local_z_axis = toolhead_pose.rotation * Vector3::z();
+
     // The test pose for that we only modify translation
     let mut test_pose = toolhead_pose.clone();
-    
+
     while high - low > tolerance {
         iteration_count += 1;
         // Compute the midpoint
@@ -102,7 +102,8 @@ fn lift_toolhead(
     } else {
         println!(
             "No valid position found within the expected range in {:?} in {:?} iterations.",
-            instant.elapsed(), iteration_count
+            instant.elapsed(),
+            iteration_count
         );
         None
     }
@@ -112,11 +113,12 @@ fn lift_toolhead(
 mod tests {
     use crate::synthetic_meshes::sphere_mesh;
     use crate::uplifter::lift_toolhead;
-    use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+    use nalgebra::{ArrayStorage, Const, Isometry3, Matrix, SVector, Translation3, UnitQuaternion, Vector3};
     use once_cell::sync::Lazy;
     use parry3d::shape::TriMesh;
     use std::sync::Arc;
     use std::time::Instant;
+    use approx::relative_eq;
 
     static TOOLHEAD: Lazy<Arc<TriMesh>> = Lazy::new(|| {
         let t_start = Instant::now();
@@ -148,7 +150,8 @@ mod tests {
             &object_pose,
             1.5, // Expected max displacement
             0.2, // Safety distance
-        ).unwrap();
+        )
+        .unwrap();
 
         // Expect movement along the X-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
@@ -176,8 +179,9 @@ mod tests {
             &object_pose,
             1.5, // Expected max displacement
             0.2, // Safety distance
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         // Expect movement along the Y-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
         println!("Toolhead moved to: {:?}", toolhead_pose.translation.vector);
@@ -206,7 +210,8 @@ mod tests {
             &object_pose,
             5.0, // Expected max displacement
             0.2, // Safety distance
-        ).unwrap();
+        )
+        .unwrap();
 
         // Expect movement along the Z-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
@@ -219,12 +224,11 @@ mod tests {
     }
 
     #[test]
-    fn test_lift_toolhead_touching_45_degree_x_z() {
+    fn test_xz_45() {
         // Toolhead's local Z-axis aligned diagonally in the XZ-plane (45 degrees to both X and Z)
         let rotation =
             UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_4); // 45° rotation around global Y-axis
-        let toolhead_pose =
-            Isometry3::from_parts(Translation3::new(0.707, 0.0, 0.707), rotation); // Initial position
+        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.707, 0.0, 0.707), rotation); // Initial position
         let object_pose = Isometry3::identity();
 
         // Perform the lift
@@ -235,57 +239,98 @@ mod tests {
             &object_pose,
             1.5, // Default expected max displacement
             0.2, // Safety distance
-        ).unwrap();
+        )
+        .unwrap();
 
-        // Calculate initial overlap
-        let initial_position = Vector3::new(0.707, 0.0, 0.707);
-        let initial_distance = initial_position.norm(); // Distance from toolhead center to object center
-        let expected_contact_distance = 1.0 + 1.0; // Sum of the toolhead radius + object radius
-        let initial_overlap = expected_contact_distance - initial_distance;
+        assert_displacement(toolhead_pose, Vector3::new(
+            45f32.to_radians().sin(),
+            0.0,
+            45f32.to_radians().cos()
+        ));
+    }
 
-        // Expected diagonal distance (hypotenuse considering initial overlap)
-        let expected_total_displacement = (1.0 + 1.0 + 0.2) - initial_overlap;
+    #[test]
+    fn test_xz_30() {        
+        // Toolhead's local Z-axis rotated 30 degrees downward over the horizon (tilted in the XZ-plane)
+        let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_6); // 30° rotation around global Y-axis
+        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position at the origin
+        let object_pose = Isometry3::identity(); // Object located at the origin
 
-        // Components of the displacement
-        let expected_x_displacement = expected_total_displacement * (45f32.to_radians()).cos(); // ≈ 1.556
-        let expected_z_displacement = expected_total_displacement * (45f32.to_radians()).sin(); // ≈ 1.556
+        // Perform the lift: move the toolhead
+        let toolhead_pose = lift_toolhead(
+            &TOOLHEAD,
+            &toolhead_pose,
+            &OBJECT,
+            &object_pose,
+            2.5, // Maximum displacement distance
+            0.2, // Safety distance
+        )
+            .unwrap();
 
-        // Calculate actual displacement
+        assert_displacement(toolhead_pose, Vector3::new(
+            30_f32.to_radians().sin(),
+            0.0,
+            30_f32.to_radians().cos()
+        ));
+
+    }
+
+    fn assert_displacement(toolhead_pose: Isometry3<f32>, direction: Vector3<f32>) {
+        let center_to_center_distance = 2.2;
+        let displacement_vector = center_to_center_distance * direction;
+        let expected_position = Vector3::new(
+            displacement_vector.x,
+            displacement_vector.y,
+            displacement_vector.z
+        );
         let final_position = toolhead_pose.translation.vector;
-        let displacement_vector = final_position - initial_position;
-        let actual_x_displacement = displacement_vector.x; // Actual X-component
-        let actual_z_displacement = displacement_vector.z; // Actual Z-component
+        println!(
+            "Expected Position: ({:.6}, {:.6}, {:.6})",
+            expected_position.x, expected_position.y, expected_position.z
+        );
+        println!(
+            "Final Position: ({:.6}, {:.6}, {:.6})",
+            final_position.x, final_position.y, final_position.z
+        );
+
+        // Assert that the final position aligns with the expected position
+        assert!(
+            relative_eq!(final_position.x, expected_position.x, epsilon = 0.002),
+            "Toolhead final X position mismatch. Expected {:.6}, Actual {:.6}",
+            expected_position.x,
+            final_position.x
+        );
+        assert!(
+            relative_eq!(final_position.y, expected_position.y, epsilon = 0.002),
+            "Toolhead final Y position mismatch. Expected {:.6}, Actual {:.6}",
+            expected_position.y,
+            final_position.y
+        );
+        assert!(
+            relative_eq!(final_position.z, expected_position.z, epsilon = 0.002),
+            "Toolhead final Z position mismatch. Expected {:.6}, Actual {:.6}",
+            expected_position.z,
+            final_position.z
+        );
+
+        // Total displacement assertion
+        let expected_total_displacement = center_to_center_distance;
+        let actual_total_displacement = (final_position - Vector3::new(0.0, 0.0, 0.0)).norm();
 
         println!(
-            "Toolhead moved to: {:?}, X displacement = {:.6}, Z displacement = {:.6}",
-            final_position, actual_x_displacement, actual_z_displacement
+            "Expected Total Displacement: {:.6}, Actual Total Displacement: {:.6}",
+            expected_total_displacement, actual_total_displacement
         );
 
-        // Allow for a small error tolerance (e.g., 0.001) in each component
         assert!(
-            (actual_x_displacement - expected_x_displacement).abs() <= 0.002,
-            "Toolhead did not move sufficiently along the X-axis. Expected {:.6}, Actual {:.6}",
-            expected_x_displacement,
-            actual_x_displacement
-        );
-        assert!(
-            (actual_z_displacement - expected_z_displacement).abs() <= 0.002,
-            "Toolhead did not move sufficiently along the Z-axis. Expected {:.6}, Actual {:.6}",
-            expected_z_displacement,
-            actual_z_displacement
-        );
-
-        // Validate total displacement
-        let total_displacement = displacement_vector.norm(); // Magnitude of displacement vector
-        println!(
-            "Total displacement = {:.6}, Expected = {:.6}",
-            total_displacement, expected_total_displacement
-        );
-        assert!(
-            (total_displacement - expected_total_displacement).abs() <= 0.002,
-            "Toolhead did not move sufficiently diagonally. Expected total displacement = {:.6}, Actual = {:.6}",
+            relative_eq!(
             expected_total_displacement,
-            total_displacement
+            actual_total_displacement,
+            epsilon = 0.002
+        ),
+            "Toolhead final total displacement mismatch. Expected {:.6}, Actual {:.6}",
+            expected_total_displacement,
+            actual_total_displacement
         );
     }
 }

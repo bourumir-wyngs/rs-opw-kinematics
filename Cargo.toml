@@ -89,6 +89,7 @@ debug = true
 [dev-dependencies]
 #  cargo update rs-cxx-ros2-opw-bridge
 rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge", package = "rs-cxx-ros2-opw-bridge" }
+approx = "0.5.1"
 
 [[bin]]
 name = "planner_tester"

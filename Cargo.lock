@@ -3661,6 +3661,7 @@ dependencies = [
 name = "rs-opw-kinematics"
 version = "1.8.0"
 dependencies = [
+ "approx",
  "bevy",
  "bevy_egui",
  "bitflags 2.6.0",
