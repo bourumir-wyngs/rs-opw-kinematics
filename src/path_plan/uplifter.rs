@@ -1,137 +1,157 @@
-use crate::collisions::SafetyDistances;
 use nalgebra::{Isometry3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
-use parry3d::query::intersection_test;
-use parry3d::query::QueryDispatcher;
 use parry3d::shape::TriMesh;
 use std::time::Instant;
 
-/// Function to lift the toolhead if it intersects with an object, using dichotomy search.
-fn lift_toolhead(
-    toolhead_mesh: &TriMesh,
-    toolhead_pose: &Isometry3<f32>, // Mutable to apply changes
-    object_mesh: &TriMesh,
-    object_pose: &Isometry3<f32>,
+pub struct HeadLifter<'a> {
     expected_max_distance: f32,
     safety_distance: f32,
-) -> Option<Isometry3<f32>> {
-    let instant = Instant::now();
-    // Step 1: Simplify the toolhead shape to an AABB and loosen it by the safety distance
-    let toolhead_aabb = toolhead_mesh.local_aabb().loosened(safety_distance);
-    let toolhead_aabb_mesh = crate::collisions::build_trimesh_from_aabb(toolhead_aabb);
+    object_mesh: &'a TriMesh,
+    toolhead_mesh: &'a TriMesh,
+    tolerance: f32, //  = 0.002 // Precision threshold
+    toolhead_aabb_mesh: TriMesh,
+    debug: bool,
+}
 
-    // Step 2: Define a closure for intersection/distance testing
-    let intersection_test = |test_pose: &Isometry3<f32>| {
-        // First, use the bounding box for a loose intersection test
-        if !parry3d::query::intersection_test(
-            test_pose,
-            &toolhead_aabb_mesh,
-            object_pose,
+impl<'a> HeadLifter<'a> {
+    pub fn new(
+        object_mesh: &'a TriMesh,
+        toolhead_mesh: &'a TriMesh,
+        safety_distance: f32,
+        expected_max_distance: f32,        
+        tolerance: f32,
+    ) -> Self {
+        let toolhead_aabb = toolhead_mesh.local_aabb().loosened(safety_distance);
+        let toolhead_aabb_mesh = crate::collisions::build_trimesh_from_aabb(toolhead_aabb);
+
+        HeadLifter {
             object_mesh,
-        )
-        .expect(crate::collisions::SUPPORTED)
-        {
-            // Toolhead and object are safely separated
-            false
-        } else if !parry3d::query::intersection_test(
-            test_pose,
-            toolhead_mesh,
-            object_pose,
-            object_mesh,
-        )
-        .expect(crate::collisions::SUPPORTED)
-        {
-            // Toolhead and object collides
-            true
-        } else {
-            // Boundary case, perform precise distance check that is a much slower query
-            parry3d::query::distance(test_pose, toolhead_mesh, object_pose, object_mesh)
-                .expect(crate::collisions::SUPPORTED)
-                <= safety_distance
-        }
-    };
-
-    // Step 3: Binary search for the safe position along the toolhead's local Z-axis
-    let mut low = 0.0; // Minimum displacement
-    let mut high = expected_max_distance; // Maximum safe displacement
-    let tolerance = 0.002; // Precision threshold
-    let mut mid;
-
-    // Save the original pose for testing and restore it afterward
-    let mut last_safe_pose = None;
-    let mut found_safe_position = false;
-    let mut iteration_count = 0;
-
-    // Compute the local Z-axis in global coordinates (from the toolhead's orientation)
-    // Apply the rotation quaternion to the local Z-axis (0, 0, 1)
-    let local_z_axis = toolhead_pose.rotation * Vector3::z();
-
-    // The test pose for that we only modify translation
-    let mut test_pose = toolhead_pose.clone();
-
-    while high - low > tolerance {
-        iteration_count += 1;
-        // Compute the midpoint
-        mid = (low + high) / 2.0;
-
-        // Test at this displacement along the toolhead's local Z-axis
-        let displacement = local_z_axis * mid; // Scale the local Z-axis by the distance
-        test_pose.translation.vector = toolhead_pose.translation.vector + displacement; // Apply the displacement
-
-        // Run the intersection test at this position
-        if intersection_test(&test_pose) {
-            // Intersection detected -> move upward (increase low)
-            low = mid;
-        } else {
-            // No intersection -> move downward (decrease high)
-            high = mid;
-            last_safe_pose = Some(test_pose); // Store this as a valid safe position
-            found_safe_position = true;
+            toolhead_mesh,           
+            toolhead_aabb_mesh,
+            safety_distance,
+            expected_max_distance,
+            tolerance,
+            debug: true,
         }
     }
 
-    // Step 4: Move the toolhead to the last safe position
-    if let Some(safe_pose) = last_safe_pose {
-        println!(
-            "Toolhead moved to final position: {:?} in {:?} in {:?} iterations.",
-            safe_pose.translation.vector,
-            instant.elapsed(),
-            iteration_count
-        );
-        Some(safe_pose)
-    } else {
-        println!(
-            "No valid position found within the expected range in {:?} in {:?} iterations.",
-            instant.elapsed(),
-            iteration_count
-        );
-        None
+    /// Function to lift the toolhead if it intersects with an object, using dichotomy search.
+    pub fn lift_toolhead(
+        &self,
+        toolhead_pose: &Isometry3<f32>, // Mutable to apply changes
+        object_pose: &Isometry3<f32>,
+    ) -> Option<Isometry3<f32>> {
+        let instant = Instant::now();
+
+        let intersection_test = |test_pose: &Isometry3<f32>| {
+            // First, use the bounding box for a loose intersection test
+            if !parry3d::query::intersection_test(
+                test_pose,
+                &self.toolhead_aabb_mesh,
+                object_pose,
+                self.object_mesh,
+            )
+            .expect(crate::collisions::SUPPORTED)
+            {
+                // Toolhead and object are safely separated
+                false
+            } else if !parry3d::query::intersection_test(
+                test_pose,
+                self.toolhead_mesh,
+                object_pose,
+                self.object_mesh,
+            )
+            .expect(crate::collisions::SUPPORTED)
+            {
+                // Toolhead and object collides
+                true
+            } else {
+                // Boundary case, perform a precise distance check that is a much slower query
+                parry3d::query::distance(
+                    test_pose,
+                    self.toolhead_mesh,
+                    object_pose,
+                    self.object_mesh,
+                )
+                .expect(crate::collisions::SUPPORTED)
+                    <= self.safety_distance
+            }
+        };
+
+        // Save the original pose for testing and restore it afterward
+        let mut last_safe_pose = None;
+        let mut iteration_count = 0;
+
+        // Compute the local Z-axis in global coordinates (from the toolhead's orientation)
+        // Apply the rotation quaternion to the local Z-axis (0, 0, 1)
+        let local_z_axis = toolhead_pose.rotation * Vector3::z();
+
+        // The test pose for that we only modify translation
+        let mut test_pose = toolhead_pose.clone();
+        let mut low = 0.0; // Minimum displacement
+        let mut high = self.expected_max_distance; // Maximum safe displacement
+
+        while high - low > self.tolerance {
+            iteration_count += 1;
+            // Compute the midpoint
+            let mid = (low + high) / 2.0;
+
+            // Test at this displacement along the toolhead's local Z-axis
+            let displacement = local_z_axis * mid; // Scale the local Z-axis by the distance
+            test_pose.translation.vector = toolhead_pose.translation.vector + displacement; // Apply the displacement
+
+            // Run the intersection test at this position
+            if intersection_test(&test_pose) {
+                // Intersection detected -> move upward (increase low)
+                low = mid;
+            } else {
+                // No intersection -> move downward (decrease high)
+                high = mid;
+                last_safe_pose = Some(test_pose); // Store this as a valid safe position
+            }
+        }
+
+        if self.debug {
+            let elapsed = instant.elapsed();
+            if let Some(safe_pose) = last_safe_pose {
+                println!(
+                    "Toolhead moved to final position: {:?} in {:?} in {:?} iterations.",
+                    safe_pose.translation.vector,
+                    elapsed,
+                    iteration_count
+                );
+            } else {
+                println!(
+                    "No valid position found within the expected range in {:?} in {:?} iterations.",
+                    elapsed,
+                    iteration_count
+                );
+            };
+        }
+        
+        last_safe_pose        
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::synthetic_meshes::sphere_mesh;
-    use crate::uplifter::lift_toolhead;
-    use nalgebra::{ArrayStorage, Const, Isometry3, Matrix, SVector, Translation3, UnitQuaternion, Vector3};
+    use crate::uplifter::HeadLifter;
+    use approx::relative_eq;
+    use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
     use once_cell::sync::Lazy;
     use parry3d::shape::TriMesh;
-    use std::sync::Arc;
-    use std::time::Instant;
-    use approx::relative_eq;
 
-    static TOOLHEAD: Lazy<Arc<TriMesh>> = Lazy::new(|| {
-        let t_start = Instant::now();
-        let mesh = sphere_mesh(1.0, 128);
-        println!("Sphere mesh built in {:?}", t_start.elapsed());
-        Arc::new(mesh) // Thread-safe and reusable
+    static TOOLHEAD: Lazy<TriMesh> = Lazy::new(|| {
+        sphere_mesh(1.0, 128)
     });
 
-    static OBJECT: Lazy<Arc<TriMesh>> = Lazy::new(|| {
-        let t_start = Instant::now();
-        let mesh = sphere_mesh(1.0, 128);
-        println!("Sphere mesh built in {:?}", t_start.elapsed());
-        Arc::new(mesh) // Thread-safe and reusable
+    static OBJECT: Lazy<TriMesh> = Lazy::new(|| {
+        sphere_mesh(1.0, 128)
+    });
+
+    static UPLIFTER: Lazy<HeadLifter> = Lazy::new(|| {
+        HeadLifter::new(&OBJECT, &TOOLHEAD, 0.2, 4.0, 0.002)
     });
 
     #[test]
@@ -143,15 +163,9 @@ mod tests {
         let object_pose = Isometry3::identity();
 
         // Perform the lift
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            1.5, // Expected max displacement
-            0.2, // Safety distance
-        )
-        .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
         // Expect movement along the X-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
@@ -171,16 +185,9 @@ mod tests {
         let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 1.0, 0.0), rotation);
         let object_pose = Isometry3::identity();
 
-        // Perform the lift
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            1.5, // Expected max displacement
-            0.2, // Safety distance
-        )
-        .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
         // Expect movement along the Y-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
@@ -195,23 +202,16 @@ mod tests {
     #[test]
     fn test_lift_toolhead_touching_on_z_axis() {
         // Toolhead's default local Z-axis is already aligned with the global Z-axis
-        let mut toolhead_pose = Isometry3::from_parts(
+        let toolhead_pose = Isometry3::from_parts(
             Translation3::new(0.0, 0.0, -1.0),
             UnitQuaternion::identity(),
         ); // Toolhead starting at Z = -1
         let object_pose =
             Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), UnitQuaternion::identity()); // Object at Z = 0
 
-        // Perform the lift
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            5.0, // Expected max displacement
-            0.2, // Safety distance
-        )
-        .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
         // Expect movement along the Z-axis
         let expected_translation = 1.0 + 1.0 + 0.2; // Sphere radii + safety distance
@@ -231,31 +231,20 @@ mod tests {
         let toolhead_pose = Isometry3::from_parts(Translation3::new(0.707, 0.0, 0.707), rotation); // Initial position
         let object_pose = Isometry3::identity();
 
-        // Perform the lift
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            1.5, // Default expected max displacement
-            0.2, // Safety distance
-        )
-        .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
-        assert_displacement(toolhead_pose, Vector3::new(
-            45_f32.to_radians().sin(),
-            0.0,
-            45_f32.to_radians().cos()
-        ));
+        assert_displacement(
+            toolhead_pose,
+            Vector3::new(45_f32.to_radians().sin(), 0.0, 45_f32.to_radians().cos()),
+        );
     }
 
     #[test]
     fn test_xy_45() {
         // The target Z axis direction in the world coordinate space
         let target_z = Vector3::new(1.0, 1.0, 0.0).normalize();
-
-        // The default Z axis in the local coordinate system
-        let local_z: Vector3<f32> = *Vector3::z_axis();
 
         // Find the rotation that aligns the local Z axis with the target Z axis
         let rotation = UnitQuaternion::face_towards(&target_z, &Vector3::z_axis());
@@ -266,53 +255,36 @@ mod tests {
 
         // Quaternion representing the required rotation
         println!("Quaternion: {:?}", rotation);
-        
+
         let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position
         let object_pose = Isometry3::identity();
 
-        // Perform the lift
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            5.0, // Default expected max displacement
-            0.2, // Safety distance
-        )
-            .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
-        assert_displacement(toolhead_pose, Vector3::new(
-            45f32.to_radians().sin(),
-            45f32.to_radians().cos(),            
-            0.0,
-
-        ));
-    }    
+        assert_displacement(
+            toolhead_pose,
+            Vector3::new(45f32.to_radians().sin(), 45f32.to_radians().cos(), 0.0),
+        );
+    }
 
     #[test]
-    fn test_xz_30() {        
+    fn test_xz_30() {
         // Toolhead's local Z-axis rotated 30 degrees downward over the horizon (tilted in the XZ-plane)
-        let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_6); // 30° rotation around global Y-axis
+        let rotation =
+            UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_6); // 30° rotation around global Y-axis
         let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position at the origin
         let object_pose = Isometry3::identity(); // Object located at the origin
 
-        // Perform the lift: move the toolhead
-        let toolhead_pose = lift_toolhead(
-            &TOOLHEAD,
-            &toolhead_pose,
-            &OBJECT,
-            &object_pose,
-            2.5, // Maximum displacement distance
-            0.2, // Safety distance
-        )
-            .unwrap();
+        let toolhead_pose = UPLIFTER
+            .lift_toolhead(&toolhead_pose, &object_pose)
+            .expect("Failed to lift toolhead");
 
-        assert_displacement(toolhead_pose, Vector3::new(
-            30_f32.to_radians().sin(),
-            0.0,
-            30_f32.to_radians().cos()
-        ));
-
+        assert_displacement(
+            toolhead_pose,
+            Vector3::new(30_f32.to_radians().sin(), 0.0, 30_f32.to_radians().cos()),
+        );
     }
 
     fn assert_displacement(toolhead_pose: Isometry3<f32>, direction: Vector3<f32>) {
@@ -321,7 +293,7 @@ mod tests {
         let expected_position = Vector3::new(
             displacement_vector.x,
             displacement_vector.y,
-            displacement_vector.z
+            displacement_vector.z,
         );
         let final_position = toolhead_pose.translation.vector;
         println!(
@@ -364,10 +336,10 @@ mod tests {
 
         assert!(
             relative_eq!(
-            expected_total_displacement,
-            actual_total_displacement,
-            epsilon = 0.002
-        ),
+                expected_total_displacement,
+                actual_total_displacement,
+                epsilon = 0.002
+            ),
             "Toolhead final total displacement mismatch. Expected {:.6}, Actual {:.6}",
             expected_total_displacement,
             actual_total_displacement
