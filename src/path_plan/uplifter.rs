@@ -243,11 +243,51 @@ mod tests {
         .unwrap();
 
         assert_displacement(toolhead_pose, Vector3::new(
-            45f32.to_radians().sin(),
+            45_f32.to_radians().sin(),
             0.0,
-            45f32.to_radians().cos()
+            45_f32.to_radians().cos()
         ));
     }
+
+    #[test]
+    fn test_xy_45() {
+        // The target Z axis direction in the world coordinate space
+        let target_z = Vector3::new(1.0, 1.0, 0.0).normalize();
+
+        // The default Z axis in the local coordinate system
+        let local_z: Vector3<f32> = *Vector3::z_axis();
+
+        // Find the rotation that aligns the local Z axis with the target Z axis
+        let rotation = UnitQuaternion::face_towards(&target_z, &Vector3::z_axis());
+
+        // Verify the rotation result: Make sure the rotated Z axis aligns correctly
+        let rotated_z = rotation.transform_vector(&Vector3::z());
+        println!("Rotated Z axis (world space): {:?}", rotated_z);
+
+        // Quaternion representing the required rotation
+        println!("Quaternion: {:?}", rotation);
+        
+        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position
+        let object_pose = Isometry3::identity();
+
+        // Perform the lift
+        let toolhead_pose = lift_toolhead(
+            &TOOLHEAD,
+            &toolhead_pose,
+            &OBJECT,
+            &object_pose,
+            5.0, // Default expected max displacement
+            0.2, // Safety distance
+        )
+            .unwrap();
+
+        assert_displacement(toolhead_pose, Vector3::new(
+            45f32.to_radians().sin(),
+            45f32.to_radians().cos(),            
+            0.0,
+
+        ));
+    }    
 
     #[test]
     fn test_xz_30() {        
