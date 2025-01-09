@@ -1,6 +1,6 @@
 use nalgebra::{Isometry3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
-use parry3d::shape::TriMesh;
+use parry3d::shape::{ConvexPolyhedron, TriMesh};
 use std::time::Instant;
 
 pub struct HeadLifter<'a> {
@@ -8,8 +8,9 @@ pub struct HeadLifter<'a> {
     safety_distance: f32,
     object_mesh: &'a TriMesh,
     toolhead_mesh: &'a TriMesh,
+    toolhead_qhull: ConvexPolyhedron, 
+    toolhead_aabb_mesh: TriMesh,    
     tolerance: f32, //  = 0.002 // Precision threshold
-    toolhead_aabb_mesh: TriMesh,
     debug: bool,
 }
 
@@ -18,16 +19,19 @@ impl<'a> HeadLifter<'a> {
         object_mesh: &'a TriMesh,
         toolhead_mesh: &'a TriMesh,
         safety_distance: f32,
-        expected_max_distance: f32,        
+        expected_max_distance: f32,
         tolerance: f32,
     ) -> Self {
         let toolhead_aabb = toolhead_mesh.local_aabb().loosened(safety_distance);
         let toolhead_aabb_mesh = crate::collisions::build_trimesh_from_aabb(toolhead_aabb);
+        let toolhead_qhull = ConvexPolyhedron::from_convex_hull(toolhead_mesh.vertices())
+            .expect("Failed to create QHuConvexPolyhedron for toolhead");
 
         HeadLifter {
             object_mesh,
-            toolhead_mesh,           
+            toolhead_mesh,
             toolhead_aabb_mesh,
+            toolhead_qhull,
             safety_distance,
             expected_max_distance,
             tolerance,
@@ -57,7 +61,8 @@ impl<'a> HeadLifter<'a> {
                 false
             } else if !parry3d::query::intersection_test(
                 test_pose,
-                self.toolhead_mesh,
+                self.toolhead_mesh, // Collision detector is faster with mesh, not hull.
+                //&self.toolhead_qhull,
                 object_pose,
                 self.object_mesh,
             )
@@ -69,7 +74,7 @@ impl<'a> HeadLifter<'a> {
                 // Boundary case, perform a precise distance check that is a much slower query
                 parry3d::query::distance(
                     test_pose,
-                    self.toolhead_mesh,
+                    &self.toolhead_qhull,
                     object_pose,
                     self.object_mesh,
                 )
@@ -77,6 +82,20 @@ impl<'a> HeadLifter<'a> {
                     <= self.safety_distance
             }
         };
+        
+        /*
+        if !parry3d::query::intersection_test(
+            toolhead_pose,
+            &self.toolhead_aabb_mesh,
+            object_pose,
+            self.object_mesh,
+        )
+            .expect(crate::collisions::SUPPORTED)
+        {
+            println!("Good immediately: No intersection with object.");
+            return Some(*toolhead_pose);
+        }
+       */
 
         // Save the original pose for testing and restore it afterward
         let mut last_safe_pose = None;
@@ -116,20 +135,17 @@ impl<'a> HeadLifter<'a> {
             if let Some(safe_pose) = last_safe_pose {
                 println!(
                     "Toolhead moved to final position: {:?} in {:?} in {:?} iterations.",
-                    safe_pose.translation.vector,
-                    elapsed,
-                    iteration_count
+                    safe_pose.translation.vector, elapsed, iteration_count
                 );
             } else {
                 println!(
                     "No valid position found within the expected range in {:?} in {:?} iterations.",
-                    elapsed,
-                    iteration_count
+                    elapsed, iteration_count
                 );
             };
         }
-        
-        last_safe_pose        
+
+        last_safe_pose
     }
 }
 
@@ -142,17 +158,12 @@ mod tests {
     use once_cell::sync::Lazy;
     use parry3d::shape::TriMesh;
 
-    static TOOLHEAD: Lazy<TriMesh> = Lazy::new(|| {
-        sphere_mesh(1.0, 128)
-    });
+    static TOOLHEAD: Lazy<TriMesh> = Lazy::new(|| sphere_mesh(1.0, 128));
 
-    static OBJECT: Lazy<TriMesh> = Lazy::new(|| {
-        sphere_mesh(1.0, 128)
-    });
+    static OBJECT: Lazy<TriMesh> = Lazy::new(|| sphere_mesh(1.0, 128));
 
-    static UPLIFTER: Lazy<HeadLifter> = Lazy::new(|| {
-        HeadLifter::new(&OBJECT, &TOOLHEAD, 0.2, 4.0, 0.002)
-    });
+    static UPLIFTER: Lazy<HeadLifter> =
+        Lazy::new(|| HeadLifter::new(&OBJECT, &TOOLHEAD, 0.2, 4.0, 0.002));
 
     #[test]
     fn test_lift_toolhead_touching_on_x_axis() {

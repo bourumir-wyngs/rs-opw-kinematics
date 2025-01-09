@@ -128,7 +128,6 @@ pub mod synthetic_meshes;
 #[path = "path_plan/uplifter.rs"]
 pub mod uplifter;
 
-
 #[cfg(feature = "stroke_planning")]
 pub mod annotations;
 

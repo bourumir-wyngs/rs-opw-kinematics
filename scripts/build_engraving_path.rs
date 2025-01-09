@@ -10,6 +10,9 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::time::Instant;
+use once_cell::sync::Lazy;
+use parry3d::shape::TriMesh;
+use rs_opw_kinematics::uplifter::HeadLifter;
 
 static PROJECTOR: Projector = Projector {
     check_points: 24, // Defined number of normals to check
@@ -233,15 +236,7 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
 
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
         let sender = Sender::new("127.0.0.1", 5555);
-
-        match sender.send_pose_message(&filter_valid_poses(&engraving)) {
-            Ok(_) => {
-                println!("Pose message sent successfully.");
-            }
-            Err(err) => {
-                eprintln!("Failed to send pose message: {}", err);
-            }
-        }
+        send_pose_message(&sender, &engraving);
         
         pause();
 
@@ -288,6 +283,51 @@ fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
     Ok(())
 }
 
+fn uplifter_on_sphere_with_recs() -> Result<(), String> {
+    let sender = Sender::new("127.0.0.1", 5555);
+
+    let path = generate_raster_points(20, 20); // Cylinder
+    //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+    let axis = Axis::Z;
+    let mut engraving =
+      PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+
+    send_pose_message(&sender, &engraving);
+    //pause();
+
+    let toolhead = sphere_mesh(0.05, 64);
+    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.1, 0.002);
+
+    for pose in engraving.clone() {
+        if let Some(adjusted_pose) =
+            lifter.lift_toolhead(&pose.pose.cast(), &Isometry3::identity()) {
+            println!("Pose adjusted {:?} -> {:?} |{:?}|", pose, adjusted_pose,
+                     (pose.pose.translation.vector - adjusted_pose.translation.vector.cast()).norm());
+            engraving.push(AnnotatedPose {
+                pose: adjusted_pose.cast(),
+                flags: pose.flags,
+            });
+        } else {
+            println!("No adjustment for pose {:?}", pose);
+        }
+    }
+
+    send_pose_message(&sender, &engraving);
+    Ok(())
+}
+
+fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
+    match sender.send_pose_message(&filter_valid_poses(&adjusted)) {
+        Ok(_) => {
+            println!("Pose message sent successfully.");
+        }
+        Err(err) => {
+            eprintln!("Failed to send pose message: {}", err);
+        }
+    }
+}
+
 fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), String> {
     match sender.send_pose_message(&filter_valid_poses(&engraving)) {
         Ok(_) => Ok(()),
@@ -297,10 +337,11 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    generate_cyl_on_sphere()?;
+    //generate_cyl_on_sphere()?;
+    uplifter_on_sphere_with_recs()?;
     //generate_cyl_on_sphere_with_recs()?;
     //return Ok(());
-    generate_flat_projections()?;
+    //generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
