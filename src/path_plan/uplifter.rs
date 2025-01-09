@@ -83,7 +83,6 @@ impl<'a> HeadLifter<'a> {
             }
         };
         
-        /*
         if !parry3d::query::intersection_test(
             toolhead_pose,
             &self.toolhead_aabb_mesh,
@@ -92,10 +91,9 @@ impl<'a> HeadLifter<'a> {
         )
             .expect(crate::collisions::SUPPORTED)
         {
-            println!("Good immediately: No intersection with object.");
+            println!("Good immediately");
             return Some(*toolhead_pose);
         }
-       */
 
         // Save the original pose for testing and restore it afterward
         let mut last_safe_pose = None;

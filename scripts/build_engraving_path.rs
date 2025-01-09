@@ -12,6 +12,8 @@ use std::io::Write;
 use std::time::Instant;
 use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
+use rayon::prelude::IntoParallelRefIterator;
+use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::uplifter::HeadLifter;
 
 static PROJECTOR: Projector = Projector {
@@ -284,34 +286,49 @@ fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
 }
 
 fn uplifter_on_sphere_with_recs() -> Result<(), String> {
+    use rayon::iter::ParallelIterator;
+    
     let sender = Sender::new("127.0.0.1", 5555);
 
-    let path = generate_raster_points(20, 20); // Cylinder
+    let path = generate_raster_points(128, 128); // Cylinder
     //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let axis = Axis::Z;
-    let mut engraving =
+    let engraving =
       PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
 
+    let engraving =  engraving.par_iter() // Parallel iteration over poses
+        .map(|pose| {
+            pose.elevate(0.1)
+        }).collect();
+        
     send_pose_message(&sender, &engraving);
     //pause();
 
-    let toolhead = sphere_mesh(0.05, 64);
-    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.1, 0.002);
+    let toolhead = sphere_mesh(0.15, 64);
+    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.3, 0.002);
 
-    for pose in engraving.clone() {
-        if let Some(adjusted_pose) =
-            lifter.lift_toolhead(&pose.pose.cast(), &Isometry3::identity()) {
-            println!("Pose adjusted {:?} -> {:?} |{:?}|", pose, adjusted_pose,
-                     (pose.pose.translation.vector - adjusted_pose.translation.vector.cast()).norm());
-            engraving.push(AnnotatedPose {
-                pose: adjusted_pose.cast(),
-                flags: pose.flags,
-            });
-        } else {
-            println!("No adjustment for pose {:?}", pose);
-        }
-    }
+    let engraving: Vec<AnnotatedPose> = engraving.par_iter()
+        .filter_map(|pose| {
+            lifter
+                .lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
+                .map(|adjusted_pose| {
+                    if false {
+                        println!(
+                            "Pose adjusted {:?} -> {:?} |{:?}|",
+                            pose,
+                            adjusted_pose,
+                            (pose.pose.translation.vector - adjusted_pose.translation.vector.cast()).norm()
+                        );
+                    }
+                    // Construct transformed AnnotatedPose
+                    AnnotatedPose {
+                        pose: adjusted_pose.cast(),
+                        flags: pose.flags,
+                    }
+                })
+        })
+        .collect();
 
     send_pose_message(&sender, &engraving);
     Ok(())

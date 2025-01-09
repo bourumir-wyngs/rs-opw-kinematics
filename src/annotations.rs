@@ -1,6 +1,6 @@
 use crate::kinematic_traits::{Joints, Pose};
 use bitflags::bitflags;
-use nalgebra::{Isometry3, Translation3};
+use nalgebra::{Isometry3, Translation3, Vector3};
 use parry3d::math::Rotation;
 use parry3d::na;
 use std::fmt;
@@ -82,6 +82,23 @@ pub struct AnnotatedPathStep {
 }
 
 impl AnnotatedPose {
+    pub fn elevate(&self, dz: f64) -> AnnotatedPose {
+        // Extract the rotation component as a UnitQuaternion
+        let rotation = &self.pose.rotation;
+
+        // Determine the local Z-axis direction (quaternion's orientation)
+        let local_z_axis = rotation.transform_vector(&Vector3::z());
+
+        // Compute the new translation by adding dz along the local Z-axis
+        let translation = self.pose.translation.vector - dz * local_z_axis;
+
+        // Return a new Isometry3 with the updated translation and the same rotation
+        AnnotatedPose {
+            pose: Isometry3::from_parts(translation.into(), rotation.clone()),
+            flags: self.flags
+        }
+    }
+    
     pub(crate) fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
 
