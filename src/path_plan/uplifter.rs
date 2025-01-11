@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Vector3};
+use nalgebra::{Isometry3, Translation3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::shape::{ConvexPolyhedron, TriMesh};
 use std::time::Instant;
@@ -8,8 +8,8 @@ pub struct HeadLifter<'a> {
     safety_distance: f32,
     object_mesh: &'a TriMesh,
     toolhead_mesh: &'a TriMesh,
-    toolhead_qhull: ConvexPolyhedron, 
-    toolhead_aabb_mesh: TriMesh,    
+    toolhead_qhull: ConvexPolyhedron,
+    toolhead_aabb_mesh: TriMesh,
     tolerance: f32, //  = 0.002 // Precision threshold
     debug: bool,
 }
@@ -58,38 +58,41 @@ impl<'a> HeadLifter<'a> {
             .expect(crate::collisions::SUPPORTED)
             {
                 // Toolhead and object are safely separated
+                print!("L");
                 false
             } else if !parry3d::query::intersection_test(
                 test_pose,
                 self.toolhead_mesh, // Collision detector is faster with mesh, not hull.
-                //&self.toolhead_qhull,
                 object_pose,
                 self.object_mesh,
             )
             .expect(crate::collisions::SUPPORTED)
             {
                 // Toolhead and object collides
+                print!("C");
                 true
             } else {
                 // Boundary case, perform a precise distance check that is a much slower query
-                parry3d::query::distance(
+                let r = parry3d::query::distance(
                     test_pose,
-                    &self.toolhead_qhull,
+                    self.toolhead_mesh,
                     object_pose,
                     self.object_mesh,
                 )
-                .expect(crate::collisions::SUPPORTED)
-                    <= self.safety_distance
+                .expect(crate::collisions::SUPPORTED);
+                print!("R {}", r);
+                r <= self.safety_distance
             }
         };
-        
+
+        println!("\n>>>>");
         if !parry3d::query::intersection_test(
             toolhead_pose,
             &self.toolhead_aabb_mesh,
             object_pose,
             self.object_mesh,
         )
-            .expect(crate::collisions::SUPPORTED)
+        .expect(crate::collisions::SUPPORTED)
         {
             println!("Good immediately");
             return Some(*toolhead_pose);
@@ -101,10 +104,9 @@ impl<'a> HeadLifter<'a> {
 
         // Compute the local Z-axis in global coordinates (from the toolhead's orientation)
         // Apply the rotation quaternion to the local Z-axis (0, 0, 1)
-        let local_z_axis = toolhead_pose.rotation * Vector3::z();
+        let local_z_axis = toolhead_pose.rotation.transform_vector(&Vector3::z());
 
         // The test pose for that we only modify translation
-        let mut test_pose = toolhead_pose.clone();
         let mut low = 0.0; // Minimum displacement
         let mut high = self.expected_max_distance; // Maximum safe displacement
 
@@ -112,12 +114,12 @@ impl<'a> HeadLifter<'a> {
             iteration_count += 1;
             // Compute the midpoint
             let mid = (low + high) / 2.0;
-
-            // Test at this displacement along the toolhead's local Z-axis
-            let displacement = local_z_axis * mid; // Scale the local Z-axis by the distance
-            test_pose.translation.vector = toolhead_pose.translation.vector + displacement; // Apply the displacement
+            let translation =
+                Translation3::from(toolhead_pose.translation.vector + mid * local_z_axis);
+            let test_pose = Isometry3::from_parts(translation, toolhead_pose.rotation);
 
             // Run the intersection test at this position
+            print!("[{} {} {}]", low, mid, high);
             if intersection_test(&test_pose) {
                 // Intersection detected -> move upward (increase low)
                 low = mid;
@@ -131,13 +133,15 @@ impl<'a> HeadLifter<'a> {
         if self.debug {
             let elapsed = instant.elapsed();
             if let Some(safe_pose) = last_safe_pose {
-                println!(
-                    "Toolhead moved to final position: {:?} in {:?} in {:?} iterations.",
-                    safe_pose.translation.vector, elapsed, iteration_count
-                );
+                let relocation =
+                    (toolhead_pose.translation.vector - safe_pose.translation.vector).norm();
+                    println!(
+                        "  moved by |{:?}| in {:?} iterations {:?}.  ******\n\n",
+                        relocation, iteration_count, elapsed
+                    )
             } else {
                 println!(
-                    "No valid position found within the expected range in {:?} in {:?} iterations.",
+                    "  no valid position found within the expected range in {:?} in {:?} iterations.",
                     elapsed, iteration_count
                 );
             };

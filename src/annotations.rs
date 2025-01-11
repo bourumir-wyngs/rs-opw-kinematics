@@ -82,6 +82,8 @@ pub struct AnnotatedPathStep {
 }
 
 impl AnnotatedPose {
+    /// Move the pose "away" from the target along local quaternion z axis.
+    /// Positive value is meant to move away, negative - closer to the target.
     pub fn elevate(&self, dz: f64) -> AnnotatedPose {
         // Extract the rotation component as a UnitQuaternion
         let rotation = &self.pose.rotation;
@@ -90,7 +92,7 @@ impl AnnotatedPose {
         let local_z_axis = rotation.transform_vector(&Vector3::z());
 
         // Compute the new translation by adding dz along the local Z-axis
-        let translation = self.pose.translation.vector - dz * local_z_axis;
+        let translation = self.pose.translation.vector + dz * local_z_axis;
 
         // Return a new Isometry3 with the updated translation and the same rotation
         AnnotatedPose {

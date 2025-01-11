@@ -1,15 +1,15 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
+use bevy_egui::egui::Key::P;
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
-use std::f32::consts::PI;
-use std::fmt::format;
-use std::ops::Range;
-use bevy_egui::egui::Key::P;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use rayon::prelude::IntoParallelRefIterator;
+use std::f32::consts::PI;
+use std::fmt::format;
+use std::ops::Range;
 
 pub struct Projector {
     pub check_points: usize,
@@ -130,8 +130,8 @@ impl Projector {
 
     /// Project point from the surface of the cylinder surrounding the mesh, onto
     /// the surface of the mesh. The axis parameter defines the axis of the cylinder,
-    /// always intersecting the origin of the coordinates. 
-    /// 
+    /// always intersecting the origin of the coordinates.
+    ///
     /// This method only computes the point, not coordinates
     pub(crate) fn project_point_cylindric(
         mesh: &TriMesh,
@@ -185,7 +185,7 @@ impl Projector {
     /// (this is the natural direction to position the effector of the robot).
     ///
     /// This method produces both position and orientation
-    pub (crate) fn project_flat(
+    pub(crate) fn project_flat(
         &self,
         mesh: &TriMesh,
         point: &ParryPoint<f32>,
@@ -229,7 +229,7 @@ impl Projector {
     /// always intersecting the origin of the coordinates. The normals (corresponding surface
     /// of the mesh, not the cylinder) point inward, the natural direction to pass for the
     /// robot path planning.
-    pub (crate) fn project_cylindric(
+    pub(crate) fn project_cylindric(
         &self,
         mesh: &TriMesh,
         point: &geo::Point<f32>,
@@ -297,7 +297,7 @@ impl Projector {
     /// always intersecting the origin of the coordinates. The normals (corresponding surface
     /// of the mesh, not the cylinder) point inward, the natural direction to pass for the
     /// robot path planning.
-    /// 
+    ///
     /// Any flags set on an annotated path will be passed to the projected path.
     /// Most important, the stroke direction flags will be preserved.
     pub fn project_cylinder_path(
@@ -527,7 +527,7 @@ impl Projector {
             })
             .reduce(|| Vector3::zeros(), |acc, local| acc + local);
 
-           normal_sum
+        normal_sum
     }
 
     /// Decomposes a quaternion into its swing and twist components around a specified axis.
@@ -535,6 +535,19 @@ impl Projector {
         quaternion: UnitQuaternion<f32>,
         axis: &Vector3<f32>,
     ) -> (UnitQuaternion<f32>, UnitQuaternion<f32>) {
+        let dot = quaternion.i * axis.x + quaternion.j * axis.y + quaternion.k * axis.z;
+        let twist = Quaternion::new(quaternion.w, axis.x * dot, axis.y * dot, axis.z * dot);
+
+        let twist = UnitQuaternion::from_quaternion(twist);
+        let swing = quaternion * twist.inverse();
+
+        (swing, twist)
+    }
+
+    fn decompose_swing_twist64(
+        quaternion: UnitQuaternion<f64>,
+        axis: &Vector3<f64>,
+    ) -> (UnitQuaternion<f64>, UnitQuaternion<f64>) {
         let dot = quaternion.i * axis.x + quaternion.j * axis.y + quaternion.k * axis.z;
         let twist = Quaternion::new(quaternion.w, axis.x * dot, axis.y * dot, axis.z * dot);
 
@@ -564,6 +577,19 @@ impl Projector {
     ) -> UnitQuaternion<f32> {
         // Decompose the quaternion into swing and twist
         let axis = Vector3::x_axis();
+        let (swing, _twist) = decomposition;
+        let fixed_twist = UnitQuaternion::from_axis_angle(&axis, fixed_angle);
+
+        // Combine the swing with the new twist
+        swing * fixed_twist
+    }
+
+    fn twist_z64(
+        decomposition: &(UnitQuaternion<f64>, UnitQuaternion<f64>),
+        fixed_angle: f64,
+    ) -> UnitQuaternion<f64> {
+        // Decompose the quaternion into swing and twist
+        let axis = Vector3::z_axis();
         let (swing, _twist) = decomposition;
         let fixed_twist = UnitQuaternion::from_axis_angle(&axis, fixed_angle);
 
@@ -644,7 +670,7 @@ impl Projector {
         } else {
             return None;
         }
-                
+
         let quaternion;
 
         #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -672,7 +698,7 @@ impl Projector {
                     225.0..=270.0 => Strategy::Y,
                     270.0..=315.0 => Strategy::X,
                     315.0..=361.0 => Strategy::X,
-                    _ => unreachable!("{}", angle)
+                    _ => unreachable!("{}", angle),
                 },
                 false,
             )
@@ -692,7 +718,7 @@ impl Projector {
                         225.0..=270.0 => Strategy::X,
                         270.0..=315.0 => Strategy::X,
                         315.0..=361.0 => Strategy::X,
-                        _ => unreachable!("{}", angle)
+                        _ => unreachable!("{}", angle),
                     },
 
                     180.0..=225.0 => Strategy::Z,
@@ -703,7 +729,7 @@ impl Projector {
                     270.0..=315.0 => Strategy::X,
                     315.0..=361.0 => Strategy::X,
 
-                    _ => unreachable!("{}", angle)
+                    _ => unreachable!("{}", angle),
                 },
                 true,
             )
@@ -718,7 +744,7 @@ impl Projector {
                     225.0..=270.0 => Strategy::Z,
                     270.0..=315.0 => Strategy::ZSpecTwistX,
                     315.0..=361.0 => Strategy::ZSpecTwistX,
-                    _ => unreachable!("{}", angle)
+                    _ => unreachable!("{}", angle),
                 },
                 false,
             )
@@ -794,24 +820,71 @@ impl Projector {
         }
     }
 
-    /// Align a quaternion's X-axis to the given target X-axis with a precise alignment check
     fn _align_quaternion_x_to_points(
         quaternion: UnitQuaternion<f64>,
         target_x: &Vector3<f64>,
     ) -> UnitQuaternion<f64> {
-        const ALIGNMENT_THRESHOLD: f64 = 0.01 * std::f64::consts::PI / 180.0;
-        let current_x = quaternion * Vector3::x();
-        let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
-        let angle_misalignment = dot_product.acos();
-        if angle_misalignment < ALIGNMENT_THRESHOLD {
-            return quaternion;
+        // Closure to calculate Z-axis change between computer result and initial quaternion
+        let z_axis_change_between_quaternions = |result: &UnitQuaternion<f64>| -> f64 {
+            let initial_z = quaternion * Vector3::z();
+            let result_z = result * Vector3::z();
+            let dot_product = initial_z.dot(&result_z).clamp(-1.0, 1.0);
+            let angle_change = dot_product.acos();
+            angle_change.abs()
+        };
+
+        const ALIGNMENT_THRESHOLD: f64 = 0.05 * std::f64::consts::PI / 180.0;
+
+        // Closure for Algorithm 1: align along vector target_x
+        let alg_x = || -> UnitQuaternion<f64> {
+            let current_x = quaternion * Vector3::x();
+            let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
+            let angle_misalignment = dot_product.acos();
+            if angle_misalignment < ALIGNMENT_THRESHOLD {
+                quaternion
+            } else {
+                let rotation_axis = current_x.cross(&target_x);
+                let alignment_quaternion = UnitQuaternion::from_axis_angle(
+                    &Unit::new_normalize(rotation_axis),
+                    angle_misalignment,
+                );
+                alignment_quaternion * quaternion
+            }
+        };
+
+        // Closure for Algorithm 1: align against vector target_x
+        let alg_alt_x = ||
+                         -> UnitQuaternion<f64> {
+            let target_x = -target_x;
+            let current_x = quaternion * Vector3::x();
+            let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);
+            let angle_misalignment = dot_product.acos();
+            if angle_misalignment < ALIGNMENT_THRESHOLD {
+                quaternion
+            } else {
+                let rotation_axis = current_x.cross(&target_x);
+                let alignment_quaternion = UnitQuaternion::from_axis_angle(
+                    &Unit::new_normalize(rotation_axis),
+                    angle_misalignment,
+                );
+                let result = alignment_quaternion * quaternion;
+                // Reverse local X axis of the quaternion
+                let decomposition = Projector::decompose_swing_twist64(result, &Vector3::z());
+                Projector::twist_z64(&decomposition, std::f64::consts::PI)
+            }
+        };
+
+        let aligned_x = alg_x();
+        let aligned_alt_x = alg_alt_x();
+
+        // Use result that alters the Z axis less
+        let a1c = z_axis_change_between_quaternions(&aligned_x);
+        let a2c = z_axis_change_between_quaternions(&aligned_alt_x);
+        if a1c < 5.0_f64.to_radians() || a1c < a2c {
+            aligned_x
+        } else {
+            aligned_alt_x
         }
-        let rotation_axis = current_x.cross(&target_x);
-        let alignment_quaternion = UnitQuaternion::from_axis_angle(
-            &Unit::new_normalize(rotation_axis),
-            angle_misalignment,
-        );
-        alignment_quaternion * quaternion
     }
 
     fn align_quaternion_x_to_points(

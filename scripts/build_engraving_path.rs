@@ -1,20 +1,20 @@
 use nalgebra::Isometry3;
+use once_cell::sync::Lazy;
+use parry3d::shape::TriMesh;
+use rayon::prelude::IntoParallelRefIterator;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
+use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::synthetic_meshes::{sphere_mesh, sphere_with_recessions};
+use rs_opw_kinematics::uplifter::HeadLifter;
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::time::Instant;
-use once_cell::sync::Lazy;
-use parry3d::shape::TriMesh;
-use rayon::prelude::IntoParallelRefIterator;
-use rs_opw_kinematics::cartesian::Cartesian;
-use rs_opw_kinematics::uplifter::HeadLifter;
 
 static PROJECTOR: Projector = Projector {
     check_points: 24, // Defined number of normals to check
@@ -230,7 +230,7 @@ fn generate_flat_projections() -> Result<(), String> {
 fn generate_cyl_on_sphere() -> Result<(), String> {
     let path = generate_raster_points(40, 200); // Cylinder
     let mesh = sphere_mesh(0.5, 256);
-    
+
     for axis in [Axis::Y, Axis::X, Axis::Z] {
         let t_ep = Instant::now();
         let engraving =
@@ -239,7 +239,7 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
         let sender = Sender::new("127.0.0.1", 5555);
         send_pose_message(&sender, &engraving);
-        
+
         pause();
 
         if WRITE_JSON {
@@ -249,12 +249,12 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
             )?
         }
     }
-    Ok(())    
+    Ok(())
 }
 
 fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
     let path = generate_raster_points(50, 50); // Cylinder
-    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+    let mesh = sphere_with_recessions(1.0, 0.5, 0.4, 128);
 
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let t_ep = Instant::now();
@@ -277,7 +277,10 @@ fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
 
         if WRITE_JSON {
             write_isometries_to_json(
-                &format!("src/tests/data/projector/cyl_on_sphere_recs_{:?}.json", axis),
+                &format!(
+                    "src/tests/data/projector/cyl_on_sphere_recs_{:?}.json",
+                    axis
+                ),
                 &engraving,
             )?
         }
@@ -287,28 +290,39 @@ fn generate_cyl_on_sphere_with_recs() -> Result<(), String> {
 
 fn uplifter_on_sphere_with_recs() -> Result<(), String> {
     use rayon::iter::ParallelIterator;
-    
+
     let sender = Sender::new("127.0.0.1", 5555);
 
-    let path = generate_raster_points(128, 128); // Cylinder
+    let path = generate_raster_points(64, 64); // Cylinder
+    let mesh = sphere_mesh(1.0, 128);
     //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
-    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let axis = Axis::Z;
     let engraving =
-      PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+        PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
 
-    let engraving =  engraving.par_iter() // Parallel iteration over poses
+    let engraving: Vec<AnnotatedPose>/* Type */ = engraving.par_iter() // Parallel iteration over poses
         .map(|pose| {
-            pose.elevate(0.1)
-        }).collect();
-        
+            // pose.elevate(0.04)
+            pose.clone()
+        }).filter_map(|pose| {
+        if pose.pose.translation.vector.z.abs() < 0.9 {
+            None
+        } else {
+            Some(pose)
+        }
+    })
+
+        .collect();
+
     send_pose_message(&sender, &engraving);
-    //pause();
+    return Ok(());
+    pause();
 
-    let toolhead = sphere_mesh(0.15, 64);
-    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.3, 0.002);
+    let toolhead = sphere_mesh(0.05, 64);
+    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.25, 0.002);
 
-    let engraving: Vec<AnnotatedPose> = engraving.par_iter()
+    let adjusted: Vec<AnnotatedPose> = engraving
+        .iter()
         .filter_map(|pose| {
             lifter
                 .lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
@@ -318,7 +332,9 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
                             "Pose adjusted {:?} -> {:?} |{:?}|",
                             pose,
                             adjusted_pose,
-                            (pose.pose.translation.vector - adjusted_pose.translation.vector.cast()).norm()
+                            (pose.pose.translation.vector
+                                - adjusted_pose.translation.vector.cast())
+                            .norm()
                         );
                     }
                     // Construct transformed AnnotatedPose
@@ -330,7 +346,7 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
         })
         .collect();
 
-    send_pose_message(&sender, &engraving);
+    send_pose_message(&sender, &adjusted);
     Ok(())
 }
 
@@ -354,11 +370,11 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    //generate_cyl_on_sphere()?;
-    uplifter_on_sphere_with_recs()?;
-    //generate_cyl_on_sphere_with_recs()?;
+    generate_cyl_on_sphere()?;
+    //uplifter_on_sphere_with_recs()?;
+    generate_cyl_on_sphere_with_recs()?;
     //return Ok(());
-    //generate_flat_projections()?;
+    generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
