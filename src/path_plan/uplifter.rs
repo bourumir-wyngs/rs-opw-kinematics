@@ -45,8 +45,6 @@ impl<'a> HeadLifter<'a> {
         toolhead_pose: &Isometry3<f32>, // Mutable to apply changes
         object_pose: &Isometry3<f32>,
     ) -> Option<Isometry3<f32>> {
-        let instant = Instant::now();
-
         let intersection_test = |test_pose: &Isometry3<f32>| {
             // First, use the bounding box for a loose intersection test
             if !parry3d::query::intersection_test(
@@ -57,8 +55,6 @@ impl<'a> HeadLifter<'a> {
             )
             .expect(crate::collisions::SUPPORTED)
             {
-                // Toolhead and object are safely separated
-                print!("L");
                 false
             } else if !parry3d::query::intersection_test(
                 test_pose,
@@ -68,8 +64,6 @@ impl<'a> HeadLifter<'a> {
             )
             .expect(crate::collisions::SUPPORTED)
             {
-                // Toolhead and object collides
-                print!("C");
                 true
             } else {
                 // Boundary case, perform a precise distance check that is a much slower query
@@ -80,12 +74,10 @@ impl<'a> HeadLifter<'a> {
                     self.object_mesh,
                 )
                 .expect(crate::collisions::SUPPORTED);
-                print!("R {}", r);
                 r <= self.safety_distance
             }
         };
 
-        println!("\n>>>>");
         if !parry3d::query::intersection_test(
             toolhead_pose,
             &self.toolhead_aabb_mesh,
@@ -117,9 +109,6 @@ impl<'a> HeadLifter<'a> {
             let translation =
                 Translation3::from(toolhead_pose.translation.vector + mid * local_z_axis);
             let test_pose = Isometry3::from_parts(translation, toolhead_pose.rotation);
-
-            // Run the intersection test at this position
-            print!("[{} {} {}]", low, mid, high);
             if intersection_test(&test_pose) {
                 // Intersection detected -> move upward (increase low)
                 low = mid;
@@ -131,18 +120,19 @@ impl<'a> HeadLifter<'a> {
         }
 
         if self.debug {
-            let elapsed = instant.elapsed();
             if let Some(safe_pose) = last_safe_pose {
                 let relocation =
                     (toolhead_pose.translation.vector - safe_pose.translation.vector).norm();
+                if false {
                     println!(
-                        "  moved by |{:?}| in {:?} iterations {:?}.  ******\n\n",
-                        relocation, iteration_count, elapsed
+                        "  moved by |{:?}| in {:?} iterations  ******\n\n",
+                        relocation, iteration_count
                     )
+                }
             } else {
                 println!(
-                    "  no valid position found within the expected range in {:?} in {:?} iterations.",
-                    elapsed, iteration_count
+                    "  no valid position found within the expected range in {:?} iterations.",
+                    iteration_count
                 );
             };
         }

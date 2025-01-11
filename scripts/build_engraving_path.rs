@@ -293,7 +293,7 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
 
     let sender = Sender::new("127.0.0.1", 5555);
 
-    let path = generate_raster_points(64, 64); // Cylinder
+    let path = generate_raster_points(128, 128); // Cylinder
     let mesh = sphere_mesh(1.0, 128);
     //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let axis = Axis::Z;
@@ -305,7 +305,7 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
             // pose.elevate(0.04)
             pose.clone()
         }).filter_map(|pose| {
-        if pose.pose.translation.vector.z.abs() < 0.9 {
+        if false && pose.pose.translation.vector.z.abs() < 0.9 {
             None
         } else {
             Some(pose)
@@ -314,15 +314,15 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
 
         .collect();
 
-    send_pose_message(&sender, &engraving);
-    return Ok(());
-    pause();
+    //send_pose_message(&sender, &engraving);
+    //pause();
 
     let toolhead = sphere_mesh(0.05, 64);
     let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.25, 0.002);
 
+    let now = Instant::now();
     let adjusted: Vec<AnnotatedPose> = engraving
-        .iter()
+        .par_iter()
         .filter_map(|pose| {
             lifter
                 .lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
@@ -345,6 +345,7 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
                 })
         })
         .collect();
+    println!("Lifting took {:?}", now.elapsed());
 
     send_pose_message(&sender, &adjusted);
     Ok(())
@@ -370,10 +371,10 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    generate_cyl_on_sphere()?;
-    //uplifter_on_sphere_with_recs()?;
-    generate_cyl_on_sphere_with_recs()?;
-    //return Ok(());
+    //generate_cyl_on_sphere()?;
+    uplifter_on_sphere_with_recs()?;
+    //generate_cyl_on_sphere_with_recs()?;
+    return Ok(());
     generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
