@@ -293,17 +293,16 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
 
     let sender = Sender::new("127.0.0.1", 5555);
 
-    let path = generate_raster_points(128, 128); // Cylinder
-    let mesh = sphere_mesh(1.0, 128);
-    //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+    let path = generate_raster_points(64, 64); // Cylinder
+    //let mesh = sphere_mesh(1.0, 128);
+    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let axis = Axis::Z;
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
 
     let engraving: Vec<AnnotatedPose>/* Type */ = engraving.par_iter() // Parallel iteration over poses
         .map(|pose| {
-            // pose.elevate(0.04)
-            pose.clone()
+            pose.elevate(0.06)
         }).filter_map(|pose| {
         if false && pose.pose.translation.vector.z.abs() < 0.9 {
             None
@@ -318,7 +317,7 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
     //pause();
 
     let toolhead = sphere_mesh(0.05, 64);
-    let lifter = HeadLifter::new(&mesh, &toolhead, 0.002, 0.25, 0.002);
+    let lifter = HeadLifter::new(&mesh, &toolhead, 0.05, 0.125, 0.01);
 
     let now = Instant::now();
     let adjusted: Vec<AnnotatedPose> = engraving
