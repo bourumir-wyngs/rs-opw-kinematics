@@ -293,9 +293,9 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
 
     let sender = Sender::new("127.0.0.1", 5555);
 
-    let path = generate_raster_points(64, 64); // Cylinder
-    //let mesh = sphere_mesh(1.0, 128);
-    let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
+    let path = generate_raster_points(128, 128); // Cylinder
+    let mesh = sphere_mesh(1.0, 128);
+    //let mesh = sphere_with_recessions(1.0,  0.5, 0.4, 128);
     let axis = Axis::Z;
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
