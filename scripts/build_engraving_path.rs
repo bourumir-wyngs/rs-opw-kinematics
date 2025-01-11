@@ -21,7 +21,7 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
-static WRITE_JSON: bool = false;
+static WRITE_JSON: bool = true;
 
 fn pause() {
     print!("Press Enter to continue...");
@@ -326,16 +326,6 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
             lifter
                 .lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
                 .map(|adjusted_pose| {
-                    if false {
-                        println!(
-                            "Pose adjusted {:?} -> {:?} |{:?}|",
-                            pose,
-                            adjusted_pose,
-                            (pose.pose.translation.vector
-                                - adjusted_pose.translation.vector.cast())
-                            .norm()
-                        );
-                    }
                     // Construct transformed AnnotatedPose
                     AnnotatedPose {
                         pose: adjusted_pose.cast(),
@@ -370,10 +360,10 @@ fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), S
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    //generate_cyl_on_sphere()?;
-    uplifter_on_sphere_with_recs()?;
+    generate_cyl_on_sphere()?;
+    //uplifter_on_sphere_with_recs()?;
     //generate_cyl_on_sphere_with_recs()?;
-    return Ok(());
+    //return Ok(());
     generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file

@@ -1,14 +1,10 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
-use bevy_egui::egui::Key::P;
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
-use rand::prelude::SliceRandom;
-use rand::Rng;
 use rayon::prelude::IntoParallelRefIterator;
 use std::f32::consts::PI;
-use std::fmt::format;
 use std::ops::Range;
 
 pub struct Projector {

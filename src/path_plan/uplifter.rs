@@ -1,7 +1,6 @@
 use nalgebra::{Isometry3, Translation3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::shape::{ConvexPolyhedron, TriMesh};
-use std::time::Instant;
 
 pub struct HeadLifter<'a> {
     expected_max_distance: f32,
@@ -10,7 +9,7 @@ pub struct HeadLifter<'a> {
     toolhead_mesh: &'a TriMesh,
     toolhead_qhull: ConvexPolyhedron,
     toolhead_aabb_mesh: TriMesh,
-    tolerance: f32, //  = 0.002 // Precision threshold
+    tolerance: f32, 
     debug: bool,
 }
 
@@ -259,7 +258,9 @@ mod tests {
         // Quaternion representing the required rotation
         println!("Quaternion: {:?}", rotation);
 
-        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position
+        // Move "toolhead" slightly off center, otherwise it gets completely inside the bounding
+        // box of the object that in real cases does not happen.
+        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.3, 0.3, 0.0), rotation); // Initial position
         let object_pose = Isometry3::identity();
 
         let toolhead_pose = UPLIFTER
@@ -277,7 +278,12 @@ mod tests {
         // Toolhead's local Z-axis rotated 30 degrees downward over the horizon (tilted in the XZ-plane)
         let rotation =
             UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_6); // 30° rotation around global Y-axis
-        let toolhead_pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 0.0), rotation); // Initial position at the origin
+        // Move "toolhead" slightly off center, otherwise it gets completely inside the bounding
+        // box of the object that in real cases does not happen.
+        let toolhead_pose = Isometry3::from_parts(
+            Translation3::new(30_f32.to_radians().sin(), 0.0, 30_f32.to_radians().cos()),
+            rotation,
+        ); // Initial position at the origin
         let object_pose = Isometry3::identity(); // Object located at the origin
 
         let toolhead_pose = UPLIFTER
