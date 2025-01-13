@@ -131,6 +131,9 @@ pub mod head_lifter;
 #[cfg(feature = "stroke_planning")]
 pub mod annotations;
 
+#[cfg(feature = "depth_field")]
+#[path = "path_plan/depth_field.rs"]
+pub mod depth_field;
 
 
 
