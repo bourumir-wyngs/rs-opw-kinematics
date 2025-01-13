@@ -1,8 +1,7 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
-use parry3d::query::{Ray};
-use parry3d::shape::Shape;
+use parry3d::query::{Ray, RayCast};
 use std::f32::consts::PI;
 use std::ops::Range;
 
@@ -89,13 +88,19 @@ impl Axis {
     }
 }
 
+// Make a new trait that extends RayCast and requires Sync
+pub trait ThreadSafeRayCast: RayCast + Sync {}
+
+// Automatically implement ThreadSafeRayCast for all types that implement RayCast + Sync
+impl<T: RayCast + Sync> ThreadSafeRayCast for T {}
+
 impl Projector {
     /// Project point into mesh along the given axis, starting from the given direction.
     /// 3 axes and 2 directions together allow 6 combinations corresponding the sides of a cube
     ///
     /// This method does not compute the orientation, only position.
     pub(crate) fn project_point_flat(
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
@@ -129,7 +134,7 @@ impl Projector {
     ///
     /// This method only computes the point, not coordinates
     pub(crate) fn project_point_cylindric(
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         point: &geo::Point<f32>,
         radius: f32,
         axis: Axis,
@@ -182,7 +187,7 @@ impl Projector {
     /// This method produces both position and orientation
     pub(crate) fn project_flat(
         &self,
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
@@ -226,7 +231,7 @@ impl Projector {
     /// robot path planning.
     pub(crate) fn project_cylindric(
         &self,
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         point: &geo::Point<f32>,
         projection_radius: f32,
         cylinder_axis: Axis,
@@ -297,7 +302,7 @@ impl Projector {
     /// Most important, the stroke direction flags will be preserved.
     pub fn project_cylinder_path(
         &self,
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         path: &Vec<AnnotatedPathStep>,
         projection_radius: f32,
         height: Range<f32>,
@@ -369,7 +374,7 @@ impl Projector {
     /// Most important, the stroke direction flags will be preserved.
     pub fn project_flat_path(
         &self,
-        mesh: &dyn Shape,
+        mesh: &dyn ThreadSafeRayCast,
         path: &Vec<AnnotatedPathStep>,
         axis: Axis,
         ray_direction: RayDirection,
