@@ -1,9 +1,8 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
-use parry3d::query::{Ray, RayCast};
+use parry3d::query::{Ray};
 use parry3d::shape::Shape;
-use rayon::prelude::IntoParallelRefIterator;
 use std::f32::consts::PI;
 use std::ops::Range;
 

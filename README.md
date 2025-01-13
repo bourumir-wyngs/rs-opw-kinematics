@@ -233,6 +233,7 @@ use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};
 use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
+use rs_read_trimesh::load_trimesh;
 
 
 /// Create the sample robot we will visualize. This function creates
@@ -242,7 +243,10 @@ use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_p
 /// Four environment objects and tool are also created.
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
   // Environment object to collide with.
-  let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
+  // let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
+  let extents = parry3d::math::Vector::new(1.0, 4.0, 9.0);
+  let scale = 0.04; 
+  let monolith = parry3d::shape::Cuboid::new(extents * 0.04); // takes half-extents
 
   Ok(KinematicsWithShape::with_safety(
     // OPW parameters for Staubli RX 160
@@ -299,20 +303,20 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     // Objects around the robot, with global transforms for them.
     vec![
       CollisionBody {
-        mesh: monolith.clone(),
-        pose: Isometry3::translation(1., 0., 0.),
+        mesh: Box::new(monolith.clone()),
+        pose: Isometry3::translation(1., 0., extents.z * scale),
       },
       CollisionBody {
-        mesh: monolith.clone(),
-        pose: Isometry3::translation(-1., 0., 0.),
+        mesh: Box::new(monolith.clone()),
+        pose: Isometry3::translation(-1., 0., extents.z * scale),
       },
       CollisionBody {
-        mesh: monolith.clone(),
-        pose: Isometry3::translation(0., 1., 0.),
+        mesh: Box::new(monolith.clone()),
+        pose: Isometry3::translation(0., 1., extents.z * scale),
       },
       CollisionBody {
-        mesh: monolith.clone(),
-        pose: Isometry3::translation(0., -1., 0.),
+        mesh: Box::new(monolith.clone()),
+        pose: Isometry3::translation(0., -1., extents.z * scale),
       },
     ],
     SafetyDistances {
@@ -331,25 +335,8 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
       mode: CheckMode::AllCollsions, // we need to report all for visualization
       // mode: CheckMode::NoCheck, // this is very fast but no collision check
     },
-  ));
-
-  // Let's play a bit with this robot now:
-  let pose = Isometry3::from_parts(
-    Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above a center of the world
-    UnitQuaternion::identity()); // with robot tool pointing right upwards
-
-  // Collision aware inverse kinematics (colliding solutions discarded)  
-  let solutions = robot.inverse(&pose);
-  dump_solutions(&solutions); // Print solutions in degrees
-
-  // Collision check against given joint positions
-  if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
-    println!("Collision detected");
-  }
-
-  robot
-}  
-
+  ))
+} 
 ```
 
 ## Path planning

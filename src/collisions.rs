@@ -8,7 +8,6 @@ use nalgebra::Isometry3;
 use parry3d::shape::{Shape, TriMesh};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::fmt::format;
 use parry3d::bounding_volume::{Aabb, BoundingVolume};
 use parry3d::math::Point;
 

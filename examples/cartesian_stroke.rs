@@ -11,18 +11,30 @@ use {
     rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
     rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
     rs_opw_kinematics::rrt::RRTPlanner,
+    rs_read_trimesh::load_trimesh,
     
     std::time::Instant,
     std::vec::Vec,
 };
 
-#[cfg(feature = "stroke_planning")]
-pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+/// Creates a sample robot for visualization. This function sets up
+/// a Staubli RX160 robot using its specific parameter set.
+///
+/// Joint meshes are loaded from `.stl` files bundled in the test folder,
+/// shared under the Apache license as part of the ROS Industrial project.
+///
+/// Additionally, four environment objects and a tool are created for the visualization.
+#[cfg(feature = "collisions")]
+pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
+    // Environment object to collide with.
+    //let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
+    // Define the half-extents of the cuboid
+    let extents = parry3d::math::Vector::new(1.0, 4.0, 9.0);
+    let scale = 0.04;
+    let monolith = parry3d::shape::Cuboid::new(extents * 0.04);
 
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
-
-    KinematicsWithShape::with_safety(
+    Ok(KinematicsWithShape::with_safety(
+        // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
             a2: 0.0,
@@ -33,8 +45,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             c4: 0.11,
             ..Parameters::new()
         },
-        // Constraints are used also to sample constraint-compliant random positions
-        // as needed by this path planner.
+        // Define constraints directly in degrees, converting internally to radians.
         Constraints::from_degrees(
             [
                 -225.0..=225.0,
@@ -42,44 +53,55 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                 -225.0..=225.0,
                 -225.0..=225.0,
                 -225.0..=225.0,
-                -225.0..=225.0,
+                -360.0..=360.0,
             ],
-            BY_PREV,
+            BY_PREV, // Prioritize previous joint position
         ),
+        // Joint meshes
         [
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl"),
+            // If your meshes, if offset in .stl file, use Trimesh::transform_vertices,
+            // you may also need Trimesh::scale in some extreme cases.
+            // If your joints or tool consist of multiple meshes, combine these
+            // with Trimesh::append
+            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 1.0)?,
         ],
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
+        // Base link mesh
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
+        // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.4, 0.7, 0.0).into(),
             UnitQuaternion::identity(),
         ),
-        load_trimesh_from_stl("src/tests/data/flag.stl"),
+        // Tool mesh. Load it from .ply file for feature demonstration
+        load_trimesh("src/tests/data/flag.ply", 1.0)?,
+        // Tool transform, tip (not base) of the tool. The point past this
+        // transform is known as tool center point (TCP).
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 0.5).into(),
             UnitQuaternion::identity(),
         ),
+        // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(1., 0., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(1., 0., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(-1., 0., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(-1., 0., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(0., 1., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(0., 1., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(0., -1., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(0., -1., extents.z * scale),
             },
         ],
         SafetyDistances {
@@ -95,9 +117,10 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                 ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
                 ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
             ]),
-            mode: CheckMode::FirstCollisionOnly, // First pose only (true, enough for path planning)
+            mode: CheckMode::AllCollsions, // we need to report all for visualization
+            // mode: CheckMode::NoCheck, // this is very fast but no collision check
         },
-    )
+    ))
 }
 
 #[cfg(feature = "stroke_planning")]
@@ -107,7 +130,7 @@ fn main() {
     }
     
     // Initialize kinematics with your robot's specific parameters
-    let k = create_rx160_robot();
+    let k = create_rx160_robot().expect("Failed to create the robot");
 
     // Starting point, where the robot exists at the beginning of the task.
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
@@ -144,6 +167,7 @@ fn main() {
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 1000,
+            waypoints: vec![],
             debug: true,
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
@@ -154,7 +178,7 @@ fn main() {
 
     // plan path
     let started = Instant::now();
-    let path = planner.plan(&start, &land, &steps, &park);
+    let path = planner.plan(&start, &Some(land), &steps, &Some(park));
     let elapsed = started.elapsed();
 
     match path {

@@ -1,7 +1,7 @@
 use crate::annotations::AnnotatedPose;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
-use parry3d::shape::{ConvexPolyhedron, TriMesh};
+use parry3d::shape::{TriMesh};
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
 
@@ -10,7 +10,6 @@ pub struct HeadLifter<'a> {
     safety_distance: f32,
     object_mesh: &'a TriMesh,
     toolhead_mesh: &'a TriMesh,
-    toolhead_qhull: ConvexPolyhedron,
     toolhead_aabb_mesh: TriMesh,
     tolerance: f32,
     debug: bool,
@@ -26,14 +25,11 @@ impl<'a> HeadLifter<'a> {
     ) -> Self {
         let toolhead_aabb = toolhead_mesh.local_aabb().loosened(safety_distance);
         let toolhead_aabb_mesh = crate::collisions::build_trimesh_from_aabb(toolhead_aabb);
-        let toolhead_qhull = ConvexPolyhedron::from_convex_hull(toolhead_mesh.vertices())
-            .expect("Failed to create QHuConvexPolyhedron for toolhead");
 
         HeadLifter {
             object_mesh,
             toolhead_mesh,
             toolhead_aabb_mesh,
-            toolhead_qhull,
             safety_distance,
             expected_max_distance,
             tolerance,

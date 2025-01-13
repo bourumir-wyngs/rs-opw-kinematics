@@ -48,7 +48,7 @@ use crate::utils;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
-use parry3d::shape::{Ball, Cuboid, Shape, TriMesh};
+use parry3d::shape::{Cuboid, Shape, TriMesh};
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::time::Instant;

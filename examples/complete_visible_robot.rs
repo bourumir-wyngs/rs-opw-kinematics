@@ -1,5 +1,3 @@
-use parry3d::shape::ShapeType::Cuboid;
-use rs_read_trimesh::load_trimesh;
 #[cfg(feature = "collisions")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -29,6 +27,8 @@ use {
 /// Additionally, four environment objects and a tool are created for the visualization.
 #[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
+    use rs_read_trimesh::load_trimesh;
+    
     // Environment object to collide with.
     //let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
     // Define the half-extents of the cuboid

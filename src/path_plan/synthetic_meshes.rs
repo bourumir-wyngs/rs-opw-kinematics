@@ -1,5 +1,5 @@
 use crate::projector::Axis;
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point3};
 use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
 
