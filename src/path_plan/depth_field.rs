@@ -143,7 +143,7 @@ impl RayCast for DepthField {
     }
 }
 
-impl<S: Shape + PointQuery> PointQuery for DepthField {
+impl PointQuery for DepthField {
     /// Delegates `project_local_point` to the inner field, applying `to_inner` and `to_outer`
     fn project_local_point(&self, pt: &Point<f32>, solid: bool) -> PointProjection {
         let transformed_point = self.to_inner.transform_point(pt); // Apply to_inner to input
@@ -171,7 +171,7 @@ impl<S: Shape + PointQuery> PointQuery for DepthField {
     }
 }
 
-impl<S: Shape + PointQuery> Shape for DepthField {
+impl Shape for DepthField {
     /// Delegates `compute_local_aabb`, applying `to_outer` to the result
     fn compute_local_aabb(&self) -> Aabb {
         let inner_aabb = self.field.compute_local_aabb(); // Compute inner AABB
@@ -190,7 +190,7 @@ impl<S: Shape + PointQuery> Shape for DepthField {
     /// Delegates `clone_dyn`
     fn clone_dyn(&self) -> Box<dyn Shape> {
         Box::new(DepthField {
-            field: *self.field.clone_dyn(), // Delegate to clone_dyn for the inner field
+            field: self.field.clone(), // Delegate to clone_dyn for the inner field
             to_inner: self.to_inner,
             to_outer: self.to_outer,
         })
@@ -200,12 +200,14 @@ impl<S: Shape + PointQuery> Shape for DepthField {
     fn scale_dyn(&self, scale: &Vector<f32>, num_subdivisions: u32) -> Option<Box<dyn Shape>> {
         self.field
             .scale_dyn(scale, num_subdivisions)
-            .map(|scaled_field| {
+            .and_then(|scaled_field| scaled_field.downcast::<HeightField>().ok()) // Attempt downcast
+            .map(|scaled_height_field| {
+                // Return as Box<dyn Shape>
                 Box::new(DepthField {
-                    field: *scaled_field, // Delegate to scaled field
+                    field: *scaled_height_field, // Extract HeightField
                     to_inner: self.to_inner,
                     to_outer: self.to_outer,
-                })
+                }) as Box<dyn Shape> // Explicit coercion to trait object
             })
     }
 
