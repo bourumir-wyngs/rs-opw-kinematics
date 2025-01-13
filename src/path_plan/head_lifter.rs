@@ -1,6 +1,9 @@
+use crate::annotations::AnnotatedPose;
 use nalgebra::{Isometry3, Translation3, Vector3};
 use parry3d::bounding_volume::BoundingVolume;
 use parry3d::shape::{ConvexPolyhedron, TriMesh};
+use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::ParallelIterator;
 
 pub struct HeadLifter<'a> {
     expected_max_distance: f32,
@@ -9,7 +12,7 @@ pub struct HeadLifter<'a> {
     toolhead_mesh: &'a TriMesh,
     toolhead_qhull: ConvexPolyhedron,
     toolhead_aabb_mesh: TriMesh,
-    tolerance: f32, 
+    tolerance: f32,
     debug: bool,
 }
 
@@ -38,6 +41,22 @@ impl<'a> HeadLifter<'a> {
         }
     }
 
+    pub fn adjust_head_collisions(
+        &self, 
+        engraving: &[AnnotatedPose],
+    ) -> Vec<AnnotatedPose> {
+        engraving
+            .par_iter() 
+            .filter_map(|pose| {
+                self.lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
+                    .map(|adjusted_pose| AnnotatedPose {
+                        pose: adjusted_pose.cast(),
+                        flags: pose.flags,
+                    })
+            })
+            .collect() // Collect into a Vec<AnnotatedPose>
+    }
+    
     /// Function to lift the toolhead if it intersects with an object, using dichotomy search.
     pub fn lift_toolhead(
         &self,
@@ -142,8 +161,8 @@ impl<'a> HeadLifter<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::head_lifter::HeadLifter;
     use crate::synthetic_meshes::sphere_mesh;
-    use crate::uplifter::HeadLifter;
     use approx::relative_eq;
     use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
     use once_cell::sync::Lazy;
@@ -278,8 +297,8 @@ mod tests {
         // Toolhead's local Z-axis rotated 30 degrees downward over the horizon (tilted in the XZ-plane)
         let rotation =
             UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::FRAC_PI_6); // 30° rotation around global Y-axis
-        // Move "toolhead" slightly off center, otherwise it gets completely inside the bounding
-        // box of the object that in real cases does not happen.
+                                                                                              // Move "toolhead" slightly off center, otherwise it gets completely inside the bounding
+                                                                                              // box of the object that in real cases does not happen.
         let toolhead_pose = Isometry3::from_parts(
             Translation3::new(30_f32.to_radians().sin(), 0.0, 30_f32.to_radians().cos()),
             rotation,

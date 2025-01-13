@@ -1,6 +1,6 @@
 use crate::kinematic_traits::{Joints, Pose};
 use bitflags::bitflags;
-use nalgebra::{Isometry3, Translation3, Vector3};
+use nalgebra::{Isometry3, Translation3, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Rotation;
 use parry3d::na;
 use std::fmt;
@@ -97,11 +97,30 @@ impl AnnotatedPose {
         // Return a new Isometry3 with the updated translation and the same rotation
         AnnotatedPose {
             pose: Isometry3::from_parts(translation.into(), rotation.clone()),
-            flags: self.flags
+            flags: self.flags,
         }
     }
-    
-    pub(crate) fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
+
+    /// Twist around the local coordinate system (not the global xyz) applying roll, pitch and yaw    
+    pub fn twist(&self, roll: f64, pitch: f64, yaw: f64) -> AnnotatedPose {
+        use once_cell::sync::Lazy;
+        static X_AXIS: Lazy<Unit<Vector3<f64>>> = Lazy::new(|| Unit::new_normalize(*Vector3::x_axis()));
+        static Y_AXIS: Lazy<Unit<Vector3<f64>>> = Lazy::new(|| Unit::new_normalize(*Vector3::y_axis()));
+        static Z_AXIS: Lazy<Unit<Vector3<f64>>> = Lazy::new(|| Unit::new_normalize(*Vector3::z_axis()));
+
+        // Combine the pilot's inputs into a single local rotation
+
+        let local_rotation = UnitQuaternion::from_axis_angle(&X_AXIS, roll) *
+            UnitQuaternion::from_axis_angle(&Y_AXIS, pitch) *
+            UnitQuaternion::from_axis_angle(&Z_AXIS, yaw);
+
+        let global_rotation = self.pose.rotation * local_rotation;
+
+        // Return the updated pose
+        return Self::from_parts(self.pose.translation, global_rotation)
+    }
+
+    pub fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
 
         // Interpolate translation (linearly)
@@ -145,7 +164,6 @@ fn flag_representation(flags: &PathFlags) -> String {
         // Mesh generator flags
         (PathFlags::FORWARDS, "FORWARDS"),
         (PathFlags::BACKWARDS, "BACKWARDS"),
-        
         (PathFlags::DEBUG, "DEBUG"),
     ];
 

@@ -1,3 +1,4 @@
+use rayon::iter::ParallelIterator;
 use nalgebra::Isometry3;
 use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
@@ -6,9 +7,9 @@ use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
+use rs_opw_kinematics::head_lifter::HeadLifter;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::synthetic_meshes::{sphere_mesh, sphere_with_recessions};
-use rs_opw_kinematics::uplifter::HeadLifter;
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -21,7 +22,7 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
-static WRITE_JSON: bool = true;
+static WRITE_JSON: bool = false;
 
 fn pause() {
     print!("Press Enter to continue...");
@@ -235,6 +236,9 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         let t_ep = Instant::now();
         let engraving =
             PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
+        
+        let engraving 
+            = engraving.iter().map(|pose| { pose.twist(0., 0., 45_f64.to_radians())}).collect();
 
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
         let sender = Sender::new("127.0.0.1", 5555);
@@ -320,24 +324,15 @@ fn uplifter_on_sphere_with_recs() -> Result<(), String> {
     let lifter = HeadLifter::new(&mesh, &toolhead, 0.05, 0.125, 0.01);
 
     let now = Instant::now();
-    let adjusted: Vec<AnnotatedPose> = engraving
-        .par_iter()
-        .filter_map(|pose| {
-            lifter
-                .lift_toolhead(&pose.pose.cast(), &Isometry3::identity())
-                .map(|adjusted_pose| {
-                    // Construct transformed AnnotatedPose
-                    AnnotatedPose {
-                        pose: adjusted_pose.cast(),
-                        flags: pose.flags,
-                    }
-                })
-        })
-        .collect();
+    let adjusted = adjust_head_collisions(engraving, lifter);
     println!("Lifting took {:?}", now.elapsed());
 
     send_pose_message(&sender, &adjusted);
     Ok(())
+}
+
+fn adjust_head_collisions(engraving: Vec<AnnotatedPose>, lifter: HeadLifter) -> Vec<AnnotatedPose> {
+    lifter.adjust_head_collisions(&engraving)
 }
 
 fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
@@ -364,7 +359,7 @@ fn main() -> Result<(), String> {
     //uplifter_on_sphere_with_recs()?;
     //generate_cyl_on_sphere_with_recs()?;
     //return Ok(());
-    generate_flat_projections()?;
+    //generate_flat_projections()?;
     return Ok(());
     // Load the mesh from a PLY file
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
