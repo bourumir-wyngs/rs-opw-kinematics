@@ -5,9 +5,10 @@ use crate::kinematic_traits::{
 };
 
 use nalgebra::Isometry3;
-use parry3d::shape::TriMesh;
+use parry3d::shape::{Shape, TriMesh};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::fmt::format;
 use parry3d::bounding_volume::{Aabb, BoundingVolume};
 use parry3d::math::Point;
 
@@ -26,7 +27,7 @@ pub struct BaseBody {
 /// where desired.
 pub struct CollisionBody {
     /// Mesh representing this collision object
-    pub mesh: TriMesh,
+    pub mesh: Box<dyn Shape>,
     /// Global transform of this collision object.
     pub pose: Isometry3<f32>,
 }
@@ -52,12 +53,26 @@ struct CollisionTask<'a> {
     j: u16, // reporting index of the second shape
     transform_i: &'a Isometry3<f32>,
     transform_j: &'a Isometry3<f32>,
-    shape_i: &'a TriMesh,
-    shape_j: &'a TriMesh,
+    shape_i: &'a TriMesh,    
+    // J can be either TriMesh or Shape.
+    shape_j: Option<&'a TriMesh>,
+    any_shape_j: Option<&'a dyn Shape>,
 }
+
+
 
 impl CollisionTask<'_> {
     fn collides(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
+        if self.shape_j.is_some() {
+            self.collides_mesh_mesh(safety)
+        } else {
+            self.collides_mesh_shape(safety)
+        }
+    }
+    
+    fn collides_mesh_mesh(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
+        assert!(self.shape_j.is_some() && self.any_shape_j.is_none());
+        let shape_j_mesh = self.shape_j.unwrap();
         let r_min = *safety.min_distance(self.i, self.j);
         let collides = if r_min <= NEVER_COLLIDES {
             false
@@ -66,17 +81,17 @@ impl CollisionTask<'_> {
                 self.transform_i,
                 self.shape_i,
                 self.transform_j,
-                self.shape_j,
+                shape_j_mesh, 
             )
             .expect(SUPPORTED)
         } else {
             // Check if the bounding boxe of the object i, enlarged by r_min, touches
             // the object j. If not, objects are more than r_min apart.
             let (sm_shape, sm_transform, bg_shape, bg_transform) = 
-                if self.shape_i.vertices().len() < self.shape_j.vertices().len() {
-                (self.shape_i, self.transform_i, self.shape_j, self.transform_j)
+                if self.shape_i.vertices().len() < shape_j_mesh.vertices().len() {
+                (self.shape_i, self.transform_i, shape_j_mesh, self.transform_j)
             } else {
-                (self.shape_j, self.transform_j, self.shape_i, self.transform_i)
+                (shape_j_mesh, self.transform_j, self.shape_i, self.transform_i)
             };            
             // Small shape is simplified to aabb that is then enlarged. Large shape is used
             // as is (it probably has a complex shape and would result in many false positives
@@ -95,7 +110,7 @@ impl CollisionTask<'_> {
                     self.transform_i,
                     self.shape_i,
                     self.transform_j,
-                    self.shape_j,
+                    shape_j_mesh,
                 )
                     .expect(SUPPORTED)
                     <= r_min
@@ -108,6 +123,51 @@ impl CollisionTask<'_> {
             None
         }
     }
+
+    fn collides_mesh_shape(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
+        assert!(self.shape_j.is_none() && self.any_shape_j.is_some());
+        let shape_j_shape = self.any_shape_j.unwrap();
+        let r_min = *safety.min_distance(self.i, self.j);
+        let collides = if r_min <= NEVER_COLLIDES {
+            false
+        } else if r_min == TOUCH_ONLY {
+            parry3d::query::intersection_test(
+                self.transform_i,
+                self.shape_i,
+                self.transform_j,
+                self.any_shape_j.unwrap(),
+            )
+                .expect(SUPPORTED)
+        } else {
+            // Mesh is always assumed to be "small shape". "shape" is expected to be
+            //  a large and complex environment object.
+            let am_aaabb = self.shape_i.local_aabb().loosened(r_min);
+            let sm_abb_mesh = build_trimesh_from_aabb(am_aaabb);
+            if !parry3d::query::intersection_test(
+                self.transform_i,
+                &sm_abb_mesh,
+                self.transform_j,
+                shape_j_shape,
+            ).expect(SUPPORTED) {
+                false
+            } else {
+                parry3d::query::distance(
+                    self.transform_i,
+                    self.shape_i,
+                    self.transform_j,
+                    shape_j_shape,
+                )
+                    .expect(SUPPORTED)
+                    <= r_min
+            }
+        };
+
+        if collides {
+            Some((self.i.min(self.j), self.i.max(self.j)))
+        } else {
+            None
+        }
+    }    
 }
 
 /// Parry does not support AABB as a "proper" shape so we rewrap it as mesh
@@ -508,7 +568,8 @@ impl RobotBody {
                             transform_i: &joint_poses[J6],
                             transform_j: &env_obj.pose,
                             shape_i: &tool,
-                            shape_j: &env_obj.mesh,
+                            shape_j: None,
+                            any_shape_j: Some(env_obj.mesh.as_ref()), 
                         });
                     }
                 }
@@ -525,7 +586,8 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: &joint_poses[j],
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &self.joint_meshes[j],
+                        shape_j: Some(&self.joint_meshes[j]),
+                        any_shape_j: None,
                     });
                 }
             }
@@ -541,7 +603,8 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: &env_obj.pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &env_obj.mesh,
+                        shape_j: None,
+                        any_shape_j: Some(env_obj.mesh.as_ref()),
                     });
                 }
             }
@@ -556,7 +619,8 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &tool,
+                        shape_j: Some(&tool),
+                        any_shape_j: None
                     });
                 }
             }
@@ -573,7 +637,8 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &accessory,
+                        shape_j: Some(&accessory),
+                        any_shape_j: None
                     });
                 }
             }
@@ -588,7 +653,8 @@ impl RobotBody {
                     transform_i: &joint_poses[J6],
                     transform_j: &base.base_pose,
                     shape_i: &tool,
-                    shape_j: &base.mesh,
+                    shape_j: Some(&base.mesh),
+                    any_shape_j: None
                 });
             }
         }

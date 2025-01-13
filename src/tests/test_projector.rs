@@ -109,13 +109,7 @@ mod tests {
 
         translation_eq && rotation_eq
     }
-
-    static SPHERE_MESH: Lazy<Arc<TriMesh>> = Lazy::new(|| {
-        let t_start = Instant::now();
-        let mesh = sphere_mesh(0.5, 256);
-        println!("Sphere mesh built in {:?}", t_start.elapsed());
-        Arc::new(mesh) // Store inside an Arc for thread-safe reuse
-    });
+     
 
     static PROJECTOR: Projector = Projector {
         check_points: 24, // Defined number of normals to check
@@ -130,7 +124,7 @@ mod tests {
 
         let t_ep = Instant::now();
         let engraving = PROJECTOR.project_cylinder_path(
-            &(&SPHERE_MESH),
+            &sphere_mesh(0.5, 256),
             &path,
             1.0,
             -1.5..1.5,
@@ -156,7 +150,7 @@ mod tests {
         let projections = read_isometries_from_file(&json_path).expect("Cannot read test data");
         let path = generate_raster_points(20, 20);
         let engraving =
-            project_flat_to_rect_on_mesh(&PROJECTOR, &SPHERE_MESH, &path, axis, direction)?;
+            project_flat_to_rect_on_mesh(&PROJECTOR, &sphere_mesh(0.5, 256), &path, axis, direction)?;
         assert_path(projections, engraving);
         Ok(())
     }

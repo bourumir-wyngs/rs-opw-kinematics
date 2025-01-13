@@ -155,5 +155,5 @@ pub fn project_flat_to_rect_on_mesh(
         })
         .collect();
 
-    projector.project_flat_path(&mesh, &transformed_path, axis, ray_direction)
+    projector.project_flat_path(mesh, &transformed_path, axis, ray_direction)
 }

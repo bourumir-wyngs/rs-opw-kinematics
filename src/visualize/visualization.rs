@@ -48,7 +48,7 @@ use crate::utils;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
-use parry3d::shape::TriMesh;
+use parry3d::shape::{Ball, Cuboid, Shape, TriMesh};
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::time::Instant;
@@ -123,7 +123,7 @@ struct RobotControls {
     previous_joint_angles: [f32; 6],   // Store previous joint angles here
     previous_tcp: [f64; 6],
     safety_distance: f32,
-    previous_safety_distance: f32
+    previous_safety_distance: f32,
 }
 
 impl RobotControls {
@@ -183,12 +183,7 @@ pub fn visualize_robot(
     tcp_box: [RangeInclusive<f64>; 3],
 ) {
     let safety = robot.body.safety.clone();
-    visualize_robot_with_safety(
-        robot,
-        intial_angles,
-        tcp_box,
-        &safety
-    )
+    visualize_robot_with_safety(robot, intial_angles, tcp_box, &safety)
 }
 
 pub fn visualize_robot_with_safety(
@@ -207,7 +202,7 @@ pub fn visualize_robot_with_safety(
             previous_joint_angles: intial_angles.clone(),
             previous_tcp: [0.0; 6],
             safety_distance: 0.05,
-            previous_safety_distance: 0.0
+            previous_safety_distance: 0.0,
         })
         .insert_resource(Robot {
             kinematics: robot,
@@ -260,7 +255,7 @@ fn setup(
         .body
         .collision_environment
         .iter()
-        .map(|x| meshes.add(trimesh_to_bevy_mesh(&x.mesh)))
+        .map(|x| meshes.add(shape_to_bevy_mesh(&x.mesh)))
         .collect();
 
     if let Some(tool) = robot.kinematics.body.tool.as_ref() {
@@ -306,7 +301,12 @@ fn setup(
 
     // Visualize the robot joints with the initial joint values
     let angles = utils::joints(&robot_controls.initial_joint_angles);
-    visualize_robot_joints(&mut commands, & mut robot, &angles, robot_controls.safety_distance);
+    visualize_robot_joints(
+        &mut commands,
+        &mut robot,
+        &angles,
+        robot_controls.safety_distance,
+    );
     let cartesian = robot.kinematics.kinematics.forward(&angles);
     robot_controls.set_tcp_from_pose(&cartesian);
 
@@ -343,6 +343,17 @@ fn setup(
     ));
 }
 
+fn shape_to_bevy_mesh(shape: &Box<dyn Shape>) -> Mesh {
+    if let Some(cuboid) = shape.as_any().downcast_ref::<Cuboid>() {
+        let extents = cuboid.half_extents * 2.0; // Convert half extents to full size
+        Mesh::from(shape::Box::new(extents.x, extents.y, extents.z))
+    } else if let Some(trimesh) = shape.as_any().downcast_ref::<TriMesh>() {
+        trimesh_to_bevy_mesh(trimesh)        
+    } else {
+        panic!("Renderer only supports Cuboid and TriMesh shapes as environment objects");
+    }
+}
+
 /// This function generates a visual representation of each joint of a robot
 /// based on the provided joint angles, rendering each joint shape at its
 /// calculated position and orientation using Bevy's `PbrBundle`.
@@ -352,7 +363,12 @@ fn setup(
 /// - `robot`: Reference to the robot's kinematic model and shapes (`KinematicsWithShape`).
 /// - `angles`: Joint angles used to compute forward kinematics for rendering.
 ///
-fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, angles: &Joints, safety_distance: f32) {
+fn visualize_robot_joints(
+    commands: &mut Commands,
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+) {
     // Helper function to transform coordinates to Bevy's coordinate system
     fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
         let translation = transform.translation.vector;
@@ -484,7 +500,7 @@ fn update_robot(
         let pose = robot.kinematics.kinematics.forward(&angles);
         controls.set_tcp_from_pose(&pose);
         controls.previous_tcp = controls.tcp;
-        controls.previous_safety_distance = controls.safety_distance;        
+        controls.previous_safety_distance = controls.safety_distance;
     } else if controls.tcp != controls.previous_tcp {
         // Revisualize the robot joints with the updated joint angles
         let angles = utils::joints(&controls.joint_angles);

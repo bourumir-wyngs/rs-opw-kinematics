@@ -2,7 +2,7 @@ use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
-use parry3d::shape::TriMesh;
+use parry3d::shape::Shape;
 use rayon::prelude::IntoParallelRefIterator;
 use std::f32::consts::PI;
 use std::ops::Range;
@@ -96,7 +96,7 @@ impl Projector {
     ///
     /// This method does not compute the orientation, only position.
     pub(crate) fn project_point_flat(
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
@@ -130,7 +130,7 @@ impl Projector {
     ///
     /// This method only computes the point, not coordinates
     pub(crate) fn project_point_cylindric(
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         point: &geo::Point<f32>,
         radius: f32,
         axis: Axis,
@@ -183,7 +183,7 @@ impl Projector {
     /// This method produces both position and orientation
     pub(crate) fn project_flat(
         &self,
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         point: &ParryPoint<f32>,
         direction: RayDirection,
         axis: Axis,
@@ -227,7 +227,7 @@ impl Projector {
     /// robot path planning.
     pub(crate) fn project_cylindric(
         &self,
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         point: &geo::Point<f32>,
         projection_radius: f32,
         cylinder_axis: Axis,
@@ -298,7 +298,7 @@ impl Projector {
     /// Most important, the stroke direction flags will be preserved.
     pub fn project_cylinder_path(
         &self,
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         path: &Vec<AnnotatedPathStep>,
         projection_radius: f32,
         height: Range<f32>,
@@ -345,7 +345,7 @@ impl Projector {
             })
             .filter_map(|step| {
                 if let Some(projected) =
-                    self.project_cylindric(&mesh, &step.0, projection_radius, axis)
+                    self.project_cylindric(mesh, &step.0, projection_radius, axis)
                 {
                     Some(AnnotatedPose {
                         pose: projected.pose,
@@ -370,7 +370,7 @@ impl Projector {
     /// Most important, the stroke direction flags will be preserved.
     pub fn project_flat_path(
         &self,
-        mesh: &TriMesh,
+        mesh: &dyn Shape,
         path: &Vec<AnnotatedPathStep>,
         axis: Axis,
         ray_direction: RayDirection,
@@ -453,42 +453,6 @@ impl Projector {
     }
 
     fn avg_normal(points: &[Vector3<f32>]) -> Vector3<f32> {
-        return Projector::avg_normal_stabilized(points);
-        use nalgebra::Vector3;
-        use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-        use rayon::prelude::*; // Includes common Rayon traits
-
-        // Use Rayon parallel iterator with a thread-safe accumulation
-        let normal_sum = points
-            .par_iter() // Parallel iteration over the first loop
-            .enumerate()
-            .map(|(i, &point_i)| {
-                let mut local_sum = Vector3::zeros();
-
-                for j in (i + 1)..points.len() {
-                    for k in (j + 1)..points.len() {
-                        // Compute vectors on the plane
-                        let v1 = points[j] - point_i;
-                        let v2 = points[k] - point_i;
-
-                        // Compute normal of the triangle
-                        let normal = v1.cross(&v2);
-
-                        // Accumulate normals (ignore magnitude)
-                        if normal.norm() > 0.0 {
-                            local_sum += normal.normalize();
-                        }
-                    }
-                }
-
-                local_sum // Return this thread's local sum
-            })
-            .reduce(|| Vector3::zeros(), |acc, local| acc + local);
-
-        normal_sum
-    }
-
-    fn avg_normal_stabilized(points: &[Vector3<f32>]) -> Vector3<f32> {
         use nalgebra::Vector3;
         use rayon::prelude::*; // Rayon parallel iterator traits
 
@@ -849,8 +813,7 @@ impl Projector {
         };
 
         // Closure for Algorithm 1: align against vector target_x
-        let alg_alt_x = ||
-                         -> UnitQuaternion<f64> {
+        let alg_alt_x = || -> UnitQuaternion<f64> {
             let target_x = -target_x;
             let current_x = quaternion * Vector3::x();
             let dot_product = current_x.dot(&target_x).clamp(-1.0, 1.0);

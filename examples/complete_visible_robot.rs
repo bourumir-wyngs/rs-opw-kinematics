@@ -1,3 +1,4 @@
+use parry3d::shape::ShapeType::Cuboid;
 use rs_read_trimesh::load_trimesh;
 #[cfg(feature = "collisions")]
 use {
@@ -29,7 +30,11 @@ use {
 #[cfg(feature = "collisions")]
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     // Environment object to collide with.
-    let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
+    //let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
+    // Define the half-extents of the cuboid
+    let extents = parry3d::math::Vector::new(1.0, 4.0, 9.0); 
+    let scale = 0.04;
+    let monolith = parry3d::shape::Cuboid::new(extents * 0.04);
 
     Ok(KinematicsWithShape::with_safety(
         // OPW parameters for Staubli RX 160
@@ -86,20 +91,20 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(1., 0., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(1., 0., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(-1., 0., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(-1., 0., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(0., 1., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(0., 1., extents.z * scale),
             },
             CollisionBody {
-                mesh: monolith.clone(),
-                pose: Isometry3::translation(0., -1., 0.),
+                mesh: Box::new(monolith.clone()),
+                pose: Isometry3::translation(0., -1., extents.z * scale),
             },
         ],
         SafetyDistances {
