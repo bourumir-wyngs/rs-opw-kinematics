@@ -218,12 +218,12 @@ impl Shape for DepthField {
 
     /// Delegates `shape_type`
     fn shape_type(&self) -> ShapeType {
-        self.field.shape_type()
+        ShapeType::Custom
     }
 
     /// Delegates `as_typed_shape`
     fn as_typed_shape(&self) -> TypedShape {
-        self.field.as_typed_shape()
+        TypedShape::Custom(self)
     }
 
     /// Delegates `ccd_thickness`
