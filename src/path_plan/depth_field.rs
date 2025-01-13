@@ -1,4 +1,4 @@
-Someuse crate::projector::ThreadSafeRayCast;
+crate::projector::ThreadSafeRayCast;
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::bounding_volume::{Aabb, BoundingSphere};
 use parry3d::mass_properties::MassProperties;
