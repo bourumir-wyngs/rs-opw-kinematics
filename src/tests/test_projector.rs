@@ -5,13 +5,10 @@ mod tests {
     use crate::projector::{Axis, Projector, RayDirection};
     use crate::synthetic_meshes::sphere_mesh;
     use nalgebra::{Quaternion, Translation3, UnitQuaternion};
-    use once_cell::sync::Lazy;
-    use parry3d::shape::TriMesh;
     use serde_json::Value;
     use std::f32::consts::PI;
     use std::fs::File;
     use std::io::Read;
-    use std::sync::Arc;
     use std::time::Instant;
 
     fn read_isometries_from_file(file_path: &str) -> Result<Vec<AnnotatedPose>, String> {

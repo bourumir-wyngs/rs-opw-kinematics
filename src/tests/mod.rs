@@ -8,4 +8,4 @@ mod test_from_yaml;
 mod test_individual_link_positions;
 mod test_parallelogram;
 mod test_projector;
-mod test_uplifter;
+mod test_depth_field;
