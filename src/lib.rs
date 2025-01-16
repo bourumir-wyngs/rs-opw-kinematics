@@ -135,6 +135,9 @@ pub mod annotations;
 #[path = "path_plan/depth_field.rs"]
 pub mod depth_field;
 
+#[cfg(feature = "depth_field")]
+#[path = "path_plan/mesh_from_field.rs"]
+pub mod mesh_from_field;
 
 
 
