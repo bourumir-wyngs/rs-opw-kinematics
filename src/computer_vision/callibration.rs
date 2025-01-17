@@ -293,7 +293,7 @@ mod tests {
                     "Detected red circle at: ({}, {}), radius: {} score {}",
                     x, y, radius, score
                 );
-                //assert!(x > 0 && y > 0 && radius > 0, "Invalid circle parameters!");
+                assert!(x > 0 && y > 0 && radius > 0, "Invalid circle parameters!");
             }
             Err(e) => {
                 eprintln!("Error occurred: {}", e);
