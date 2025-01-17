@@ -1,5 +1,4 @@
-use ::image::open;
-use image::{GenericImageView, Pixel};
+use image::{DynamicImage, GenericImageView, Pixel};
 
 /// Converts an RGB pixel to HSV.
 /// HSV ranges:
@@ -62,12 +61,12 @@ fn gaussian_blur(mask: &Vec<Vec<u8>>, width: usize, height: usize) -> Vec<Vec<u8
 }
 
 fn gradient_based_radius(
-    mask: &Vec<Vec<u8>>, // Input mask, typically a grayscale image
+    mask: &Vec<Vec<u8>>,    // Input mask, typically a grayscale image
     center: (usize, usize), // Known circle center (cx, cy)
-    width: usize, // Width of the mask
-    height: usize, // Height of the mask
-    min_radius: usize, // Minimum radius to consider
-    max_radius: usize, // Maximum radius to consider
+    width: usize,           // Width of the mask
+    height: usize,          // Height of the mask
+    min_radius: usize,      // Minimum radius to consider
+    max_radius: usize,      // Maximum radius to consider
 ) -> usize {
     fn estimate_gradient_threshold(mask: &Vec<Vec<u8>>, width: usize, height: usize) -> f64 {
         let mut gradients: Vec<f64> = Vec::new();
@@ -86,7 +85,8 @@ fn gradient_based_radius(
 
         // Calculate mean and standard deviation
         let mean: f64 = gradients.iter().sum::<f64>() / gradients.len() as f64;
-        let variance: f64 = gradients.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gradients.len() as f64;
+        let variance: f64 =
+            gradients.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gradients.len() as f64;
         let std_dev = variance.sqrt();
 
         // Set threshold as mean + standard deviation multiplier (e.g., 1.5)
@@ -94,8 +94,7 @@ fn gradient_based_radius(
 
         threshold
     }
-    
-    
+
     let (cx, cy) = center;
     let directions = 360; // Number of radial directions to sample (angles in degrees)
     let mut radii: Vec<usize> = Vec::with_capacity(directions); // To store radii where edges are detected
@@ -121,7 +120,8 @@ fn gradient_based_radius(
             let gradient_magnitude = (current_intensity - previous_intensity).abs() as f64;
 
             // Detect an edge: Look for a substantial gradient change
-            if gradient_magnitude > threshold { // Threshold for edge detection
+            if gradient_magnitude > threshold {
+                // Threshold for edge detection
                 radii.push(r);
                 break; // Stop once an edge is detected for this direction
             }
@@ -140,35 +140,61 @@ fn gradient_based_radius(
     }
 }
 
-fn hough_circle_detection(
-    mask: &Vec<Vec<u8>>,
-    width: usize,
-    height: usize,
-) -> (usize, usize, usize, i32) {
-    let min_radius = 10;
-    let max_radius = 250;
+fn process_mask(mask: &Vec<Vec<u8>>, min_radius: usize, max_radius: usize) -> Vec<Vec<usize>> {
+    let (height, width) = (mask.len(), mask[0].len());
 
-    let mut accumulator = vec![vec![0; width]; height];
+    // Create thread-local accumulators to avoid contention
+    let thread_local_accumulators: Vec<Vec<Vec<usize>>> = (0..height)
+        .into_par_iter() // Parallelize the outer loop
+        .filter_map(|y| {
+            // Create a local accumulator for each row
+            let mut local_accumulator = None;
 
-    // Parallelize the voting process
-    for y in 0..height {
-        for x in 0..width {
-            if mask[y][x] > 200 {
-                // Highly likely part of a circle
-                for angle in 0..360 {
-                    let (sin_theta, cos_theta) = (angle as f64).to_radians().sin_cos();
-                    for r in min_radius..=max_radius {
-                        let ur = r as f64;
-                        let a = (x as f64 - ur * sin_theta) as isize;
-                        let b = (y as f64 - ur * cos_theta) as isize;
-                        if a >= 0 && a < width as isize && b >= 0 && b < height as isize {
-                            accumulator[b as usize][a as usize] += 1;
+            for x in 0..width {
+                if mask[y][x] > 200 {
+                    // Highly likely part of a circle
+                    for angle in 0..360 {
+                        let (sin_theta, cos_theta) = (angle as f64).to_radians().sin_cos();
+                        for r in min_radius..=max_radius {
+                            let ur = r as f64;
+                            let a = (x as f64 - ur * sin_theta) as isize;
+                            let b = (y as f64 - ur * cos_theta) as isize;
+                            if a >= 0 && a < width as isize && b >= 0 && b < height as isize {
+                                if local_accumulator.is_none() {
+                                    local_accumulator = Some(vec![vec![0usize; width]; height])
+                                }
+                                if let Some(local_accumulator) = local_accumulator.as_mut() {
+                                    local_accumulator[b as usize][a as usize] += 1;
+                                }
+                            }
                         }
                     }
                 }
             }
+
+            local_accumulator
+        })
+        .collect();
+
+    // Combine thread-local accumulators into the shared accumulator
+    let mut accumulator: Vec<Vec<usize>> = Vec::new();
+    accumulator.resize(height, vec![0usize; width]);
+    for local_accumulator in thread_local_accumulators {
+        for y in 0..height {
+            for x in 0..width {
+                accumulator[y][x] += local_accumulator[y][x];
+            }
         }
     }
+    accumulator
+}
+
+fn hough_circle_detection(mask: &Vec<Vec<u8>>) -> (usize, usize, usize, usize) {
+    let min_radius = 10;
+    let max_radius = 250;
+
+    let (height, width) = (mask.len(), mask[0].len());
+    let accumulator = process_mask(mask, min_radius, max_radius);
 
     // Assume 0.0 as the best center for start
     let mut max_votes = accumulator[0][0];
@@ -177,7 +203,7 @@ fn hough_circle_detection(
     // Find best center
     for y in 0..height {
         for x in 0..width {
-            if accumulator[y][x] > max_votes {
+            if accumulator[y][x] > 0 && accumulator[y][x] > max_votes {
                 max_votes = accumulator[y][x];
                 best_center = (x, y);
             }
@@ -186,49 +212,78 @@ fn hough_circle_detection(
 
     // Probe for the best radius around the detected center
     let (best_x, best_y) = best_center;
-    let best_radius = gradient_based_radius(mask, best_center, width, height, min_radius, max_radius);
+    
+    let best_radius =
+        gradient_based_radius(mask, best_center, width, height, min_radius, max_radius);
 
     (best_x, best_y, best_radius, max_votes)
 }
 
-/// Detect a red circle without OpenCV.
-pub fn detect_red_circle(image_path: &str) -> Result<(usize, usize, usize, i32), String> {
-    // Load image using `image` crate
-    let img = open(image_path).map_err(|e| format!("Failed to open image: {}", e))?;
-    let (width, height) = img.dimensions();
+use image::io::Reader as ImageReader;
+use rayon::prelude::*; // Assume the `image` crate is being used.
 
-    // Create a binary mask for red color
-    let mut mask = vec![vec![0u8; width as usize]; height as usize];
+pub fn detect_red_circle(image_path: &str) -> Result<(usize, usize, usize, usize), String> {
+    // Load the image using the `image` crate
+    let img = ImageReader::open(image_path)
+        .map_err(|e| format!("Failed to open image: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-    for (x, y, pixel) in img.pixels() {
-        let rgb = pixel.to_rgb();
-        let (h, s, v) = rgb_to_hsv(rgb[0], rgb[1], rgb[2]);
+    let (width, height) = img.dimensions();    
+    let mask = detect_red_pixels(img);
 
-        // Red color range in HSV
-        let is_red = h >= 350.0 || h < 24.0;
-
-        if is_red {
-            mask[y as usize][x as usize] = 255;
-        }
-    }
-
-    // Apply Gaussian blur to the binary mask
+    // Apply Gaussian blur to the binary mask (we will check if it is better or not with it)
     let blurred_mask = gaussian_blur(&mask, width as usize, height as usize);
 
     // Detect circles in the blurred mask
-    Ok(hough_circle_detection(
-        &blurred_mask,
-        width as usize,
-        height as usize,
-    ))
+    Ok(hough_circle_detection(&blurred_mask ))
 }
+
+fn detect_red_pixels(img: DynamicImage) -> Vec<Vec<u8>> {
+    let (width, height) = img.dimensions();
+
+    // Divide the image pixels into chunks of 256 for parallel processing
+    let binding = img.pixels().collect::<Vec<_>>();
+    let pixel_chunks: Vec<_> = binding.chunks(256).collect();
+
+    // Process each chunk in parallel
+    let high_score_coords: Vec<(u32, u32)> = pixel_chunks
+        .par_iter()
+        .flat_map(|chunk| {
+            let mut coords = Vec::new();
+
+            for (x, y, pixel) in *chunk {
+                let rgb = pixel.to_rgb();
+                let (h, _, _) = rgb_to_hsv(rgb[0], rgb[1], rgb[2]);
+
+                // Check if the pixel is in the red color range in HSV
+                if h >= 350.0 || h < 24.0 {
+                    if coords.is_empty() {
+                        coords.reserve(256);
+                    }
+                    coords.push((*x, *y));
+                }
+            }
+
+            coords
+        })
+        .collect();
+
+    // Create a binary mask from the collected coordinates
+    let mut mask = vec![vec![0u8; width as usize]; height as usize];
+    for (x, y) in high_score_coords {
+        mask[y as usize][x as usize] = 255;
+    }
+    mask
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_detect_red_circle() {
-        let image_path = "src/tests/data/vision/rg_s.png"; // 613, 383), radius: 72 // (615, 384), radius: 67
+        let image_path = "src/tests/data/vision/rg.png"; // 613, 383), radius: 72 // (615, 384), radius: 67
         match detect_red_circle(image_path) {
             Ok((x, y, radius, score)) => {
                 println!(
