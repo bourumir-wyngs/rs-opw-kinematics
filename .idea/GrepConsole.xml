@@ -45,6 +45,21 @@
                           </GrepCompositeModel>
                         </option>
                       </Pin>
+                      <Pin>
+                        <option name="consoleUUID" value="6703acca-4126-48ce-9a6a-15d5f7461612" />
+                        <option name="contentType" value="Build" />
+                        <option name="grepCompositeModel">
+                          <GrepCompositeModel>
+                            <option name="models">
+                              <list>
+                                <GrepModel>
+                                  <option name="expression" value="$PROJECT_DIR$/target/debug/build/opencv-b91a9a25032fba5d/build-script-build" />
+                                </GrepModel>
+                              </list>
+                            </option>
+                          </GrepCompositeModel>
+                        </option>
+                      </Pin>
                     </list>
                   </option>
                 </Pins>

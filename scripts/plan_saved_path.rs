@@ -132,7 +132,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         ),
         // We use the Goblet in this task. It is sitting in the orginin of coordinates.
         vec![CollisionBody {
-            mesh: load_trimesh("src/tests/data/goblet/goblet.ply", 1.0)?,
+            mesh: Box::new(load_trimesh("src/tests/data/goblet/goblet.ply", 1.0)?),
             pose: Isometry3::identity(),
         }],
         SafetyDistances {

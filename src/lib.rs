@@ -139,6 +139,9 @@ pub mod depth_field;
 #[path = "path_plan/mesh_from_field.rs"]
 pub mod mesh_from_field;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/callibration.rs"]
+pub mod computer_vision;
 
 
 
