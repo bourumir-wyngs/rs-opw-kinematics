@@ -3,8 +3,8 @@ use image::{DynamicImage, GenericImageView, Pixel};
 const MIN_RADIUS: usize = 10;
 const MAX_RADIUS: usize = 250;
 
-const IS_RED: u16 = 10000;
-const IS_RED_MIN_THR: u16 = 5000; // 200;
+const IS_RED: u16 = 32000;
+const IS_RED_MIN_THR: u16 = 16000; // 200;
 
 /// Converts an RGB pixel to HSV.
 /// HSV ranges:
