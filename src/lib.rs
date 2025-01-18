@@ -151,7 +151,9 @@ mod hsv;
 #[path = "computer_vision/detection.rs"]
 pub mod detection;
 
-
+#[cfg(feature = "vision")]
+#[path = "computer_vision/sphere_mapper.rs"]
+pub mod sphere_mapper;
 
 
 
