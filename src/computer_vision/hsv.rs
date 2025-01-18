@@ -77,79 +77,95 @@ impl HSVRange {
 
 /// Enum representing primary colors with associated HSV ranges.
 #[derive(Debug, Clone)]
-pub enum PrimaryColor {
-    Red { range: HSVRange },
-    Green { range: HSVRange },
-    Blue { range: HSVRange },
-    Yellow { range: HSVRange },
-    Cyan { range: HSVRange },
-    Magenta { range: HSVRange },
+pub enum DefinedColor {
+    Red { range: HSVRange, id: ColorId },
+    Green { range: HSVRange, id: ColorId },
+    Blue { range: HSVRange, id: ColorId },
+    Yellow { range: HSVRange, id: ColorId },
+    Cyan { range: HSVRange, id: ColorId },
+    Magenta { range: HSVRange, id: ColorId },
 }
 
-impl PrimaryColor {
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub enum ColorId {
+    Red,
+    Green,
+    Blue,
+    Yellow,
+    Cyan,
+    Magenta,
+}
+
+impl DefinedColor {
     /// Creates an instance of the Red color with its HSV range.
     pub fn red() -> Self {
-        PrimaryColor::Red {
+        DefinedColor::Red {
             range: HSVRange {
                 hue_ranges: vec![(0.0, 24.0), (350.0, 360.0)], // Red hue range
                 saturation_range: (0.5, 1.0),                  // Saturation range
                 value_range: (0.2, 1.0),                       // Value range
             },
+            id: ColorId::Red,
         }
     }
 
     /// Creates an instance of the Green color with its HSV range.
     pub fn green() -> Self {
-        PrimaryColor::Green {
+        DefinedColor::Green {
             range: HSVRange {
                 hue_ranges: vec![(85.0, 160.0)], // Green hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
+            id: ColorId::Green,
         }
     }
 
     /// Creates an instance of the Blue color with its HSV range.
     pub fn blue() -> Self {
-        PrimaryColor::Blue {
+        DefinedColor::Blue {
             range: HSVRange {
                 hue_ranges: vec![(210.0, 270.0)], // Blue hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
+            id: ColorId::Blue,
         }
     }
 
     /// Creates an instance of the Yellow color with its HSV range.
     pub fn yellow() -> Self {
-        PrimaryColor::Yellow {
+        DefinedColor::Yellow {
             range: HSVRange {
                 hue_ranges: vec![(40.0, 65.0)], // Yellow hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
+            id: ColorId::Yellow,
         }
     }
 
     /// Creates an instance of the Cyan color with its HSV range.
     pub fn cyan() -> Self {
-        PrimaryColor::Cyan {
+        DefinedColor::Cyan {
             range: HSVRange {
                 hue_ranges: vec![(180.0, 200.0)], // Cyan hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
+            id: ColorId::Cyan,
         }
     }
 
     /// Creates an instance of the Magenta color with its HSV range.
     pub fn magenta() -> Self {
-        PrimaryColor::Magenta {
+        DefinedColor::Magenta {
             range: HSVRange {
                 hue_ranges: vec![(290.0, 320.0)], // Magenta hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
+            id: ColorId::Magenta,
         }
     }
 
@@ -157,12 +173,24 @@ impl PrimaryColor {
     pub fn this_color(&self, color: &Rgba<u8>) -> bool {
         let (r, g, b) = (color.0[0], color.0[1], color.0[2]);
         match self {
-            PrimaryColor::Red { range }
-            | PrimaryColor::Green { range }
-            | PrimaryColor::Blue { range }
-            | PrimaryColor::Yellow { range }
-            | PrimaryColor::Cyan { range }
-            | PrimaryColor::Magenta { range } => range.this_color(r, g, b),
+            DefinedColor::Red { range, .. }
+            | DefinedColor::Green { range, .. }
+            | DefinedColor::Blue { range, .. }
+            | DefinedColor::Yellow { range, .. }
+            | DefinedColor::Cyan { range, .. }
+            | DefinedColor::Magenta { range, .. } => range.this_color(r, g, b),
+        }
+    }
+
+    /// Retrieve the unique `ColorId` associated with the `DefinedColor`.
+    pub fn id(&self) -> ColorId {
+        match self {
+            DefinedColor::Red { id, .. }
+            | DefinedColor::Green { id, .. }
+            | DefinedColor::Blue { id, .. }
+            | DefinedColor::Yellow { id, .. }
+            | DefinedColor::Cyan { id, .. }
+            | DefinedColor::Magenta { id, .. } => *id,
         }
     }
 }
@@ -198,12 +226,12 @@ mod tests {
     #[test]
     fn test_primary_color_detection() {
         // Create instances of each primary color
-        let red = PrimaryColor::red();
-        let green = PrimaryColor::green();
-        let blue = PrimaryColor::blue();
-        let yellow = PrimaryColor::yellow();
-        let cyan = PrimaryColor::cyan();
-        let magenta = PrimaryColor::magenta();
+        let red = DefinedColor::red();
+        let green = DefinedColor::green();
+        let blue = DefinedColor::blue();
+        let yellow = DefinedColor::yellow();
+        let cyan = DefinedColor::cyan();
+        let magenta = DefinedColor::magenta();
 
         // Define RGB values for each primary color
         let red_rgb: Rgba<u8> = Rgba([255, 0, 0, 0]); // Bright red
@@ -229,7 +257,10 @@ mod tests {
         );
 
         // Check that gray is never matched by any primary color
-        assert!(!red.this_color(&gray_rgb), "Gray incorrectly matched as Red");
+        assert!(
+            !red.this_color(&gray_rgb),
+            "Gray incorrectly matched as Red"
+        );
         assert!(
             !green.this_color(&gray_rgb),
             "Gray incorrectly matched as Green"

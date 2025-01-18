@@ -147,6 +147,9 @@ pub mod computer_vision;
 #[path = "computer_vision/hsv.rs"]
 mod hsv;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/detection.rs"]
+pub mod detection;
 
 
 

@@ -1,4 +1,7 @@
+use crate::hsv::DefinedColor;
+use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView};
+use rayon::prelude::*;
 
 const MIN_RADIUS: usize = 10;
 const MAX_RADIUS: usize = 250;
@@ -6,7 +9,13 @@ const MAX_RADIUS: usize = 250;
 const IS_MATCHING: u16 = 32000;
 const IS_MATHING_MIN_THR: u16 = 16000; // 200;
 
-
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+/// Represents a detected circle in an image.
+pub struct Detection {
+    pub x: usize, // X coordinate of the circle's center
+    pub y: usize, // Y coordinate of the circle's center
+    pub r: usize, // Radius of the detected circle
+}
 
 /// Applies a simple Gaussian blur to the image mask.
 fn gaussian_blur(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> Vec<Vec<u16>> {
@@ -38,10 +47,10 @@ fn gaussian_blur(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> Vec<Vec<u
 }
 
 fn gradient_based_radius(
-    mask: &Vec<Vec<u16>>,    // Input mask, typically a grayscale image
+    mask: &Vec<Vec<u16>>,   // Input mask, typically a grayscale image
     center: (usize, usize), // Known circle center (cx, cy)
     width: usize,           // Width of the mask
-    height: usize          // Height of the mask
+    height: usize,          // Height of the mask
 ) -> usize {
     fn estimate_gradient_threshold(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> f64 {
         let mut gradients: Vec<f64> = Vec::new();
@@ -164,7 +173,7 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> Vec<Vec<usize>> {
     accumulator
 }
 
-fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> (usize, usize, usize, usize) {
+fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
     let (height, width) = (mask.len(), mask[0].len());
     let accumulator = process_mask(mask);
 
@@ -182,33 +191,40 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> (usize, usize, usize, usize) 
         }
     }
 
+    if max_votes <= 1 {
+        return Err("No circle center detected".to_string());
+    }
+
     // Probe for the best radius around the detected center
     let (best_x, best_y) = best_center;
-    
-    let best_radius =
-        gradient_based_radius(mask, best_center, width, height);
+
+    let best_radius = gradient_based_radius(mask, best_center, width, height);
+
+    if best_radius <= 1 {
+        return Err("No valid circle diameter detected".to_string());
+    }
 
     // +1 adjustment introduced comparing with the reference image file.
-    (best_x + 1, best_y + 1, best_radius + 1, max_votes)
+    Ok(Detection {
+        x: best_x + 1,
+        y: best_y + 1,
+        r: best_radius + 1,
+    })
 }
 
-use image::io::Reader as ImageReader;
-use rayon::prelude::*;
-use crate::hsv::{PrimaryColor};
-
-pub fn detect_circle(img: &DynamicImage, color: PrimaryColor) -> Result<(usize, usize, usize, usize), String> {
-    let (width, height) = img.dimensions();    
-    let mask = detect_pixels(&img, &color);
+pub fn detect_circle(img: &DynamicImage, color: &DefinedColor) -> Result<Detection, String> {
+    let (width, height) = img.dimensions();
+    let mask = detect_pixels(&img, color);
 
     // Apply Gaussian blur to the binary mask (we will check if it is better or not with it)
     let blurred_mask = gaussian_blur(&mask, width as usize, height as usize);
 
     // Detect circles in the blurred mask
-    Ok(hough_circle_detection(&blurred_mask))
+    hough_circle_detection(&blurred_mask)
     //Ok(hough_circle_detection(&mask ))
 }
 
-fn detect_pixels(img: &DynamicImage, color: &PrimaryColor) -> Vec<Vec<u16>> {
+fn detect_pixels(img: &DynamicImage, color: &DefinedColor) -> Vec<Vec<u16>> {
     let (width, height) = img.dimensions();
 
     // Divide the image pixels into chunks of 256 for parallel processing
@@ -226,7 +242,7 @@ fn detect_pixels(img: &DynamicImage, color: &PrimaryColor) -> Vec<Vec<u16>> {
                     if coords.is_empty() {
                         coords.reserve(256);
                     }
-                    coords.push((*x, *y));                    
+                    coords.push((*x, *y));
                 }
             }
 
@@ -253,13 +269,14 @@ mod tests {
         let img = ImageReader::open(image_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
             .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;        
-        
-        match detect_circle(&img, PrimaryColor::red()) {
-            Ok((x, y, radius, score)) => {
+            .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+        match detect_circle(&img, &DefinedColor::red()) {
+            Ok(detection) => {
+                let (x, y, radius) = (detection.x, detection.y, detection.r);
                 println!(
-                    "Detected red circle at: ({}, {}), radius: {} score {}",
-                    x, y, radius, score
+                    "Detected red circle at: ({}, {}), radius: {}",
+                    x, y, radius,
                 );
                 assert_eq!(x, 332);
                 assert_eq!(y, 432);
@@ -282,11 +299,12 @@ mod tests {
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-        match detect_circle(&img, PrimaryColor::green()) {
-            Ok((x, y, radius, score)) => {
+        match detect_circle(&img, &DefinedColor::green()) {
+            Ok(detection) => {
+                let (x, y, radius) = (detection.x, detection.y, detection.r);
                 println!(
-                    "Detected green circle at: ({}, {}), radius: {} score {}",
-                    x, y, radius, score
+                    "Detected red circle at: ({}, {}), radius: {}",
+                    x, y, radius,
                 );
                 assert_eq!(x, 534);
                 assert_eq!(y, 434);
@@ -309,11 +327,12 @@ mod tests {
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-        match detect_circle(&img, PrimaryColor::blue()) {
-            Ok((x, y, radius, score)) => {
+        match detect_circle(&img, &DefinedColor::blue()) {
+            Ok(detection) => {
+                let (x, y, radius) = (detection.x, detection.y, detection.r);
                 println!(
-                    "Detected blue circle at: ({}, {}), radius: {} score {}",
-                    x, y, radius, score
+                    "Detected red circle at: ({}, {}), radius: {}",
+                    x, y, radius,
                 );
                 assert_eq!(x, 536);
                 assert_eq!(y, 202);
@@ -336,11 +355,12 @@ mod tests {
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-        match detect_circle(&img, PrimaryColor::yellow()) {
-            Ok((x, y, radius, score)) => {
+        match detect_circle(&img, &DefinedColor::yellow()) {
+            Ok(detection) => {
+                let (x, y, radius) = (detection.x, detection.y, detection.r);
                 println!(
-                    "Detected yellow circle at: ({}, {}), radius: {} score {}",
-                    x, y, radius, score
+                    "Detected red circle at: ({}, {}), radius: {}",
+                    x, y, radius,
                 );
                 assert_eq!(x, 332);
                 assert_eq!(y, 202);
@@ -352,5 +372,5 @@ mod tests {
             }
         };
         Ok(())
-    }    
+    }
 }
