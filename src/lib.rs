@@ -143,6 +143,11 @@ pub mod mesh_from_field;
 #[path = "computer_vision/callibration.rs"]
 pub mod computer_vision;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/hsv.rs"]
+mod hsv;
+
+
 
 
 

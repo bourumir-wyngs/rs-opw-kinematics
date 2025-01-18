@@ -1,41 +1,12 @@
-use image::{DynamicImage, GenericImageView, Pixel};
+use image::{DynamicImage, GenericImageView};
 
 const MIN_RADIUS: usize = 10;
 const MAX_RADIUS: usize = 250;
 
-const IS_RED: u16 = 32000;
-const IS_RED_MIN_THR: u16 = 16000; // 200;
+const IS_MATCHING: u16 = 32000;
+const IS_MATHING_MIN_THR: u16 = 16000; // 200;
 
-/// Converts an RGB pixel to HSV.
-/// HSV ranges:
-/// - H: [0, 360] (hue)
-/// - S: [0, 1] (saturation)
-/// - V: [0, 1] (value)
-fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
-    let r = r as f64 / 255.0;
-    let g = g as f64 / 255.0;
-    let b = b as f64 / 255.0;
 
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let delta = max - min;
-
-    let h = if delta == 0.0 {
-        0.0
-    } else if max == r {
-        60.0 * (((g - b) / delta) % 6.0)
-    } else if max == g {
-        60.0 * (((b - r) / delta) + 2.0)
-    } else {
-        60.0 * (((r - g) / delta) + 4.0)
-    };
-
-    let hue = if h < 0.0 { h + 360.0 } else { h };
-    let saturation = if max == 0.0 { 0.0 } else { delta / max };
-    let value = max;
-
-    (hue, saturation, value)
-}
 
 /// Applies a simple Gaussian blur to the image mask.
 fn gaussian_blur(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> Vec<Vec<u16>> {
@@ -155,7 +126,7 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> Vec<Vec<usize>> {
             let mut local_accumulator = None;
 
             for x in 0..width {
-                if mask[y][x] > IS_RED_MIN_THR {
+                if mask[y][x] > IS_MATHING_MIN_THR {
                     // Highly likely part of a circle
                     for angle in 0..360 {
                         let (sin_theta, cos_theta) = (angle as f64).to_radians().sin_cos();
@@ -222,27 +193,22 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> (usize, usize, usize, usize) 
 }
 
 use image::io::Reader as ImageReader;
-use rayon::prelude::*; // Assume the `image` crate is being used.
+use rayon::prelude::*;
+use crate::hsv::{PrimaryColor};
 
-pub fn detect_red_circle(image_path: &str) -> Result<(usize, usize, usize, usize), String> {
-    // Load the image using the `image` crate
-    let img = ImageReader::open(image_path)
-        .map_err(|e| format!("Failed to open image: {}", e))?
-        .decode()
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
-
+pub fn detect_circle(img: &DynamicImage, color: PrimaryColor) -> Result<(usize, usize, usize, usize), String> {
     let (width, height) = img.dimensions();    
-    let mask = detect_red_pixels(img);
+    let mask = detect_pixels(&img, &color);
 
     // Apply Gaussian blur to the binary mask (we will check if it is better or not with it)
     let blurred_mask = gaussian_blur(&mask, width as usize, height as usize);
 
     // Detect circles in the blurred mask
-    Ok(hough_circle_detection(&blurred_mask ))
+    Ok(hough_circle_detection(&blurred_mask))
     //Ok(hough_circle_detection(&mask ))
 }
 
-fn detect_red_pixels(img: DynamicImage) -> Vec<Vec<u16>> {
+fn detect_pixels(img: &DynamicImage, color: &PrimaryColor) -> Vec<Vec<u16>> {
     let (width, height) = img.dimensions();
 
     // Divide the image pixels into chunks of 256 for parallel processing
@@ -256,15 +222,11 @@ fn detect_red_pixels(img: DynamicImage) -> Vec<Vec<u16>> {
             let mut coords = Vec::new();
 
             for (x, y, pixel) in *chunk {
-                let rgb = pixel.to_rgb();
-                let (h, _, _) = rgb_to_hsv(rgb[0], rgb[1], rgb[2]);
-
-                // Check if the pixel is in the red color range in HSV
-                if h >= 350.0 || h < 24.0 {
+                if color.this_color(pixel) {
                     if coords.is_empty() {
                         coords.reserve(256);
                     }
-                    coords.push((*x, *y));
+                    coords.push((*x, *y));                    
                 }
             }
 
@@ -275,7 +237,7 @@ fn detect_red_pixels(img: DynamicImage) -> Vec<Vec<u16>> {
     // Create a binary mask from the collected coordinates
     let mut mask = vec![vec![0u16; width as usize]; height as usize];
     for (x, y) in high_score_coords {
-        mask[y as usize][x as usize] = IS_RED;
+        mask[y as usize][x as usize] = IS_MATCHING;
     }
     mask
 }
@@ -285,20 +247,110 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_detect_red_circle() {
-        let image_path = "src/tests/data/vision/rg_e.png"; // 613, 383), radius: 72 // (615, 384), radius: 67
-        match detect_red_circle(image_path) {
+    fn test_detect_red_circle() -> Result<(), String> {
+        let image_path = "src/tests/data/vision/rg_e.png";
+
+        let img = ImageReader::open(image_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?;        
+        
+        match detect_circle(&img, PrimaryColor::red()) {
             Ok((x, y, radius, score)) => {
                 println!(
                     "Detected red circle at: ({}, {}), radius: {} score {}",
                     x, y, radius, score
                 );
-                assert!(x > 0 && y > 0 && radius > 0, "Invalid circle parameters!");
+                assert_eq!(x, 332);
+                assert_eq!(y, 432);
+                assert_eq!(radius, 32);
             }
             Err(e) => {
                 eprintln!("Error occurred: {}", e);
                 assert!(false, "Error during detection: {}", e);
             }
-        }
+        };
+        Ok(())
     }
+
+    #[test]
+    fn test_detect_green_circle() -> Result<(), String> {
+        let image_path = "src/tests/data/vision/rg_e.png";
+
+        let img = ImageReader::open(image_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+        match detect_circle(&img, PrimaryColor::green()) {
+            Ok((x, y, radius, score)) => {
+                println!(
+                    "Detected green circle at: ({}, {}), radius: {} score {}",
+                    x, y, radius, score
+                );
+                assert_eq!(x, 534);
+                assert_eq!(y, 434);
+                assert_eq!(radius, 32);
+            }
+            Err(e) => {
+                eprintln!("Error occurred: {}", e);
+                assert!(false, "Error during detection: {}", e);
+            }
+        };
+        Ok(())
+    }
+
+    #[test]
+    fn test_detect_blue_circle() -> Result<(), String> {
+        let image_path = "src/tests/data/vision/rg_e.png";
+
+        let img = ImageReader::open(image_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+        match detect_circle(&img, PrimaryColor::blue()) {
+            Ok((x, y, radius, score)) => {
+                println!(
+                    "Detected blue circle at: ({}, {}), radius: {} score {}",
+                    x, y, radius, score
+                );
+                assert_eq!(x, 536);
+                assert_eq!(y, 202);
+                assert_eq!(radius, 32);
+            }
+            Err(e) => {
+                eprintln!("Error occurred: {}", e);
+                assert!(false, "Error during detection: {}", e);
+            }
+        };
+        Ok(())
+    }
+
+    #[test]
+    fn test_detect_yellow_circle() -> Result<(), String> {
+        let image_path = "src/tests/data/vision/rg_e.png";
+
+        let img = ImageReader::open(image_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+        match detect_circle(&img, PrimaryColor::yellow()) {
+            Ok((x, y, radius, score)) => {
+                println!(
+                    "Detected yellow circle at: ({}, {}), radius: {} score {}",
+                    x, y, radius, score
+                );
+                assert_eq!(x, 332);
+                assert_eq!(y, 202);
+                assert_eq!(radius, 32);
+            }
+            Err(e) => {
+                eprintln!("Error occurred: {}", e);
+                assert!(false, "Error during detection: {}", e);
+            }
+        };
+        Ok(())
+    }    
 }
