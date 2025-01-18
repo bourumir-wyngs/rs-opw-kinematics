@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 fn find_best_fit_sphere(
     depth_map: &Vec<Vec<i32>>,
     guess_x: i32,
@@ -5,33 +7,32 @@ fn find_best_fit_sphere(
     guess_r: i32,
 ) -> (i32, i32, i32, i32) {
     let guess_z = depth_map[guess_y as usize][guess_x as usize] + guess_r;
-    let mut best = (guess_x, guess_y, guess_z, guess_r);
-    let mut best_error = calculate_error(depth_map, guess_x, guess_y, guess_z, guess_r);
+    let delta = 6;
 
-    // Iterate over x, y, r in range ±5
-    let delta = 5;
-    for x in (guess_x - delta)..=(guess_x + delta) {
-        for y in (guess_y - delta)..=(guess_y + delta) {
-            for z in (guess_z - delta)..=(guess_z + delta) {
-                for r in (guess_r - delta)..=(guess_r + delta) {
-                    // Calculate the error for this sphere
-                    let error = calculate_error(depth_map, x, y, z, r);
-                    if x == 100 && y == 100 {
-                        println!("Error for x={}, y={}, z={}, r={} is {}", x, y, z, r, error);
-                    }
+    // Create a Vec of all combinations of (x, y, z, r) in the range
+    let search_space = (guess_x - delta..=guess_x + delta)
+        .flat_map(|x| {
+            (guess_y - delta..=guess_y + delta).flat_map(move |y| {
+                (guess_z - delta..=guess_z + delta).flat_map(move |z| {
+                    (guess_r - delta..=guess_r + delta).map(move |r| (x, y, z, r))
+                })
+            })
+        })
+        .collect::<Vec<_>>();
 
-                    // Update the best parameters if this sphere has a lower error
-                    if error < best_error {
-                        best_error = error;
-                        best = (x, y, z, r);
-                    }
-                }
-            }
-        }
-    }
+    // Use rayon to parallelize the search over (x, y, z, r)
+    let (best_x, best_y, best_z, best_r, best_error) = search_space
+        .par_iter()
+        .map(|&(x, y, z, r)| {
+            let error = calculate_error(depth_map, x, y, z, r);
+            (x, y, z, r, error)
+        })
+        .min_by_key(|&(_, _, _, _, error)| error)
+        .unwrap();
 
-    best
+    (best_x, best_y, best_z, best_r)
 }
+
 
 fn calculate_error(depth_map: &Vec<Vec<i32>>, x: i32, y: i32, z: i32, r: i32) -> i32 {
     let mut total_error = 0;
