@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Call the function and read the isometries from the JSON file
     let isometries;
-    match read_isometries_from_file("src/tests/data/projector/cyl_on_sphere_X.json") {
+    match read_isometries_from_file("src/tests/data/projector/r_Z.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
             isometries = isos;

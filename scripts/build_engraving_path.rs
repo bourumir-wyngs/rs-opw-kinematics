@@ -34,7 +34,7 @@ fn pause() {
 #[allow(non_snake_case)] // we generate uppercase R
 fn generate_R_waypoints(from_x: f32, from_y: f32, final_width: f32, final_height: f32, min_dist: f32) -> Vec<AnnotatedPathStep> {
     let mut waypoints = Vec::new();
-    
+
     let width = 1.0;
     let height = 1.0;
 
@@ -84,7 +84,7 @@ fn generate_R_waypoints(from_x: f32, from_y: f32, final_width: f32, final_height
     // Step 2: Generate the points for the half-circle
     let half_circle_center = (0.0, height * 0.75);
     let half_circle_radius = height / 4.0;
-    
+
     waypoints.extend(generate_half_circle(
         half_circle_center,
         half_circle_radius,
@@ -100,7 +100,7 @@ fn generate_R_waypoints(from_x: f32, from_y: f32, final_width: f32, final_height
 
     // Step 4: Generate points for the diagonal stroke
     waypoints.extend(generate_line((0.0, height * 0.5), (width * 0.3, 0.0)));
-    
+
     // Scale
     waypoints = waypoints.iter().map(|step|->AnnotatedPathStep {
         AnnotatedPathStep {
@@ -244,7 +244,7 @@ fn generate_flat_projections() -> Result<(), String> {
     }
     send_pose_message(&sender, &shape);
     pause();
-    
+
     Ok(())
 }
 
@@ -261,7 +261,7 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         let engraving = engraving
             .iter()
             .map(|pose| pose.twist(0., 0., 45_f64.to_radians()))
-            .collect();            
+            .collect();
          */
 
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
@@ -375,7 +375,7 @@ fn generate_R_on_goblet() -> Result<(), String> {
                                         0. ..0.5 * PI,
                                         axis)?;
     */
-    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.001);    
+    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.04);
     let engraving = PROJECTOR.project_flat_path(&mesh,
                                     &path,
                                     Axis::Y,
@@ -386,7 +386,7 @@ fn generate_R_on_goblet() -> Result<(), String> {
         "Engraving {:?},  path {} points, engraving {} poses",
         el_ep, path.len(), engraving.len()
     );
-   
+
     send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
 
     if WRITE_JSON {
@@ -403,7 +403,7 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
     let t_ep = Instant::now();
     let axis = Axis::Z;
     //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
-    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.001);    
+    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.02);
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
@@ -429,6 +429,37 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
     Ok(())
 }
 
+fn generate_R_on_cylinder() -> Result<(), String> {
+    //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    let t_ep = Instant::now();
+    let axis = Axis::Z;
+    let mesh = cylinder_mesh(0.2, 1.5, 512, axis);
+    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.04);
+    let engraving =
+        PROJECTOR.project_cylinder_path(&mesh,
+                                        &path,
+                                        0.5,
+                                        0.4 ..0.58,
+                                        0. ..0.5 * PI,
+                                        axis)?;
+
+    let el_ep = t_ep.elapsed();
+    println!(
+        "Engraving {:?},  path {} points, engraving {} poses",
+        el_ep, path.len(), engraving.len()
+    );
+
+    send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
+
+    if WRITE_JSON {
+        write_isometries_to_json(
+            &format!("src/tests/data/projector/r_{:?}_cyl_cyl.json", axis),
+            &engraving,
+        )?
+    }
+    Ok(())
+}
+
 fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
     match sender.send_pose_message(&filter_valid_poses(&adjusted)) {
         Ok(_) => {
@@ -442,7 +473,8 @@ fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() {
-    generate_R_on_goblet_cylinder();
+    //generate_R_on_goblet_cylinder();
+    generate_R_on_goblet();
     return;
     pause();
     generate_cyl_on_sphere();
