@@ -149,8 +149,8 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
                 ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
             ]),
             // mode: CheckMode::AllCollsions, // we need to report all for visualization
-            //mode: CheckMode::FirstCollisionOnly, // good for planning
-            mode: CheckMode::NoCheck
+            mode: CheckMode::FirstCollisionOnly, // good for planning
+            //mode: CheckMode::NoCheck
         },
     ))
 }
