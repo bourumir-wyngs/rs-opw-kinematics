@@ -21,7 +21,7 @@ fn find_best_fit_sphere(
         .collect::<Vec<_>>();
 
     // Use rayon to parallelize the search over (x, y, z, r)
-    let (best_x, best_y, best_z, best_r, best_error) = search_space
+    let (best_x, best_y, best_z, best_r, _best_error) = search_space
         .par_iter()
         .map(|&(x, y, z, r)| {
             let error = calculate_error(depth_map, x, y, z, r);
