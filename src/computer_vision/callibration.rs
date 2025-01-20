@@ -1,5 +1,4 @@
 use crate::hsv::DefinedColor;
-use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView};
 use rayon::prelude::*;
 
@@ -266,7 +265,7 @@ mod tests {
     fn test_detect_red_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
-        let img = ImageReader::open(image_path)
+        let img = image::io::Reader::open(image_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
@@ -294,7 +293,7 @@ mod tests {
     fn test_detect_green_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
-        let img = ImageReader::open(image_path)
+        let img = image::io::Reader::open(image_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
@@ -322,7 +321,7 @@ mod tests {
     fn test_detect_blue_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
-        let img = ImageReader::open(image_path)
+        let img = image::io::Reader::open(image_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
@@ -350,7 +349,7 @@ mod tests {
     fn test_detect_yellow_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
-        let img = ImageReader::open(image_path)
+        let img = image::io::Reader::open(image_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
             .decode()
             .map_err(|e| format!("Failed to decode image: {}", e))?;
