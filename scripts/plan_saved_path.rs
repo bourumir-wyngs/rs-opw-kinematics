@@ -130,7 +130,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
             Translation3::new(0.0, 0.0, 0.125).into(), // 0.125
             UnitQuaternion::identity(),
         ),
-        // We use the Goblet in this task. It is sitting in the orginin of coordinates.
+        // We use the Goblet in this task. It is sitting in the origin of coordinates.
         vec![CollisionBody {
             mesh: Box::new(load_trimesh("src/tests/data/goblet/goblet.ply", 1.0)?),
             pose: Isometry3::identity(),
@@ -149,7 +149,8 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
                 ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
             ]),
             // mode: CheckMode::AllCollsions, // we need to report all for visualization
-            mode: CheckMode::FirstCollisionOnly, // good for planning
+            //mode: CheckMode::FirstCollisionOnly, // good for planning
+            mode: CheckMode::NoCheck
         },
     ))
 }
@@ -159,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Call the function and read the isometries from the JSON file
     let isometries;
-    match read_isometries_from_file("work/isometries.json") {
+    match read_isometries_from_file("src/tests/data/projector/r_Z.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
             isometries = isos;
@@ -175,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle the result of `send_pose_message`
     match sender.send_pose_message(&isometries) {
         Ok(_) => {
-            println!("Pose message sent successfully.");
+            println!("Pose message sent successfully, {} isometries.", isometries.len());
         }
         Err(err) => {
             eprintln!("Failed to send pose message: {}", err);

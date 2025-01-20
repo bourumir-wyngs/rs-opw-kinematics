@@ -1,7 +1,7 @@
-use rayon::iter::ParallelIterator;
 use nalgebra::Isometry3;
 use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
+use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefIterator;
 use rs_cxx_ros2_opw_bridge::sender::Sender;
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
@@ -9,7 +9,7 @@ use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::head_lifter::HeadLifter;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
-use rs_opw_kinematics::synthetic_meshes::{sphere_mesh, sphere_with_recessions};
+use rs_opw_kinematics::synthetic_meshes::{cylinder_mesh, sphere_mesh, sphere_with_recessions};
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -22,7 +22,7 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
-static WRITE_JSON: bool = false;
+static WRITE_JSON: bool = true;
 
 fn pause() {
     print!("Press Enter to continue...");
@@ -32,7 +32,7 @@ fn pause() {
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
-fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
+fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<AnnotatedPathStep> {
     let mut waypoints = Vec::new();
 
     let width = height / 2.0; // Define the width as half the height
@@ -47,7 +47,11 @@ fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
         let steps = (dist / min_dist).ceil() as usize;
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
-            points.push((start.0 + t * dx, start.1 + t * dy));
+            points.push(AnnotatedPathStep {
+                x: start.0 + t * dx,
+                y: start.1 + t * dy,
+                flags: PathFlags::NONE,
+            })
         }
         points
     };
@@ -64,7 +68,11 @@ fn generate_R_waypoints(height: f32, min_dist: f32) -> Vec<(f32, f32)> {
                 let angle = start_angle + i as f32 * step;
                 let x = center.0 + radius * angle.cos();
                 let y = center.1 - radius * angle.sin();
-                points.push((x, y));
+                points.push(AnnotatedPathStep {
+                    x,
+                    y,
+                    flags: PathFlags::NONE,
+                });
             }
 
             points
@@ -224,7 +232,7 @@ fn generate_flat_projections() -> Result<(), String> {
             shape.extend(engraving);
         }
     }
-    send_message(&sender, &shape)?;
+    send_pose_message(&sender, &shape);
     Ok(())
 }
 
@@ -236,9 +244,11 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         let t_ep = Instant::now();
         let engraving =
             PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
-        
-        let engraving 
-            = engraving.iter().map(|pose| { pose.twist(0., 0., 45_f64.to_radians())}).collect();
+
+        let engraving = engraving
+            .iter()
+            .map(|pose| pose.twist(0., 0., 45_f64.to_radians()))
+            .collect();
 
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
         let sender = Sender::new("127.0.0.1", 5555);
@@ -335,6 +345,38 @@ fn adjust_head_collisions(engraving: Vec<AnnotatedPose>, lifter: HeadLifter) -> 
     lifter.adjust_head_collisions(&engraving)
 }
 
+fn generate_R_on_goblet() -> Result<(), String> {
+    let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
+    let path = generate_R_waypoints(1.0, 0.001);
+
+    let t_ep = Instant::now();
+    let axis = Axis::Z;
+    //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
+    let engraving =
+        PROJECTOR.project_cylinder_path(&mesh,
+                                        &path,
+                                        0.5,
+                                        0.4 ..0.58,
+                                        0. ..0.5 * PI,
+                                        axis)?;
+    let el_ep = t_ep.elapsed();
+
+    println!(
+        "Engraving {:?},  path {} points, engraving {} poses",
+        el_ep, path.len(), engraving.len()
+    );
+   
+    send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
+
+    if WRITE_JSON {
+        write_isometries_to_json(
+            &format!("src/tests/data/projector/r_{:?}.json", axis),
+            &engraving,
+        )?
+    }
+    Ok(())
+}
+
 fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
     match sender.send_pose_message(&filter_valid_poses(&adjusted)) {
         Ok(_) => {
@@ -346,76 +388,13 @@ fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
     }
 }
 
-fn send_message(sender: &Sender, engraving: &Vec<AnnotatedPose>) -> Result<(), String> {
-    match sender.send_pose_message(&filter_valid_poses(&engraving)) {
-        Ok(_) => Ok(()),
-        Err(err) => Err(err.to_string()),
-    }
-}
-
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() -> Result<(), String> {
-    generate_cyl_on_sphere()?;
+    //generate_cyl_on_sphere()?;
     //uplifter_on_sphere_with_recs()?;
     //generate_cyl_on_sphere_with_recs()?;
     //return Ok(());
     //generate_flat_projections()?;
-    return Ok(());
-    // Load the mesh from a PLY file
-    //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
-
-    //let mesh = cylinder_mesh(0.2, 1.0, 64, axis);
-    let t_mesh = Instant::now();
-    let mesh = sphere_mesh(0.5, 256);
-    //let path = generate_R_waypoints(1.0, 0.01);
-    //let path = generate_square_points(200);
-
-    let el_mesh = t_mesh.elapsed();
-    let t_path = Instant::now();
-    let path = generate_raster_points(40, 200); // Cylinder
-                                                //let path = generate_raster_points(20, 20); // Axis
-    let el_path = t_path.elapsed();
-    // Goblet
-    /*
-    let engraving = build_engraving_path_cylindric(
-        &mesh,
-        &path,
-        0.5,
-        0.4 ..0.58,
-        0. ..0.5 * PI,
-        axis,
-        RayDirection::FromPositive,
-    )?;
-    */
-
-    // Raster
-    let axis = Axis::Z;
-
-    let t_ep = Instant::now();
-    let engraving =
-        PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
-    let el_ep = t_ep.elapsed();
-
-    println!(
-        "Mesh {:?}, path {:?}, engraving {:?}",
-        el_mesh, el_path, el_ep
-    );
-
-    let sender = Sender::new("127.0.0.1", 5555);
-
-    match sender.send_pose_message(&filter_valid_poses(&engraving)) {
-        Ok(_) => {
-            println!("Pose message sent successfully.");
-        }
-        Err(err) => {
-            eprintln!("Failed to send pose message: {}", err);
-        }
-    }
-
     //return Ok(());
-
-    write_isometries_to_json(
-        &format!("src/tests/data/projector/cyl_on_sphere_{:?}.json", axis),
-        &engraving,
-    )
+    generate_R_on_goblet()
 }
