@@ -603,6 +603,19 @@ impl Projector {
         normalized_angle
     }
 
+    fn yz_normalized_angle(normal: &Vector3<f32>) -> f32 {
+        // Project the normal onto the XZ plane
+        let projected_y = normal.y;
+        let projected_z = normal.z;
+
+        // Compute the angle (in radians) of the projection w.r.t. the positive X axis
+        let angle = projected_z.atan2(projected_y).to_degrees();
+
+        // Normalize the angle to a range of 0 to 360 degrees
+        let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
+        normalized_angle
+    }    
+
     /// Determines which axis the vector connecting two points is most perpendicular to.
     fn find_most_perpendicular_axis_between_points(
         point1: &ParryPoint<f32>,
@@ -611,15 +624,10 @@ impl Projector {
         // Compute the vector connecting the two points
         let vector = point2 - point1;
 
-        // Basis vectors for the X, Y, and Z axes
-        let x_axis = Vector3::new(1.0, 0.0, 0.0);
-        let y_axis = Vector3::new(0.0, 1.0, 0.0);
-        let z_axis = Vector3::new(0.0, 0.0, 1.0);
-
         // Compute the absolute values of the dot products with the connecting vector
-        let dot_x = vector.dot(&x_axis).abs();
-        let dot_y = vector.dot(&y_axis).abs();
-        let dot_z = vector.dot(&z_axis).abs();
+        let dot_x = vector.dot(&Vector3::x()).abs();
+        let dot_y = vector.dot(&Vector3::y()).abs();
+        let dot_z = vector.dot(&Vector3::z()).abs();
 
         // Compare the dot products and return the axis with the smallest absolute value
         if dot_x <= dot_y && dot_x <= dot_z {
@@ -642,7 +650,9 @@ impl Projector {
         let from = points[0]; // centroid.0;
         let to = points[1];
 
-        let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
+        // The alternative way seems unreliable
+        // let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
+        let axis = cylinder_axis.clone(); // alternative 
 
         let plane_points: Vec<_> = points.iter().map(|p| p.coords).collect();
         let avg_normal;
@@ -671,8 +681,8 @@ impl Projector {
         let (strategy, flip) = if axis == Axis::Z {
             (
                 match angle {
-                    -1.0..=45.0 => Strategy::X, // Y, Z possible
-                    45.0..=90.0 => Strategy::X,
+                    -1.0..=45.0 => Strategy::Z, // Strategy::X, // Y, Z possible
+                    45.0..=90.0 => Strategy::Z,
                     90.0..=135.0 => Strategy::Z,
                     135.0..=180.0 => Strategy::Z,
                     180.0..=225.0 => Strategy::Z,
@@ -687,7 +697,17 @@ impl Projector {
             (
                 match angle {
                     -1.0..=45.0 => Strategy::X,
-                    45.0..=90.0 => Strategy::X,
+
+                    45.0..=90.0 => match Self::yz_normalized_angle(&avg_normal) {                        
+                        // Attempts to resolve conlicts between Y cylinder
+                        // and Z on goblet, but we get inverted quaternions, simpler approach is more stable.
+                        //0.0..=45.0 => Strategy::ZSpecTwistX,
+                        //315.0..=361.0 => Strategy::ZSpecTwistX,
+                        //0.0..=45.0 => Strategy::X,
+                        //315.0..=361.0 => Strategy::X,
+                        
+                        _ => Strategy::X,
+                    }
 
                     // This case we need to differentiate also by XZ angle
                     90.0..=180.0 => match Self::xz_normalized_angle(&avg_normal) {
@@ -792,7 +812,8 @@ impl Projector {
         };
 
         if let Some(quaternion) = quaternion {
-            let quaternion = if quaternion.w >= 0.0 {
+            // Standardize w positive (2 forms exist otherwise, keep things simple)
+            let quaternion = if quaternion.w <= 0.0 {
                 quaternion
             } else {
                 UnitQuaternion::from_quaternion(Quaternion::new(
@@ -802,10 +823,13 @@ impl Projector {
                     -quaternion.k,
                 ))
             };
-            if Self::quaternion_moves_point_towards_axis(&quaternion, &from, &axis, 0.0001) {
+            let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
+
+            // In cylinder projection, quaternions must always point away from the cylinder axis or at
+            // most be parallel. Otherwise, the quaternion direction is clearly wrong, discard it.
+            if !Self::quaternion_moves_point_towards_axis(&quaternion, &from, &cylinder_axis, self.radius / 2.0) {
                 return None;
             }
-            let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
 
             // Combine the rotation with the translation (centroid) into an Isometry3
             Some(AnnotatedPose::from_parts(from.coords.into(), quaternion))
@@ -934,10 +958,10 @@ impl Projector {
         // Move the point in the forward direction by `step`
         let moved_point = Point3::from(point.coords + forward * step);
 
-        // We can not "flatten" into 2D
-        let (x, y) = axis.flatten(point.x, point.y, point.z);
+        // "flatten" into 2D, movement towards axis = movement towards origin
+        let (x, y) =  axis.flatten(point.x, point.y, point.z);
         let (xm, ym) = axis.flatten(moved_point.x, moved_point.y, moved_point.z);
 
-        x * x + y * y < xm * xm + ym * ym
+        x * x + y * y >= xm * xm + ym * ym
     }
 }

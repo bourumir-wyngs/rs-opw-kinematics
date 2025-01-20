@@ -22,7 +22,7 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
-static WRITE_JSON: bool = true;
+static WRITE_JSON: bool = false;
 
 fn pause() {
     print!("Press Enter to continue...");
@@ -233,6 +233,8 @@ fn generate_flat_projections() -> Result<(), String> {
         }
     }
     send_pose_message(&sender, &shape);
+    pause();
+    
     Ok(())
 }
 
@@ -245,10 +247,12 @@ fn generate_cyl_on_sphere() -> Result<(), String> {
         let engraving =
             PROJECTOR.project_cylinder_path(&mesh, &path, 1.0, -1.5..1.5, 0. ..2.0 * PI, axis)?;
 
+        /*
         let engraving = engraving
             .iter()
             .map(|pose| pose.twist(0., 0., 45_f64.to_radians()))
-            .collect();
+            .collect();            
+         */
 
         println!("Mesh on {:?}: {:?}", axis, t_ep.elapsed());
         let sender = Sender::new("127.0.0.1", 5555);
@@ -389,12 +393,14 @@ fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
 }
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
-fn main() -> Result<(), String> {
-    //generate_cyl_on_sphere()?;
+fn main() {
+    generate_R_on_goblet();
+    pause();
+    generate_cyl_on_sphere();
     //uplifter_on_sphere_with_recs()?;
-    //generate_cyl_on_sphere_with_recs()?;
+    generate_cyl_on_sphere_with_recs();
     //return Ok(());
-    //generate_flat_projections()?;
+    generate_flat_projections();
     //return Ok(());
-    generate_R_on_goblet()
+
 }
