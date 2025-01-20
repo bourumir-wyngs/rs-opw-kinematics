@@ -402,7 +402,7 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
     let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
     let t_ep = Instant::now();
     let axis = Axis::Z;
-    let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
+    //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
     let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.001);    
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh,
