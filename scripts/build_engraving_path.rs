@@ -22,7 +22,7 @@ static PROJECTOR: Projector = Projector {
     radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
 };
 
-static WRITE_JSON: bool = false;
+static WRITE_JSON: bool = true;
 
 fn pause() {
     print!("Press Enter to continue...");
