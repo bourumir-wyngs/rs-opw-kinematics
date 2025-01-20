@@ -86,6 +86,22 @@ impl Axis {
             ),
         }
     }
+
+    pub fn vector(&self) -> Vector3<f32> {
+        match self {
+            Axis::X => Vector3::x(),
+            Axis::Y => Vector3::y(),
+            Axis::Z => Vector3::z(),
+        }
+    }
+
+    pub fn flatten(&self, x: f32, y: f32, z: f32) -> (f32, f32) {
+        match self {
+            Axis::X => (y, z),
+            Axis::Y => (x, z),
+            Axis::Z => (x, y),
+        }
+    }
 }
 
 // Make a new trait that extends RayCast and requires Sync
@@ -286,7 +302,7 @@ impl Projector {
                 println!("Not enough valid points for regression.");
                 return None;
             }
-            self.compute_plane_isometry(valid_points)
+            self.compute_plane_isometry(&cylinder_axis, valid_points)
         } else {
             None
         }
@@ -617,6 +633,7 @@ impl Projector {
 
     fn compute_plane_isometry(
         &self,
+        cylinder_axis: &Axis,
         points: Vec<ParryPoint<f32>>, // First point is center point, others are arround it in
     ) -> Option<AnnotatedPose> {
         if points.len() < self.check_points {
@@ -775,6 +792,19 @@ impl Projector {
         };
 
         if let Some(quaternion) = quaternion {
+            let quaternion = if quaternion.w >= 0.0 {
+                quaternion
+            } else {
+                UnitQuaternion::from_quaternion(Quaternion::new(
+                    -quaternion.w,
+                    -quaternion.i,
+                    -quaternion.j,
+                    -quaternion.k,
+                ))
+            };
+            if Self::quaternion_moves_point_towards_axis(&quaternion, &from, &axis, 0.0001) {
+                return None;
+            }
             let quaternion = Self::align_quaternion_x_to_points(quaternion, from, to);
 
             // Combine the rotation with the translation (centroid) into an Isometry3
@@ -888,5 +918,26 @@ impl Projector {
         } else {
             None
         }
+    }
+
+    /// Determines if the quaternion causes a point to move closer or farther from the axis as a line.
+    /// Returns `true` if the quaternion moves the point closer to the axis, and `false` otherwise.
+    fn quaternion_moves_point_towards_axis(
+        q: &UnitQuaternion<f32>,
+        point: &Point3<f32>,
+        axis: &Axis,
+        step: f32,
+    ) -> bool {
+        // Use the quaternion's forward direction (local Z-axis in global space)
+        let forward = q * Vector3::z();
+
+        // Move the point in the forward direction by `step`
+        let moved_point = Point3::from(point.coords + forward * step);
+
+        // We can not "flatten" into 2D
+        let (x, y) = axis.flatten(point.x, point.y, point.z);
+        let (xm, ym) = axis.flatten(moved_point.x, moved_point.y, moved_point.z);
+
+        x * x + y * y < xm * xm + ym * ym
     }
 }
