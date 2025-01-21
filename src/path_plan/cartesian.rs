@@ -325,7 +325,7 @@ impl Cartesian<'_> {
             // Solutions are already sorted best first
             for next in &solutions {
                 // Internal "miniposes" generated through recursion are not checked for collision.
-                // Outer calling code is reposible for check if 'current' is collision free
+                // Outer calling code is resposible for check if 'current' is collision-free
                 if self.transitionable(&current, next) {
                     success = true;
                     current = *next;
