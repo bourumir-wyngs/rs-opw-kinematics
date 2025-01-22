@@ -9,8 +9,10 @@ use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
 use nalgebra::{Isometry3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -55,8 +57,12 @@ pub struct Cartesian<'a> {
     /// on it during Cartesian strokes.
     pub cartesian_excludes_tool: bool,
 
+    /// Time out for path planning
+    pub time_out_seconds: u64,
+
     /// Debug mode for logging
     pub debug: bool,
+    
 }
 
 struct Transition {
@@ -103,7 +109,19 @@ impl Cartesian<'_> {
         let poses = self.with_intermediate_poses(land_first, &steps, park);
 
         // Global stop once a solution is found
-        let stop = AtomicBool::new(false);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_borrow = Arc::clone(&stop);
+
+        // Set the expiration time (e.g., 5 seconds)
+        let expiration_time = Duration::from_secs(self.time_out_seconds);
+        thread::spawn(move || {
+            // Wait for the duration to expire
+            thread::sleep(expiration_time);            
+            if !stop_borrow.load(Ordering::Relaxed) {
+                println!("ABORT: No solution found after {} seconds", expiration_time.as_secs());
+                stop_borrow.store(true, Ordering::Relaxed);
+            }
+        });        
 
         strategies
             .par_iter()
@@ -172,6 +190,7 @@ impl Cartesian<'_> {
         poses: &Vec<AnnotatedPose>,
         stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
+        
         // Use Rayon to run both functions in parallel
         let (onboarding, stroke) = rayon::join(
             || {
@@ -220,7 +239,6 @@ impl Cartesian<'_> {
 
         let started = Instant::now();
         let excluded_joints = if self.cartesian_excludes_tool {
-            println!("Tool excluded from collision check");
             // Exclude tool for cartesian
             HashSet::from([J_TOOL])
         } else {

@@ -213,6 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
         cartesian_excludes_tool: true,
+        time_out_seconds: 60,
         debug: true,
     };
 
