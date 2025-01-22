@@ -105,39 +105,37 @@ impl Cartesian<'_> {
         // Global stop once a solution is found
         let stop = AtomicBool::new(false);
 
-        for strategy in strategies.iter() {
-            println!("Strategy: {:?}", strategy);
-            println!("From");
-            dump_joints(strategy);
-            let result = self.probe_strategy(
-                from,
-                &AnnotatedJoints {
-                    joints: strategy.clone(),
-                    flags: land_flags,
-                },
-                &poses,
-                &stop,
-            );
-
-            match result {
-                Ok(outcome) => {
-                    println!("Strategy worked out: {:?}", strategy);
-                    stop.store(true, Ordering::Relaxed);
-                    return Ok(outcome); // Return the successful outcome
-                }
-                Err(msg) => {
-                    if self.debug {
-                        println!("Strategy failed: {:?}, {}", strategy, msg);
+        strategies
+            .par_iter()
+            .find_map_any(|strategy| {
+                match self.probe_strategy(
+                    from,
+                    &AnnotatedJoints {
+                        joints: strategy.clone(),
+                        flags: land_flags,
+                    },
+                    &poses,
+                    &stop,
+                ) {
+                    Ok(outcome) => {
+                        println!("Strategy worked out: {:?}", strategy);
+                        stop.store(true, Ordering::Relaxed);
+                        Some(Ok(outcome))
+                    },
+                    Err(msg) => {
+                        if self.debug {
+                            println!("Strategy failed: {:?}, {}", strategy, msg);
+                        }
+                        None // Continue searching
                     }
                 }
-            }
-        }
-
-        // If no strategies worked
-        Err(format!(
-            "No strategy worked out of {} tried",
-            strategies.len()
-        ))
+            })
+            .unwrap_or_else(|| {
+                Err(format!(
+                    "No strategy worked out of {} tried",
+                    strategies.len()
+                ))
+            })
     }
 
     /// Computes pose, moved by the distance dz in the local orientation of the Isometry3.
@@ -244,33 +242,8 @@ impl Cartesian<'_> {
             let prev = trace.last().expect("Should have start and strategy points");
             assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
 
-            println!("**** Transition {:?} --> {:?} ", from, to);
-            println!("     Previous: {:?}", prev);
-            println!("     Solutions:");
-            let solutions = self
-                .robot
-                .kinematics
-                .inverse_continuing(&to.pose, &prev.joints);
-            if solutions.is_empty() {
-                println!("No solutions");
-            }
-            for sol_idx in 0..solutions.len() {
-                let mut row_str = String::new();
-                for joint_idx in 0..6 {
-                    let computed = solutions[sol_idx][joint_idx];
-                    row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-                }
-                println!(
-                    "[{}] {}",
-                    row_str.trim_end(),
-                    self.robot.collides(&solutions[sol_idx])
-                );
-            }
-
             match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
                 Ok(next) => {
-                    println!("     Adaptive linear transition:");
-                    dump_joints(&next);
                     // This trace contains all intermediate poses (collision check)
                     check_trace.push(next);
 
@@ -344,46 +317,32 @@ impl Cartesian<'_> {
         }
 
         pub const DIV_RATIO: f64 = 0.5;
-        let mut success = false;
-
+ 
         // Not checked for collisions yet
         let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
 
         // Solutions are already sorted best first
-        for (iteration, next) in solutions.iter().enumerate() {
-            println!("  #Probing step {iteration} recursive depth {depth}:");
-            dump_joints(&starting);
-            dump_joints(next);
+        for next in &solutions {
             // Internal "miniposes" generated through recursion are not checked for collision.
-            // Outer calling code is resposible for check if 'current' is collision-free
-            let costs = utils::transition_costs(&starting, next, &self.transition_coefficients);
+            // They only check agains continuity of the robot movement (no unexpected jerks)
             if self.transitionable(&starting, next) {
-                println!(
-                    "  #Transitionable {depth}: costs {} max {}",
-                    costs, self.max_transition_cost
-                );
                 return Ok(next.clone());
-            } else {
-                println!(
-                    "  #NOT Transitionable {depth}: costs {} max {}",
-                    costs, self.max_transition_cost
-                );
             }
-            break;
-        }
+         }
 
-        // Try recursive call. If succeeds, assume as done anyway.        
-        if !success && depth < self.linear_recursion_depth {
+        // Transitioning not successful.
+        // Recursive call reduces step, the goal is to check if there is a continuous
+        // linear path on any step.
+        if depth < self.linear_recursion_depth {
 
             // Try to bridge till them middle first, and then from the middle
-            // This will result in shorter distance between from and to.
-            
+            // This will result in a shorter distance between from and to.            
             let midpose = from.interpolate(to, DIV_RATIO);            
             let middle_joints =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
             
-            // If both bridgings were successful, return final position that resulted from
-            // bridging from middle to 'ta'
+            // If both bridgings were successful, return the final position that resulted from
+            // bridging from middle joints to the final pose on this step
             return  Ok(self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?);
         }
         

@@ -411,7 +411,7 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
         PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
                                         0.5,
-                                        0.4 ..0.58,
+                                        0.38 ..0.52,
                                         0. ..0.5 * PI,
                                         axis)?;
 
