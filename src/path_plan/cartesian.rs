@@ -193,6 +193,7 @@ impl Cartesian<'_> {
             return Err("Unable to start from onboarding point".into());
         }
         let poses = self.with_intermediate_poses(land, &steps, park);
+        println!("Probing {} strategies", strategies.len());
         strategies
             .par_iter()
             .find_map_any(
@@ -296,10 +297,12 @@ impl Cartesian<'_> {
 
     // Transition cartesian way from 'from' into 'to' while assuming 'from'
     // Returns the resolved end pose.
+    // Transition cartesian way from 'from' into 'to' while assuming 'from'
+    // Returns the resolved end pose.
     fn step_adaptive_linear_transition(
         &self,
         starting: &Joints,
-        from: &AnnotatedPose,
+        from: &AnnotatedPose, // FK of "starting"
         to: &AnnotatedPose,
         depth: usize,
     ) -> Result<Joints, Transition> {
@@ -314,51 +317,40 @@ impl Cartesian<'_> {
 
         pub const DIV_RATIO: f64 = 0.5;
 
-        let midpoint = from.interpolate(to, DIV_RATIO);
-        let poses = vec![from, &midpoint, to];
+        // Not checked for collisions yet
+        let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
 
-        let mut current = *starting;
-        let mut prev_pose = from;
-        for pose in poses {
-            let mut success = false;
-
-            // Not checked for collisions yet
-            let solutions = self
-                .robot
-                .kinematics
-                .inverse_continuing(&pose.pose, &current);
-
-            // Solutions are already sorted best first
-            for next in &solutions {
-                // Internal "miniposes" generated through recursion are not checked for collision.
-                // Outer calling code is reposible for check if 'current' is collision free
-                if self.transitionable(&current, next) {
-                    success = true;
-                    current = *next;
-                    break; // break out of solutions loop
-                }
+        // Solutions are already sorted best first
+        for next in &solutions {
+            // Internal "miniposes" generated through recursion are not checked for collision.
+            // They only check agains continuity of the robot movement (no unexpected jerks)
+            if self.transitionable(&starting, next) {
+                return Ok(next.clone());
             }
-            if !success {
-                // Try recursive call. If succeeds, assume as done anyway.
-                if depth >= self.linear_recursion_depth {
-                    return Err(Transition {
-                        from: *prev_pose,
-                        to: *pose,
-                        previous: current,
-                        solutions: solutions,
-                    });
-                }
-
-                // Try to bridge till them middle first, and then from the middle
-                // This will result in shorter distance between from and to.
-                let till_middle =
-                    self.step_adaptive_linear_transition(starting, from, &midpoint, depth + 1)?;
-                current =
-                    self.step_adaptive_linear_transition(&till_middle, &midpoint, to, depth + 1)?;
-            }
-            prev_pose = pose;
         }
-        Ok(current)
+
+        // Transitioning not successful.
+        // Recursive call reduces step, the goal is to check if there is a continuous
+        // linear path on any step.
+        if depth < self.linear_recursion_depth {
+
+            // Try to bridge till them middle first, and then from the middle
+            // This will result in a shorter distance between from and to.            
+            let midpose = from.interpolate(to, DIV_RATIO);
+            let middle_joints =
+                self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
+
+            // If both bridgings were successful, return the final position that resulted from
+            // bridging from middle joints to the final pose on this step
+            return  Ok(self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?);
+        }
+
+        Err(Transition {
+            from: from.clone(),
+            to: to.clone(),
+            previous: starting.clone(),
+            solutions: solutions,
+        })
     }
 
     fn log_failed_transition(&self, transition: &Transition, step: i32) {

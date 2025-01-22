@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.2"
+version = "1.8.3"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -60,7 +60,7 @@ visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["rrt", "collisions"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.8.2", default-features = false }
+# rs-opw-kinematics = { version = "1.8.3", default-features = false }
 
 [profile.release]
 
