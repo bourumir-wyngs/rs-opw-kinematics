@@ -1,11 +1,11 @@
 //! Cartesian stroke
 
+use crate::annotations::{AnnotatedJoints, AnnotatedPose, PathFlags};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints};
-use crate::annotations::{AnnotatedJoints, AnnotatedPose, PathFlags};
+use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
 use nalgebra::{Isometry3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -79,7 +79,7 @@ impl Cartesian<'_> {
         land_first: &Option<Pose>,
         steps: &Vec<Pose>,
         park: &Option<Pose>,
-    ) -> Result<Vec<AnnotatedJoints>, String> {       
+    ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
         }
@@ -101,41 +101,43 @@ impl Cartesian<'_> {
         println!("Strategies to try: {}", strategies.len());
 
         let poses = self.with_intermediate_poses(land_first, &steps, park);
-        
+
         // Global stop once a solution is found
         let stop = AtomicBool::new(false);
-        
-        strategies
-            .par_iter()
-            .find_map_any(|strategy| {
-                match self.probe_strategy(
-                    from,
-                    &AnnotatedJoints {
-                        joints: strategy.clone(),
-                        flags: land_flags,
-                    },
-                    &poses,
-                    &stop,
-                ) {
-                    Ok(outcome) => {
-                        println!("Strategy worked out: {:?}", strategy);
-                        stop.store(true, Ordering::Relaxed);
-                        Some(Ok(outcome))
-                    }, 
-                    Err(msg) => {
-                        if self.debug {
-                            println!("Strategy failed: {:?}, {}", strategy, msg);
-                        }
-                        None // Continue searching
+
+        for strategy in strategies.iter() {
+            println!("Strategy: {:?}", strategy);
+            println!("From");
+            dump_joints(strategy);
+            let result = self.probe_strategy(
+                from,
+                &AnnotatedJoints {
+                    joints: strategy.clone(),
+                    flags: land_flags,
+                },
+                &poses,
+                &stop,
+            );
+
+            match result {
+                Ok(outcome) => {
+                    println!("Strategy worked out: {:?}", strategy);
+                    stop.store(true, Ordering::Relaxed);
+                    return Ok(outcome); // Return the successful outcome
+                }
+                Err(msg) => {
+                    if self.debug {
+                        println!("Strategy failed: {:?}, {}", strategy, msg);
                     }
                 }
-            })
-            .unwrap_or_else(|| {
-                Err(format!(
-                    "No strategy worked out of {} tried",
-                    strategies.len()
-                ))
-            })
+            }
+        }
+
+        // If no strategies worked
+        Err(format!(
+            "No strategy worked out of {} tried",
+            strategies.len()
+        ))
     }
 
     /// Computes pose, moved by the distance dz in the local orientation of the Isometry3.
@@ -170,15 +172,17 @@ impl Cartesian<'_> {
         start: &Joints,
         work_path_start: &AnnotatedJoints,
         poses: &Vec<AnnotatedPose>,
-        stop: &AtomicBool
+        stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-
         // Use Rayon to run both functions in parallel
         let (onboarding, stroke) = rayon::join(
-            || self.rrt.plan_rrt(start, &work_path_start.joints, self.robot, stop),
+            || {
+                self.rrt
+                    .plan_rrt(start, &work_path_start.joints, self.robot, stop)
+            },
             || self.compute_strategy(work_path_start, &poses, stop),
         );
-        
+
         if stop.load(Ordering::Relaxed) {
             return Err("Stopped".into());
         }
@@ -191,12 +195,15 @@ impl Cartesian<'_> {
         let mut trace = Vec::with_capacity(onboarding.len() + stroke.len() + 10);
 
         // Add onboarding, omitting the last entry
-        trace.extend(onboarding.iter().take(onboarding.len() - 1).map(|joints| {
-            AnnotatedJoints {
-                joints: *joints,
-                flags: PathFlags::ONBOARDING,
-            }
-        }));
+        trace.extend(
+            onboarding
+                .iter()
+                .take(onboarding.len() - 1)
+                .map(|joints| AnnotatedJoints {
+                    joints: *joints,
+                    flags: PathFlags::ONBOARDING,
+                }),
+        );
 
         // Add stroke
         trace.extend(stroke);
@@ -211,9 +218,11 @@ impl Cartesian<'_> {
         poses: &Vec<AnnotatedPose>,
         stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        println!("Cartesian planning started");
+        println!("Cartesian planning started, computing strategy {work_path_start:?}");
+
         let started = Instant::now();
         let excluded_joints = if self.cartesian_excludes_tool {
+            println!("Tool excluded from collision check");
             // Exclude tool for cartesian
             HashSet::from([J_TOOL])
         } else {
@@ -235,8 +244,33 @@ impl Cartesian<'_> {
             let prev = trace.last().expect("Should have start and strategy points");
             assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
 
+            println!("**** Transition {:?} --> {:?} ", from, to);
+            println!("     Previous: {:?}", prev);
+            println!("     Solutions:");
+            let solutions = self
+                .robot
+                .kinematics
+                .inverse_continuing(&to.pose, &prev.joints);
+            if solutions.is_empty() {
+                println!("No solutions");
+            }
+            for sol_idx in 0..solutions.len() {
+                let mut row_str = String::new();
+                for joint_idx in 0..6 {
+                    let computed = solutions[sol_idx][joint_idx];
+                    row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
+                }
+                println!(
+                    "[{}] {}",
+                    row_str.trim_end(),
+                    self.robot.collides(&solutions[sol_idx])
+                );
+            }
+
             match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
                 Ok(next) => {
+                    println!("     Adaptive linear transition:");
+                    dump_joints(&next);
                     // This trace contains all intermediate poses (collision check)
                     check_trace.push(next);
 
@@ -264,7 +298,10 @@ impl Cartesian<'_> {
         }
 
         if self.debug {
-            println!("Cartesian planning till collision check took {:?}", started.elapsed());
+            println!(
+                "Cartesian planning till collision check took {:?}",
+                started.elapsed()
+            );
         }
         if stop.load(Ordering::Relaxed) {
             return Err("Stopped".into());
@@ -278,10 +315,10 @@ impl Cartesian<'_> {
             }
             self.robot.collides_except(joints, &excluded_joints)
         });
-        
+
         if collides {
             return Err("Collision or cancel detected".into());
-        } 
+        }
         if self.debug {
             println!("Cartesian planning took {:?}", started.elapsed());
         }
@@ -293,7 +330,7 @@ impl Cartesian<'_> {
     fn step_adaptive_linear_transition(
         &self,
         starting: &Joints,
-        from: &AnnotatedPose,
+        from: &AnnotatedPose, // FK of "starting"
         to: &AnnotatedPose,
         depth: usize,
     ) -> Result<Joints, Transition> {
@@ -307,52 +344,55 @@ impl Cartesian<'_> {
         }
 
         pub const DIV_RATIO: f64 = 0.5;
+        let mut success = false;
 
-        let midpoint = from.interpolate(to, DIV_RATIO);
-        let poses = vec![from, &midpoint, to];
+        // Not checked for collisions yet
+        let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
 
-        let mut current = *starting;
-        let mut prev_pose = from;
-        for pose in poses {
-            let mut success = false;
-
-            // Not checked for collisions yet
-            let solutions = self
-                .robot
-                .kinematics
-                .inverse_continuing(&pose.pose, &current);
-
-            // Solutions are already sorted best first
-            for next in &solutions {
-                // Internal "miniposes" generated through recursion are not checked for collision.
-                // Outer calling code is resposible for check if 'current' is collision-free
-                if self.transitionable(&current, next) {
-                    success = true;
-                    current = *next;
-                    break; // break out of solutions loop
-                }
+        // Solutions are already sorted best first
+        for (iteration, next) in solutions.iter().enumerate() {
+            println!("  #Probing step {iteration} recursive depth {depth}:");
+            dump_joints(&starting);
+            dump_joints(next);
+            // Internal "miniposes" generated through recursion are not checked for collision.
+            // Outer calling code is resposible for check if 'current' is collision-free
+            let costs = utils::transition_costs(&starting, next, &self.transition_coefficients);
+            if self.transitionable(&starting, next) {
+                println!(
+                    "  #Transitionable {depth}: costs {} max {}",
+                    costs, self.max_transition_cost
+                );
+                return Ok(next.clone());
+            } else {
+                println!(
+                    "  #NOT Transitionable {depth}: costs {} max {}",
+                    costs, self.max_transition_cost
+                );
             }
-            if !success {
-                // Try recursive call. If succeeds, assume as done anyway.
-                if depth >= self.linear_recursion_depth {
-                    return Err(Transition {
-                        from: *prev_pose,
-                        to: *pose,
-                        previous: current,
-                        solutions: solutions,
-                    });
-                }
-
-                // Try to bridge till them middle first, and then from the middle
-                // This will result in shorter distance between from and to.
-                let till_middle =
-                    self.step_adaptive_linear_transition(starting, from, &midpoint, depth + 1)?;
-                current =
-                    self.step_adaptive_linear_transition(&till_middle, &midpoint, to, depth + 1)?;
-            }
-            prev_pose = pose;
+            break;
         }
-        Ok(current)
+
+        // Try recursive call. If succeeds, assume as done anyway.        
+        if !success && depth < self.linear_recursion_depth {
+
+            // Try to bridge till them middle first, and then from the middle
+            // This will result in shorter distance between from and to.
+            
+            let midpose = from.interpolate(to, DIV_RATIO);            
+            let middle_joints =
+                self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
+            
+            // If both bridgings were successful, return final position that resulted from
+            // bridging from middle to 'ta'
+            return  Ok(self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?);
+        }
+        
+        Err(Transition {
+            from: from.clone(),
+            to: to.clone(),
+            previous: starting.clone(),
+            solutions: solutions,
+        })        
     }
 
     fn log_failed_transition(&self, transition: &Transition, step: i32) {

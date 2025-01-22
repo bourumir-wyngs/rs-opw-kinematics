@@ -1,20 +1,24 @@
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
 use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
-use rs_opw_kinematics::collisions::{CheckMode, CollisionBody, SafetyDistances, NEVER_COLLIDES};
+use rs_opw_kinematics::collisions::{
+    CheckMode, CollisionBody, SafetyDistances, NEVER_COLLIDES, TOUCH_ONLY,
+};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::rrt::RRTPlanner;
+use rs_read_trimesh::load_trimesh;
 use serde::Deserialize;
 use std::f64::consts::PI;
 use std::fs;
 use std::time::Instant;
-use rs_read_trimesh::load_trimesh;
 
 // The initial position of the robotic arm.
 // const HOME: [f64; 6] = [-2.0, 1.451, -1.642, 0.0, 0.0, 0.0];
-const HOME: [f64; 6] = [0.0, 1.451, -1.642, 0.0, 0.0, 0.0];
+//const HOME: [f64; 6] = [0.0, 1.451, -1.642, 0.0, 0.0, 0.0];
+
+const HOME: [f64; 6] = [179.62, 84.01, -135.33, -0.86, -13.43, -89.25];
 
 #[derive(Deserialize, Debug)]
 struct Transform {
@@ -136,8 +140,8 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
             pose: Isometry3::identity(),
         }],
         SafetyDistances {
-            to_environment: 0.05,   // Robot should not come closer than 5 cm to the goblet
-            to_robot_default: 0.05, // No closer than 5 cm to itself.
+            to_environment: TOUCH_ONLY, // Robot should not come closer than 5 cm to the goblet
+            to_robot_default: 0.05,     // No closer than 5 cm to itself.
             special_distances: SafetyDistances::distances(&[
                 // Due construction of this robot, these joints are very close, so
                 // special rules are needed for them.
@@ -146,11 +150,11 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
                 ((J2, J4), NEVER_COLLIDES),
                 ((J3, J4), NEVER_COLLIDES),
                 ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
-                ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+                ((J4, J6), TOUCH_ONLY),   // reduce distance requirement to 2 cm.
             ]),
             // mode: CheckMode::AllCollsions, // we need to report all for visualization
             mode: CheckMode::FirstCollisionOnly, // good for planning
-            //mode: CheckMode::NoCheck
+                                                 //mode: CheckMode::NoCheck
         },
     ))
 }
@@ -160,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Call the function and read the isometries from the JSON file
     let isometries;
-    match read_isometries_from_file("src/tests/data/projector/r_Z.json") {
+    match read_isometries_from_file("src/tests/data/projector/r_Z_cyl.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
             isometries = isos;
@@ -176,7 +180,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle the result of `send_pose_message`
     match sender.send_pose_message(&isometries) {
         Ok(_) => {
-            println!("Pose message sent successfully, {} isometries.", isometries.len());
+            println!(
+                "Pose message sent successfully, {} isometries.",
+                isometries.len()
+            );
         }
         Err(err) => {
             eprintln!("Failed to send pose message: {}", err);
@@ -187,7 +194,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = create_rx160_robot()?;
 
     // Starting point, where the robot exists at the beginning of the task.
-    let start = HOME;
+    let start = [
+        179.67, 74.15, -136.09, -5.01, -2.83, -85.11
+    ].map(|x| (x as f64).to_radians()).into();
+    
+    // HOME;
 
     // In production, other poses are normally given in Cartesian, but here they are given
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
@@ -195,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k, // The robot, instance of KinematicsWithShape
+        robot: &k,                               // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
@@ -208,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 1000,
             debug: true,
-            waypoints: vec![] // vec![[-2.0, 1.451, -1.642, 0.0, 0.0, 0.0]]
+            waypoints: vec![], // vec![[-2.0, 1.451, -1.642, 0.0, 0.0, 0.0]]
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
@@ -221,9 +232,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = planner.plan(
         &start,
-        &Cartesian::elevated_z(steps.first(), 0.1),
+        &None,
         &steps,
-        &Cartesian::elevated_z(steps.last(), 0.1),
+        &None
     );
 
     let elapsed = started.elapsed();

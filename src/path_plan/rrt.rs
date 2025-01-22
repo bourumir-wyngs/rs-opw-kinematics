@@ -118,7 +118,7 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         stop: &AtomicBool,
     ) -> Result<Vec<Joints>, String> {
-        println!("RRT started {:?} -> {:?}", start, goal);
+        //println!("RRT started {:?} -> {:?}", start, goal);
         let started = Instant::now();
         let path = self.plan_path(&kinematics, start, goal, stop);
         let spent = started.elapsed();
@@ -126,7 +126,7 @@ impl RRTPlanner {
 
         match &result {
             Ok(path) => {
-                println!("RRT steps: {}", &path.len());
+                //println!("RRT steps: {}", &path.len());
             }
             Err(error_message) => {
                 println!("Direct RRT failed: {}", error_message);
@@ -171,7 +171,7 @@ impl RRTPlanner {
             }
         }
         // self.print_summary(&result);
-        println!("RRT Took {:?} for {:?} -> {:?}", &spent, start, goal);
+        //println!("RRT Took {:?} for {:?} -> {:?}", &spent, start, goal);
 
         result
     }

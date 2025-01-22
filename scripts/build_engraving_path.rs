@@ -1,3 +1,4 @@
+use rs_opw_kinematics::smoother;
 use nalgebra::Isometry3;
 use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
@@ -16,6 +17,7 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::time::Instant;
+use rs_opw_kinematics::smoother::Smoother;
 
 static PROJECTOR: Projector = Projector {
     check_points: 24, // Defined number of normals to check
@@ -403,7 +405,8 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
     let t_ep = Instant::now();
     let axis = Axis::Z;
     //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
-    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.02);
+    let path = generate_R_waypoints(
+        -0.1, 0.35, 0.4, 0.2, 0.02);
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
@@ -417,6 +420,12 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
         "Engraving {:?},  path {} points, engraving {} poses",
         el_ep, path.len(), engraving.len()
     );
+    let smoother = Smoother::new(0.5, 7);
+    let engraving = smoother.smooth_orientations(&engraving);
+    let engraving = engraving.iter().map(|x| {
+       x.elevate(-0.002) 
+    }).collect();
+    
 
     send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
 
@@ -433,8 +442,9 @@ fn generate_R_on_cylinder() -> Result<(), String> {
     //let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
     let t_ep = Instant::now();
     let axis = Axis::Z;
-    let mesh = cylinder_mesh(0.2, 1.5, 512, axis);
-    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.04);
+    let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
+    let path = generate_R_waypoints(
+        -0.1, 0.35, 0.4, 0.2, 0.005);
     let engraving =
         PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
@@ -448,6 +458,10 @@ fn generate_R_on_cylinder() -> Result<(), String> {
         "Engraving {:?},  path {} points, engraving {} poses",
         el_ep, path.len(), engraving.len()
     );
+
+    let smoother = Smoother::new(0.5, 7);
+    let engraving = smoother.smooth_orientations(&engraving);
+    //let engraving = kalman.smooth_orientations(&engraving);
 
     send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
 
@@ -473,8 +487,9 @@ fn send_pose_message(sender: &Sender, adjusted: &Vec<AnnotatedPose>) {
 
 // https://www.brack.ch/lenovo-workstation-thinkstation-p3-ultra-sff-intel-1813977
 fn main() {
-    //generate_R_on_goblet_cylinder();
-    generate_R_on_goblet();
+    generate_R_on_goblet_cylinder();
+    //generate_R_on_goblet();
+    //generate_R_on_cylinder();
     return;
     pause();
     generate_cyl_on_sphere();

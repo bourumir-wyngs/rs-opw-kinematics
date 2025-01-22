@@ -131,6 +131,14 @@ pub mod head_lifter;
 #[cfg(feature = "stroke_planning")]
 pub mod annotations;
 
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/smoother.rs"]
+pub mod smoother;
+
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/super_rotation.rs"]
+pub mod super_rotation;
+
 #[cfg(feature = "depth_field")]
 #[path = "path_plan/depth_field.rs"]
 pub mod depth_field;
