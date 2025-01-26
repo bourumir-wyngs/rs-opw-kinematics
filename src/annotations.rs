@@ -47,6 +47,9 @@ bitflags! {
 
         /// Used with raster projector, indicates the movement considered "backwards"
         const BACKWARDS =            1 << 9;
+        
+        /// Mildly altered to make the stroke possible
+        const ALTERED =              1 << 10;
 
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
@@ -164,6 +167,7 @@ fn flag_representation(flags: &PathFlags) -> String {
         // Mesh generator flags
         (PathFlags::FORWARDS, "FORWARDS"),
         (PathFlags::BACKWARDS, "BACKWARDS"),
+        (PathFlags::ALTERED, "ALTERED"),
         (PathFlags::DEBUG, "DEBUG"),
     ];
 

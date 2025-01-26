@@ -188,12 +188,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Starting point, where the robot exists at the beginning of the task.
     
+    /*
     let start = [
         179.67, 74.15, -136.09, -5.01, -2.83, -85.11
     ].map(|x| (x as f64).to_radians()).into();    
-     
+    */ 
 
-    //let start = HOME;
+    let start = HOME;
 
     /* // From this start it works 
     let start = [
@@ -210,6 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         robot: &k, // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        max_orientation_deviation: 3.0_f64.to_radians(),
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
@@ -234,9 +236,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = planner.plan(
         &start,
-        &Cartesian::elevated_z(steps.first(), 0.1),
+        &Cartesian::elevated_z(steps.first(), 0.01),
         &steps,
-        &Cartesian::elevated_z(steps.last(), 0.1),
+        &Cartesian::elevated_z(steps.last(), 0.001),
     );
 
     let elapsed = started.elapsed();

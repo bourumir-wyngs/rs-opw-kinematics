@@ -136,8 +136,8 @@ pub mod annotations;
 pub mod smoother;
 
 #[cfg(feature = "stroke_planning")]
-#[path = "path_plan/super_rotation.rs"]
-pub mod super_rotation;
+#[path = "path_plan/altered_pose.rs"]
+mod altered_pose;
 
 #[cfg(feature = "depth_field")]
 #[path = "path_plan/depth_field.rs"]
