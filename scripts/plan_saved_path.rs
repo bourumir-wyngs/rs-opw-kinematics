@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Call the function and read the isometries from the JSON file
     let isometries;
-    match read_isometries_from_file("src/tests/data/projector/r_Z_cyl.json") {
+    match read_isometries_from_file("src/tests/data/projector/r_Z_cyl_sr.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
             isometries = isos;
@@ -187,7 +187,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = create_rx160_robot()?;
 
     // Starting point, where the robot exists at the beginning of the task.
-    let start = HOME;
+    
+    let start = [
+        179.67, 74.15, -136.09, -5.01, -2.83, -85.11
+    ].map(|x| (x as f64).to_radians()).into();    
+     
+
+    //let start = HOME;
+
+    /* // From this start it works 
+    let start = [
+        179.68, 90., -100.15, -0.22, -82.65, -89.79
+    ].map(|x| (x as f64).to_radians()).into();    
+    */
 
     // In production, other poses are normally given in Cartesian, but here they are given
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.

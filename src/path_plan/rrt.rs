@@ -48,6 +48,8 @@ impl RRTPlanner {
         goal: &Joints,
         stop: &AtomicBool,
     ) -> Result<Vec<Vec<f64>>, String> {
+        //return Ok(vec![Vec::from(start.clone()), Vec::from(goal.clone())]);
+        
         let collision_free = |joint_angles: &[f64]| -> bool {
             let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
             !kinematics.collides(joints)

@@ -5,12 +5,12 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints, dump_solutions};
+use crate::utils::{assert_pose_eq, dump_joints, dump_solutions, transition_costs};
 use nalgebra::{Isometry3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -62,10 +62,10 @@ pub struct Cartesian<'a> {
 
     /// Debug mode for logging
     pub debug: bool,
-    
 }
 
 struct Transition {
+    note: String,
     from: AnnotatedPose,
     to: AnnotatedPose,
     previous: Joints,
@@ -116,12 +116,15 @@ impl Cartesian<'_> {
         let expiration_time = Duration::from_secs(self.time_out_seconds);
         thread::spawn(move || {
             // Wait for the duration to expire
-            thread::sleep(expiration_time);            
+            thread::sleep(expiration_time);
             if !stop_borrow.load(Ordering::Relaxed) {
-                println!("ABORT: No solution found after {} seconds", expiration_time.as_secs());
+                println!(
+                    "ABORT: No solution found after {} seconds",
+                    expiration_time.as_secs()
+                );
                 stop_borrow.store(true, Ordering::Relaxed);
             }
-        });        
+        });
 
         strategies
             .par_iter()
@@ -139,7 +142,7 @@ impl Cartesian<'_> {
                         println!("Strategy worked out: {:?}", strategy);
                         stop.store(true, Ordering::Relaxed);
                         Some(Ok(outcome))
-                    },
+                    }
                     Err(msg) => {
                         if self.debug {
                             println!("Strategy failed: {:?}, {}", strategy, msg);
@@ -190,7 +193,6 @@ impl Cartesian<'_> {
         poses: &Vec<AnnotatedPose>,
         stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        
         // Use Rayon to run both functions in parallel
         let (onboarding, stroke) = rayon::join(
             || {
@@ -335,48 +337,78 @@ impl Cartesian<'_> {
         }
 
         pub const DIV_RATIO: f64 = 0.5;
- 
+
         // Not checked for collisions yet
-        let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
+        let solutions = self
+            .robot
+            .kinematics
+            .inverse_continuing(&to.pose, &starting);
+        let mut cheapest_cost = std::f64::MAX;
 
         // Solutions are already sorted best first
         for next in &solutions {
             // Internal "miniposes" generated through recursion are not checked for collision.
             // They only check agains continuity of the robot movement (no unexpected jerks)
-            if self.transitionable(&starting, next) {
-                return Ok(next.clone());
+            let cost = transition_costs(starting, next, &self.transition_coefficients);
+            if cost <= self.max_transition_cost {
+                return Ok(next.clone()); // Track minimal cost observed
             }
-         }
+            cheapest_cost = cheapest_cost.min(cost);
+        }
 
         // Transitioning not successful.
         // Recursive call reduces step, the goal is to check if there is a continuous
         // linear path on any step.
         if depth < self.linear_recursion_depth {
-
             // Try to bridge till them middle first, and then from the middle
-            // This will result in a shorter distance between from and to.            
-            let midpose = from.interpolate(to, DIV_RATIO);            
+            // This will result in a shorter distance between from and to.
+            let midpose = from.interpolate(to, DIV_RATIO);
             let middle_joints =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
-            
+
             // If both bridgings were successful, return the final position that resulted from
             // bridging from middle joints to the final pose on this step
-            return  Ok(self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?);
+            let end_step =
+                self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?;
+
+            let cost_start_mid =
+                transition_costs(starting, &middle_joints, &self.transition_coefficients);
+            let cost_mid_end =
+                transition_costs(&middle_joints, &end_step, &self.transition_coefficients);
+            if cost_start_mid <= self.max_transition_cost && cost_mid_end <= self.max_transition_cost {
+                // Both steps are very small
+                return Ok(end_step);
+            }
+            
+            // Cost of any step separately should not be more than cost of the whole transition
+            if cost_start_mid <= cheapest_cost && cost_mid_end <= cheapest_cost {
+                // Otherwise only recognize if the cost does not rise in the intermediate steps.
+                return Ok(end_step);
+            }
+            return Err(Transition {
+                note: format!("Rising costs as region divided, costs {} and {}, cc {}",
+                              cost_start_mid, cost_mid_end, cheapest_cost ),
+                from: from.clone(),
+                to: to.clone(),
+                previous: starting.clone(),
+                solutions: solutions,
+            });
         }
-        
+
         Err(Transition {
+            note: format!("Failed to transition"),
             from: from.clone(),
             to: to.clone(),
             previous: starting.clone(),
             solutions: solutions,
-        })        
+        })
     }
 
     fn log_failed_transition(&self, transition: &Transition, step: i32) {
         if !self.debug {
             return;
         }
-        println!("Step {} from [1..n] failed", step);
+        println!("Step {} from [1..n] failed: {}", step, transition.note);
         println!(
             "No transition with cost below {}:",
             self.max_transition_cost.to_degrees()
