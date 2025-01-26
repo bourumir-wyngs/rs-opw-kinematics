@@ -471,7 +471,8 @@ constraints to be sure everything is collision-free anyway.
 
 Please see the [example](examples/cartesian_stroke.rs).
 
-Note: versions 1.8.2 and below may produce large robot rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3
+**Note**: versions 1.8.2 and below may produce large rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3. Under these rare conditions (that occur only near, but not at the J5 = 0 singularity point), the rotation (not translation) of the generated pose may differ from requested, by no more than the value of Cartesian.check_step_rad parameter.
+    
 
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
