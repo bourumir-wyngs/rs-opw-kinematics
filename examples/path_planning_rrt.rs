@@ -1,4 +1,4 @@
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 use {
     rrt::dual_rrt_connect,
     std::time::Instant,
@@ -12,7 +12,7 @@ use {
     rs_opw_kinematics::utils::dump_joints,
 };
 
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 pub fn create_rx160_robot() -> KinematicsWithShape {
     use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
 
@@ -68,7 +68,7 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 
 
 /// Plans a path from `start` to `goal` joint configuration, using `KinematicsWithShape` for collision checking.
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn plan_path(
     kinematics: &KinematicsWithShape,
     start: Joints, goal: Joints,
@@ -93,7 +93,7 @@ fn plan_path(
     )
 }
 
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn convert_result(data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, String> {
     data.and_then(|vectors| {
         vectors
@@ -110,7 +110,7 @@ fn convert_result(data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, St
     })
 }
 
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
     match planning_result {
         Ok(path) => {
@@ -125,7 +125,7 @@ fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
     }
 }
 
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn main() {
     // Initialize kinematics with your robot's specific parameters
     let kinematics = create_rx160_robot();
@@ -145,7 +145,7 @@ fn main() {
     example(start, goal, &kinematics);
 }
 
-#[cfg(feature = "collisions")]
+#[cfg(feature = "stroke_planning")]
 fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) {
     let started = Instant::now();
     let path = plan_path(&kinematics, start, goal);
@@ -155,7 +155,7 @@ fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) {
     println!("Took {:?}", &spent);
 }
 
-#[cfg(not(feature = "collisions"))]
+#[cfg(not(feature = "stroke_planning"))]
 fn main() {
     println!("Build configuration does not support this example")
 }
