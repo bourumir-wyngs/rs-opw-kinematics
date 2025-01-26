@@ -4,13 +4,14 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints};
+use crate::utils::{assert_pose_eq, dump_joints, transition_costs};
 use bitflags::bitflags;
 use nalgebra::Translation3;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use crate::altered_pose::alter_poses;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -57,35 +58,65 @@ bitflags! {
     /// Flags that can be set on AnnotatedJoints in the output
     #[derive(Clone, Copy)]
     pub struct PathFlags: u32 {
-        const CARTESIAN =           0b00000001;
+        const NONE = 0b0000_0000;
+
         /// Position is part of the movement from the initil ("home") pose to the landing
         /// pose. It may include very arbitrary joint movements, so Cartesian stroke
         /// may not work on this part of the trajectory.
-        const ONBOARDING =          0b00000010;
+        const ONBOARDING =          1 << 1;
+
         /// Position directly matches one of the stroke poses given in the input.
-        const TRACE =               0b00000100;
-        /// Position is linear interpolation between two poses of the trace. These poses
+        const TRACE =               1 << 2;
+
+        /// Position is a linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
         /// but may be important for more developed models that only rotate between
         /// the given joint positions without guarantees that TCP movement is linear.
-        const LIN_INTERP = 0b00001000;
+        const LIN_INTERP =          1 << 3;
+
         /// Position corresponds the starting pose ("land") that is normally little above
         /// the start of the required trace
-        const LAND =                0b00010000;
+        const LAND =                1 << 4;
+
+        /// The tool is movind down from the landing position to the first stroke position.
+        /// Activate the tool mechanism if any (start the drill, open sprayer, etc).
+        const LANDING =             1 << 5;
+
         /// Position corresponds the ennding pose ("park") that is normally little above
         /// the end of the required trace. This is the last pose to include into the
         /// output.
-        const PARK =                0b00100000;
+        const PARK =                1 << 6;
+
+        /// The tool is moving up from the last trace point to the parking position
+        /// (shut down the effector mechanism if any)
+        const PARKING =             1 << 7;
+
+        /// Used with raster projector, indicates the movement considered "forwards"
+        const FORWARDS =             1 << 8;
+
+        /// Used with raster projector, indicates the movement considered "backwards"
+        const BACKWARDS =            1 << 9;
+
+        /// Mildly altered to make the stroke possible
+        const ALTERED =              1 << 10;
+
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
+
+        /// Special flag used in debugging to mark out anything of interest. Largest can be stored
+        /// in u32
+        const DEBUG = 1 << 31;
+
+        // The movement INTO this pose is Cartesian stroke
+        const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
 
 #[derive(Clone, Copy)]
-struct AnnotatedPose {
-    pose: Pose,
-    flags: PathFlags,
+pub(crate) struct AnnotatedPose {
+    pub (crate) pose: Pose,
+    pub (crate) flags: PathFlags,
 }
 
 /// Annotated joints specifying if it is joint-joint or Cartesian move (to this joint, not from)
@@ -174,9 +205,6 @@ struct Transition {
 }
 
 impl Cartesian<'_> {
-    pub fn transitionable(&self, from: &Joints, to: &Joints) -> bool {
-        utils::transition_costs(from, to, &self.transition_coefficients) <= self.max_transition_cost
-    }
 
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
@@ -239,7 +267,7 @@ impl Cartesian<'_> {
             // Do not attempt Cartesian planning if we already cancelled.
             return Err("Stopped".into());
         }
-        
+
         let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
 
         // Do not take the last value as it is same as 'strategy'
@@ -289,12 +317,40 @@ impl Cartesian<'_> {
                     }
                 }
                 Err(failed_transition) => {
-                    self.log_failed_transition(&failed_transition, step);
-                    return Err(format!(
-                        "Linear stroke does not transit at step {} and cannot be fixed",
-                        step
-                    )
-                    .into());
+                    let mut success = false;
+                    // Try with a slightly altered pose.
+                    for altered_to in alter_poses(to, self.check_step_rad) {
+                        match self.step_adaptive_linear_transition(
+                            &prev.joints,
+                            from,
+                            &altered_to,
+                            0,
+                        ) {
+                            Ok(next) => {
+                                println!(
+                                    "    Transition with altered pose {:?} successful",
+                                    altered_to
+                                );
+                                check_trace.push(next);
+                                trace.push(AnnotatedJoints {
+                                    joints: next,
+                                    flags: altered_to.flags,
+                                });
+                                success = true;
+                                break;
+                            }
+                            Err(_) => { // Try next
+                            }
+                        }
+                    }
+
+                    if !success {
+                        self.log_failed_transition(&failed_transition, step);
+                        return Err(format!(
+                            "Failed to transition at step {} with all alterations tried",
+                            step
+                        ));
+                    }
                 }
             }
             if to.flags.contains(PathFlags::TRACE) {
@@ -337,21 +393,23 @@ impl Cartesian<'_> {
 
         // Not checked for collisions yet
         let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
+        let mut cheapest_cost = std::f64::MAX;        
 
         // Solutions are already sorted best first
         for next in &solutions {
             // Internal "miniposes" generated through recursion are not checked for collision.
             // They only check agains continuity of the robot movement (no unexpected jerks)
-            if self.transitionable(&starting, next) {
-                return Ok(next.clone());
+            let cost = transition_costs(starting, next, &self.transition_coefficients);
+            if cost <= self.max_transition_cost {
+                return Ok(next.clone()); // Track minimal cost observed
             }
+            cheapest_cost = cheapest_cost.min(cost);            
         }
 
         // Transitioning not successful.
         // Recursive call reduces step, the goal is to check if there is a continuous
         // linear path on any step.
         if depth < self.linear_recursion_depth {
-
             // Try to bridge till them middle first, and then from the middle
             // This will result in a shorter distance between from and to.
             let midpose = from.interpolate(to, DIV_RATIO);
@@ -360,7 +418,31 @@ impl Cartesian<'_> {
 
             // If both bridgings were successful, return the final position that resulted from
             // bridging from middle joints to the final pose on this step
-            return  Ok(self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?);
+            let end_step =
+                self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?;
+
+            let cost_start_mid =
+                transition_costs(starting, &middle_joints, &self.transition_coefficients);
+            let cost_mid_end =
+                transition_costs(&middle_joints, &end_step, &self.transition_coefficients);
+            if cost_start_mid <= self.max_transition_cost
+                && cost_mid_end <= self.max_transition_cost
+            {
+                // Both steps are very small
+                return Ok(end_step);
+            }
+
+            // Cost of any step separately should not be more than cost of the whole transition
+            if cost_start_mid <= cheapest_cost && cost_mid_end <= cheapest_cost {
+                // Otherwise only recognize if the cost does not rise in the intermediate steps.
+                return Ok(end_step);
+            }
+            return Err(Transition {
+                from: from.clone(),
+                to: to.clone(),
+                previous: starting.clone(),
+                solutions: solutions,
+            });
         }
 
         Err(Transition {
