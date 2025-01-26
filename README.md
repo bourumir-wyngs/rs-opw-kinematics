@@ -471,6 +471,8 @@ constraints to be sure everything is collision-free anyway.
 
 Please see the [example](examples/cartesian_stroke.rs).
 
+Note: versions 1.8.2 and below may produce large robot rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3
+
 ## Visualization
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
 is also straightforward to visualize, as it fully integrates both the kinematics and 3D meshes representing the robot.
