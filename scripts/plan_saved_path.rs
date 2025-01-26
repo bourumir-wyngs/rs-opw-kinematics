@@ -187,19 +187,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = create_rx160_robot()?;
 
     // Starting point, where the robot exists at the beginning of the task.
-    
+
     /*
     let start = [
         179.67, 74.15, -136.09, -5.01, -2.83, -85.11
-    ].map(|x| (x as f64).to_radians()).into();    
-    */ 
+    ].map(|x| (x as f64).to_radians()).into();
+    */
 
     let start = HOME;
 
-    /* // From this start it works 
+    /* // From this start it works
     let start = [
         179.68, 90., -100.15, -0.22, -82.65, -89.79
-    ].map(|x| (x as f64).to_radians()).into();    
+    ].map(|x| (x as f64).to_radians()).into();
     */
 
     // In production, other poses are normally given in Cartesian, but here they are given
@@ -238,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &start,
         &Cartesian::elevated_z(steps.first(), 0.01),
         &steps,
-        &Cartesian::elevated_z(steps.last(), 0.001),
+        &Cartesian::elevated_z(steps.last(), 0.01),
     );
 
     let elapsed = started.elapsed();

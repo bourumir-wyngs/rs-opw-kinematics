@@ -78,10 +78,6 @@ struct Transition {
 }
 
 impl Cartesian<'_> {
-    pub fn transitionable(&self, from: &Joints, to: &Joints) -> bool {
-        utils::transition_costs(from, to, &self.transition_coefficients) <= self.max_transition_cost
-    }
-
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
     pub fn plan(
@@ -232,7 +228,11 @@ impl Cartesian<'_> {
         // Add stroke
         trace.extend(stroke);
 
-        Ok(trace)
+        if self.check_costs(&trace) {
+            Ok(trace)
+        } else {
+            Err("Transition costs too high".into())
+        }
     }
 
     /// Probe the given strategy
@@ -269,10 +269,9 @@ impl Cartesian<'_> {
                 .expect("Should have start and strategy points")
                 .clone();
 
-            if !from.flags.contains(PathFlags::ALTERED) {
-                // Altered pose will not be exactly the same but the difference expected to be minor?
-                // Or simply bug?
-                // assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
+            if self.debug && !prev.flags.contains(PathFlags::ALTERED) {
+                // If the previous pose contains slight alteration (see below), this will not match
+                assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
             }
 
             match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
@@ -293,7 +292,7 @@ impl Cartesian<'_> {
                 Err(failed_transition) => {
                     let mut success = false;
                     // Try with altered pose
-                    for altered_to in alter_poses(to, 3_f64.to_radians()) {
+                    for altered_to in alter_poses(to, self.max_orientation_deviation) {
                         match self.step_adaptive_linear_transition(
                             &prev.joints,
                             from,
@@ -320,7 +319,10 @@ impl Cartesian<'_> {
 
                     if !success {
                         self.log_failed_transition(&failed_transition, step);
-                        return Err(format!("Failed to transition at step {} with all alterations tried", step));
+                        return Err(format!(
+                            "Failed to transition at step {} with all alterations tried",
+                            step
+                        ));
                     }
                 }
             }
@@ -366,15 +368,6 @@ impl Cartesian<'_> {
         to: &AnnotatedPose,
         depth: usize,
     ) -> Result<Joints, Transition> {
-        if self.debug && false {
-            // TODO investigate WTF
-            assert_pose_eq(
-                &self.robot.kinematics.forward(starting),
-                &from.pose,
-                1E-5,
-                1E-5,
-            );
-        }
 
         pub const DIV_RATIO: f64 = 0.5;
 
@@ -440,7 +433,10 @@ impl Cartesian<'_> {
         }
 
         Err(Transition {
-            note: format!("Adaptive linear transition {:?} to {:?} out of recursion depth", from, to),
+            note: format!(
+                "Adaptive linear transition {:?} to {:?} out of recursion depth",
+                from, to
+            ),
             from: from.clone(),
             to: to.clone(),
             previous: starting.clone(),
@@ -565,5 +561,27 @@ impl Cartesian<'_> {
                 flags: flags | PathFlags::LIN_INTERP,
             });
         }
+    }
+
+    fn check_costs(&self, steps: &Vec<AnnotatedJoints>) -> bool {
+        use crate::utils::transition_costs;
+
+        // Pairwise iterate over adjacent steps and check transition costs
+        for pair in steps.windows(2) {
+            if let [from, to] = pair {
+                let cost =
+                    transition_costs(&from.joints, &to.joints, &self.transition_coefficients);
+                if cost > 90_f64.to_radians() {
+                    println!(
+                        "Transition cost exceeded: {} > {} between {:?} and {:?}",
+                        cost, self.max_transition_cost, from.joints, to.joints
+                    );
+                    return false;
+                }
+            }
+        }
+
+        // If all costs are within the limit, return the total cost
+        true
     }
 }
