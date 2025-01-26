@@ -105,6 +105,11 @@ mod camera_controller;
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
+#[cfg(feature = "stroke_planning")]
+#[path = "path_plan/rrt_to.rs"]
+mod rrt_to;
+
+
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;

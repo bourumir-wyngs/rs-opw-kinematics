@@ -9,6 +9,8 @@ use bitflags::bitflags;
 use nalgebra::Translation3;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -64,18 +66,18 @@ bitflags! {
         const TRACE =               0b00000100;
         /// Position is linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
-        /// but may be important for more developed models that only rotate between 
+        /// but may be important for more developed models that only rotate between
         /// the given joint positions without guarantees that TCP movement is linear.
         const LIN_INTERP = 0b00001000;
         /// Position corresponds the starting pose ("land") that is normally little above
         /// the start of the required trace
         const LAND =                0b00010000;
         /// Position corresponds the ennding pose ("park") that is normally little above
-        /// the end of the required trace. This is the last pose to include into the 
+        /// the end of the required trace. This is the last pose to include into the
         /// output.
-        const PARK =                0b00100000;   
+        const PARK =                0b00100000;
         /// Combined flag representing the "original" position, so the one that was
-        /// given in the input. 
+        /// given in the input.
         const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
@@ -118,7 +120,7 @@ fn flag_representation(flags: &PathFlags) -> String {
         (PathFlags::PARK, "PARK"),
         (PathFlags::TRACE, "TRACE"),
         (PathFlags::CARTESIAN, "CARTESIAN"),
-        (PathFlags::ONBOARDING, "ONBOARDING"),        
+        (PathFlags::ONBOARDING, "ONBOARDING"),
     ];
 
     FLAG_MAP
@@ -194,19 +196,28 @@ impl Cartesian<'_> {
         }
         let poses = self.with_intermediate_poses(land, &steps, park);
         println!("Probing {} strategies", strategies.len());
+
+        let stop = Arc::new(AtomicBool::new(false));
+
         strategies
             .par_iter()
-            .find_map_any(
-                |strategy| match self.probe_strategy(from, strategy, &poses) {
-                    Ok(outcome) => Some(Ok(outcome)), // Return success wrapped in Some
+            .find_map_any(|strategy| {
+                match self.probe_strategy(
+                    from, strategy, &poses, &stop
+                ) {
+                    Ok(outcome) => {
+                        println!("Strategy worked out: {:?}", strategy);
+                        stop.store(true, Ordering::Relaxed);
+                        Some(Ok(outcome))
+                    }
                     Err(msg) => {
                         if self.debug {
-                            println!("Strategy failed: {}", msg);
+                            println!("Strategy failed: {:?}, {}", strategy, msg);
                         }
                         None // Continue searching
                     }
-                },
-            )
+                }
+            })
             .unwrap_or_else(|| {
                 Err(format!(
                     "No strategy worked out of {} tried",
@@ -221,10 +232,16 @@ impl Cartesian<'_> {
         start: &Joints,
         strategy: &Joints,
         poses: &Vec<AnnotatedPose>,
+        stop: &Arc<AtomicBool>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        let onboarding = self.rrt.plan_rrt(start, strategy, self.robot)?;
-        let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
+        let onboarding = self.rrt.plan_rrt(start, strategy, self.robot, stop)?;
+        if stop.load(Ordering::Relaxed) {
+            // Do not attempt Cartesian planning if we already cancelled.
+            return Err("Stopped".into());
+        }
         
+        let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
+
         // Do not take the last value as it is same as 'strategy'
         for joints in onboarding.iter().take(onboarding.len() - 1) {
             trace.push(AnnotatedJoints {
@@ -232,7 +249,7 @@ impl Cartesian<'_> {
                 flags: PathFlags::ONBOARDING,
             });
         }
-        
+
         // Push the strategy point, from here the move must be already CARTESIAN
         trace.push(AnnotatedJoints {
             joints: *strategy,
@@ -264,7 +281,7 @@ impl Cartesian<'_> {
                         } else {
                             PathFlags::TRACE | PathFlags::CARTESIAN | to.flags
                         };
-                    
+
                         trace.push(AnnotatedJoints {
                             joints: next,
                             flags: flags
@@ -291,7 +308,8 @@ impl Cartesian<'_> {
         if collides {
             return Err("Collision detected".into());
         }
-
+        // If all good, cancel other tasks still running
+        stop.store(true, Ordering::Relaxed);
         Ok(trace)
     }
 
@@ -335,7 +353,7 @@ impl Cartesian<'_> {
         if depth < self.linear_recursion_depth {
 
             // Try to bridge till them middle first, and then from the middle
-            // This will result in a shorter distance between from and to.            
+            // This will result in a shorter distance between from and to.
             let midpose = from.interpolate(to, DIV_RATIO);
             let middle_joints =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
