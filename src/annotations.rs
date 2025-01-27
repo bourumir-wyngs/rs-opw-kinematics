@@ -17,7 +17,7 @@ bitflags! {
         const ONBOARDING =          1 << 1;
 
         /// Position directly matches one of the stroke poses given in the input.
-        const TRACE =               1 << 2;
+        const STROKE =               1 << 2;
 
         /// Position is a linear interpolation between two poses of the trace. These poses
         /// are not needed for the robots that have built-in support for Cartesian stroke,
@@ -47,13 +47,13 @@ bitflags! {
 
         /// Used with raster projector, indicates the movement considered "backwards"
         const BACKWARDS =            1 << 9;
-        
-        /// Mildly altered to make the stroke possible
-        const ALTERED =              1 << 10;
+
+        /// Closing with RRT gap that is not possible to transition with linear stroke
+        const GAP_CLOSING =              1 << 10;
 
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
-        const ORIGINAL = Self::TRACE.bits() | Self::LAND.bits() | Self::PARK.bits();
+        const ORIGINAL = Self::STROKE.bits() | Self::LAND.bits() | Self::PARK.bits();
 
         /// Special flag used in debugging to mark out anything of interest. Largest can be stored
         /// in u32
@@ -154,20 +154,20 @@ impl AnnotatedPose {
 fn flag_representation(flags: &PathFlags) -> String {
     const FLAG_MAP: &[(PathFlags, &str)] = &[
         // Interpolation flags
-        (PathFlags::LIN_INTERP, "LIN_INTERP"),
+        (PathFlags::LIN_INTERP, "LI"),
         // Cartesian planning flags
         (PathFlags::LAND, "LAND"),
         (PathFlags::LANDING, "LANDING"),
         (PathFlags::PARK, "PARK"),
         (PathFlags::PARKING, "PARKING"),
-        (PathFlags::TRACE, "TRACE"),
+        (PathFlags::STROKE, "STROKE"),
         (PathFlags::CARTESIAN, "CARTESIAN"),
         // Joints-to-joints movement (RRT) flag
         (PathFlags::ONBOARDING, "ONBOARDING"),
         // Mesh generator flags
         (PathFlags::FORWARDS, "FORWARDS"),
         (PathFlags::BACKWARDS, "BACKWARDS"),
-        (PathFlags::ALTERED, "ALTERED"),
+        (PathFlags::GAP_CLOSING, "GAP_CLOSING"),
         (PathFlags::DEBUG, "DEBUG"),
     ];
 
@@ -178,6 +178,7 @@ fn flag_representation(flags: &PathFlags) -> String {
         .collect::<Vec<_>>()
         .join(" | ")
 }
+
 impl fmt::Debug for PathFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let flag_string = flag_representation(self);

@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Call the function and read the isometries from the JSON file
     let isometries;
-    match read_isometries_from_file("src/tests/data/projector/r_Z_cyl_sr.json") {
+    match read_isometries_from_file("src/tests/data/projector/r_Z_cyl.json") {
         Ok(isos) => {
             println!("Isometries read successfully.");
             isometries = isos;
@@ -211,11 +211,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         robot: &k, // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
-        max_orientation_deviation: 3.0_f64.to_radians(),
+        max_orientation_deviation: 2.0_f64.to_radians(),
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
+        max_step_cost: 15_f64.to_radians(), // safety check, max rotation of any joint per step
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
-        linear_recursion_depth: 8,
+        linear_recursion_depth: 9,
 
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
@@ -236,9 +237,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = planner.plan(
         &start,
-        &Cartesian::elevated_z(steps.first(), 0.01),
+        &Cartesian::elevated_z(steps.first(), 0.1),
         &steps,
-        &Cartesian::elevated_z(steps.last(), 0.01),
+        &Cartesian::elevated_z(steps.last(), 0.1),
     );
 
     let elapsed = started.elapsed();

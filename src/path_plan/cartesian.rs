@@ -1,12 +1,14 @@
 //! Cartesian stroke
 
-use crate::altered_pose::alter_poses;
 use crate::annotations::{AnnotatedJoints, AnnotatedPose, PathFlags};
+use crate::interpolator::Interpolator;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
 use crate::utils::{assert_pose_eq, dump_joints, dump_solutions, transition_costs};
+use bevy::render::render_resource::encase::private::RuntimeSizedArray;
+use bitflags::Flags;
 use nalgebra::{Isometry3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -37,6 +39,11 @@ pub struct Cartesian<'a> {
     /// If the robot cannot reach exact orientation due to physical limits, allow that much deviation.
     /// The position that is usually much more sensitive to deviations is not altered.
     pub max_orientation_deviation: f64,
+
+    /// Maximal rotation of any joint per step under any conditions. Set this to a large value,
+    /// it is only to protect the hardware against something unexpected. If you exceed this limit,
+    /// reduce the check_step_m to obtain a more fine-grained trajectory.
+    pub max_step_cost: f64,
 
     /// Transition cost coefficients (smaller joints are allowed to rotate more)
     pub transition_coefficients: Joints,
@@ -94,7 +101,7 @@ impl Cartesian<'_> {
         let (land, land_flags) = if let Some(land_pose) = land_first {
             (land_pose, PathFlags::LAND)
         } else if let Some(step_pose) = steps.first() {
-            (step_pose, PathFlags::TRACE)
+            (step_pose, PathFlags::STROKE)
         } else if let Some(park_pose) = park {
             (park_pose, PathFlags::PARKING)
         } else {
@@ -127,37 +134,75 @@ impl Cartesian<'_> {
             }
         });
 
-        strategies
-            .par_iter()
-            .find_map_any(|strategy| {
-                match self.probe_strategy(
-                    from,
-                    &AnnotatedJoints {
-                        joints: strategy.clone(),
-                        flags: land_flags,
-                    },
-                    &poses,
-                    &stop,
-                ) {
-                    Ok(outcome) => {
-                        println!("Strategy worked out: {:?}", strategy);
-                        stop.store(true, Ordering::Relaxed);
-                        Some(Ok(outcome))
-                    }
-                    Err(msg) => {
-                        if self.debug {
-                            println!("Strategy failed: {:?}, {}", strategy, msg);
+        if true {
+            // Parallel version
+            strategies
+                .par_iter()
+                .find_map_any(|strategy| {
+                    match self.probe_strategy(
+                        from,
+                        &AnnotatedJoints {
+                            joints: strategy.clone(),
+                            flags: land_flags,
+                        },
+                        &poses,
+                        &stop,
+                    ) {
+                        Ok(outcome) => {
+                            println!("Strategy worked out: {:?}", strategy);
+                            stop.store(true, Ordering::Relaxed);
+                            Some(Ok(outcome))
                         }
-                        None // Continue searching
+                        Err(msg) => {
+                            if self.debug {
+                                println!("Strategy failed: {:?}, {}", strategy, msg);
+                            }
+                            None // Continue searching
+                        }
                     }
-                }
-            })
-            .unwrap_or_else(|| {
-                Err(format!(
-                    "No strategy worked out of {} tried",
-                    strategies.len()
-                ))
-            })
+                })
+                .unwrap_or_else(|| {
+                    Err(format!(
+                        "No strategy worked out of {} tried",
+                        strategies.len()
+                    ))
+                })
+        } else {
+            // Sequential version
+            strategies
+                .iter()
+                .find_map(|strategy| {
+                    // Sequentially check each strategy
+                    match self.probe_strategy(
+                        from,
+                        &AnnotatedJoints {
+                            joints: strategy.clone(),
+                            flags: land_flags,
+                        },
+                        &poses,
+                        &stop,
+                    ) {
+                        Ok(outcome) => {
+                            println!("Strategy worked out: {:?}", strategy);
+                            stop.store(true, Ordering::Relaxed);
+                            Some(Ok(outcome)) // Solution found, return it
+                        }
+                        Err(msg) => {
+                            if self.debug {
+                                println!("Strategy failed: {:?}, {}", strategy, msg);
+                            }
+                            None // Continue searching
+                        }
+                    }
+                })
+                .unwrap_or_else(|| {
+                    // No valid strategy found
+                    Err(format!(
+                        "No strategy worked out of {} tried",
+                        strategies.len()
+                    ))
+                })
+        }
     }
 
     /// Computes pose, moved by the distance dz in the local orientation of the Isometry3.
@@ -269,64 +314,70 @@ impl Cartesian<'_> {
                 .expect("Should have start and strategy points")
                 .clone();
 
-            if self.debug && !prev.flags.contains(PathFlags::ALTERED) {
+            if self.debug && !prev.flags.contains(PathFlags::GAP_CLOSING) {
                 // If the previous pose contains slight alteration (see below), this will not match
                 assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
             }
 
-            match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
-                Ok(next) => {
-                    // This trace contains all intermediate poses (collision check)
-                    check_trace.push(next);
-
-                    if self.include_linear_interpolation
-                        || !to.flags.contains(PathFlags::LIN_INTERP)
-                    {
-                        trace.push(AnnotatedJoints {
-                            joints: next,
-                            flags: to.flags,
-                        });
+            let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
+            match transition {
+                Ok(extension) => {
+                    check_trace.extend(extension.clone());
+                    if self.include_linear_interpolation {
+                        for (p, step) in extension.iter().enumerate() {
+                            let flags = if p < extension.len() - 1 {
+                                (to.flags | PathFlags::LIN_INTERP)
+                                    & !(PathFlags::STROKE | PathFlags::PARK)
+                            } else {
+                                to.flags
+                            };
+                            trace.push(AnnotatedJoints {
+                                joints: step.clone(),
+                                flags: flags,
+                            });
+                        }
+                    } else {
+                        if let Some(last) = extension.last() {
+                            trace.push(AnnotatedJoints {
+                                joints: *last,
+                                flags: to.flags,
+                            });
+                        }
                     }
                 }
 
                 Err(failed_transition) => {
                     let mut success = false;
                     // Try with altered pose
-                    for altered_to in alter_poses(to, self.max_orientation_deviation) {
-                        match self.step_adaptive_linear_transition(
-                            &prev.joints,
-                            from,
-                            &altered_to,
-                            0,
-                        ) {
-                            Ok(next) => {
-                                println!(
-                                    "    Transition with altered pose {:?} successful",
-                                    altered_to
-                                );
-                                check_trace.push(next);
+                    println!(
+                        "Closing step {:?} with RRT as {:?} ",
+                        step, failed_transition.note
+                    );
+                    let solutions = self.robot.inverse_continuing(&to.pose, &prev.joints);
+                    for next in solutions {
+                        let path = self.rrt.plan_rrt(&prev.joints, &next, self.robot, stop);
+                        if let Ok(path) = path {
+                            check_trace.extend(path.clone());
+                            println!("  ... closed with RRT {} steps", path.len());
+                            for step in path {
                                 trace.push(AnnotatedJoints {
-                                    joints: next,
-                                    flags: altered_to.flags,
+                                    joints: step,
+                                    flags: (to.flags | PathFlags::GAP_CLOSING)
+                                        & !(PathFlags::LIN_INTERP | PathFlags::STROKE),
                                 });
-                                success = true;
-                                break;
                             }
-                            Err(_) => { // Try next
-                            }
+                            success = true;
+                            break;
                         }
                     }
 
                     if !success {
                         self.log_failed_transition(&failed_transition, step);
-                        return Err(format!(
-                            "Failed to transition at step {} with all alterations tried",
-                            step
-                        ));
+                        return Err(format!("Failed to transition at step {}", step));
                     }
                 }
             }
-            if to.flags.contains(PathFlags::TRACE) {
+            if to.flags.contains(PathFlags::STROKE) {
                 step += 1;
             }
         }
@@ -340,6 +391,9 @@ impl Cartesian<'_> {
         if stop.load(Ordering::Relaxed) {
             return Err("Stopped".into());
         }
+
+        // Remove close poses
+        let trace = self.constant_speed(trace);
 
         // Parallel check with early stopping
         let collides = check_trace.par_iter().any(|joints| {
@@ -359,16 +413,16 @@ impl Cartesian<'_> {
         Ok(trace)
     }
 
-    // Transition cartesian way from 'from' into 'to' while assuming 'from'
-    // Returns the resolved end pose.
+    /// Transition cartesian way from 'from' into 'to' while assuming 'from'
+    /// Returns all path, not including "starting", that should not be empty
+    /// as it succeeded. Returns description of the transition on failure.
     fn step_adaptive_linear_transition(
         &self,
         starting: &Joints,
         from: &AnnotatedPose, // FK of "starting"
         to: &AnnotatedPose,
         depth: usize,
-    ) -> Result<Joints, Transition> {
-
+    ) -> Result<Vec<Joints>, Transition> {
         pub const DIV_RATIO: f64 = 0.5;
 
         // Not checked for collisions yet
@@ -376,7 +430,6 @@ impl Cartesian<'_> {
             .robot
             .kinematics
             .inverse_continuing(&to.pose, &starting);
-        let mut cheapest_cost = std::f64::MAX;
 
         // Solutions are already sorted best first
         for next in &solutions {
@@ -384,9 +437,8 @@ impl Cartesian<'_> {
             // They only check agains continuity of the robot movement (no unexpected jerks)
             let cost = transition_costs(starting, next, &self.transition_coefficients);
             if cost <= self.max_transition_cost {
-                return Ok(next.clone()); // Track minimal cost observed
+                return Ok(vec![next.clone()]); // Track minimal cost observed
             }
-            cheapest_cost = cheapest_cost.min(cost);
         }
 
         // Transitioning not successful.
@@ -396,52 +448,31 @@ impl Cartesian<'_> {
             // Try to bridge till them middle first, and then from the middle
             // This will result in a shorter distance between from and to.
             let midpose = from.interpolate(to, DIV_RATIO);
-            let middle_joints =
+            let first_track =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
+            let mid_step = first_track.last().unwrap().clone();
 
             // If both bridgings were successful, return the final position that resulted from
             // bridging from middle joints to the final pose on this step
-            let end_step =
-                self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?;
+            let second_track =
+                self.step_adaptive_linear_transition(&mid_step, &midpose, to, depth + 1)?;
 
-            let cost_start_mid =
-                transition_costs(starting, &middle_joints, &self.transition_coefficients);
-            let cost_mid_end =
-                transition_costs(&middle_joints, &end_step, &self.transition_coefficients);
-            if cost_start_mid <= self.max_transition_cost
-                && cost_mid_end <= self.max_transition_cost
-            {
-                // Both steps are very small
-                return Ok(end_step);
-            }
-
-            // Cost of any step separately should not be more than cost of the whole transition
-            if cost_start_mid <= cheapest_cost && cost_mid_end <= cheapest_cost {
-                // Otherwise only recognize if the cost does not rise in the intermediate steps.
-                return Ok(end_step);
-            }
-            return Err(Transition {
+            Ok(first_track
+                .into_iter()
+                .chain(second_track.into_iter())
+                .collect())
+        } else {
+            Err(Transition {
                 note: format!(
-                    "Rising costs as region divided, costs {} and {}, cc {}",
-                    cost_start_mid, cost_mid_end, cheapest_cost
+                    "Adaptive linear transition {:?} to {:?} out of recursion depth {}",
+                    from, to, depth
                 ),
                 from: from.clone(),
                 to: to.clone(),
                 previous: starting.clone(),
                 solutions: solutions,
-            });
+            })
         }
-
-        Err(Transition {
-            note: format!(
-                "Adaptive linear transition {:?} to {:?} out of recursion depth",
-                from, to
-            ),
-            from: from.clone(),
-            to: to.clone(),
-            previous: starting.clone(),
-            solutions: solutions,
-        })
     }
 
     fn log_failed_transition(&self, transition: &Transition, step: i32) {
@@ -478,7 +509,7 @@ impl Cartesian<'_> {
         steps: &Vec<Pose>,
         park: &Option<Pose>,
     ) -> Vec<AnnotatedPose> {
-        let mut poses = Vec::with_capacity(10 * steps.len() + 2);
+        let mut poses = Vec::with_capacity(steps.len() + 2);
 
         // Add the landing pose if one provided
         if let Some(land) = land {
@@ -490,25 +521,14 @@ impl Cartesian<'_> {
 
         // Add the steps and intermediate poses between them
         for step in steps {
-            // There may be previous step or landing pose if provided
-            if let Some(last) = poses.last() {
-                let last = last.clone();
-                self.add_intermediate_poses(&last.pose, &step, &mut poses, last.flags);
-            }
             poses.push(AnnotatedPose {
                 pose: step.clone(),
-                flags: PathFlags::TRACE,
+                flags: PathFlags::STROKE,
             });
         }
 
         // Add the parking pose if one provided
-        if let (Some(park), Some(last)) = (park, poses.last()) {
-            self.add_intermediate_poses(
-                &last.pose.clone(),
-                &park.clone(),
-                &mut poses,
-                PathFlags::PARK,
-            );
+        if let Some(park) = park {
             poses.push(AnnotatedPose {
                 pose: park.clone(),
                 flags: PathFlags::PARK,
@@ -571,17 +591,226 @@ impl Cartesian<'_> {
             if let [from, to] = pair {
                 let cost =
                     transition_costs(&from.joints, &to.joints, &self.transition_coefficients);
-                if cost > 90_f64.to_radians() {
+                if cost > self.max_step_cost {
                     println!(
-                        "Transition cost exceeded: {} > {} between {:?} and {:?}",
-                        cost, self.max_transition_cost, from.joints, to.joints
+                        "Transition cost exceeded: {:.1} > {} between: {:?} and {:?},",
+                        cost.to_degrees(),
+                        self.max_step_cost.to_degrees(),
+                        from,
+                        to
                     );
-                    return false;
+                    //return false;
                 }
             }
         }
 
         // If all costs are within the limit, return the total cost
         true
+    }
+
+    fn constant_speed(&self, steps: Vec<AnnotatedJoints>) -> Vec<AnnotatedJoints> {
+        self.generate_constant_speed_path(&steps, 1.0, 0.005)
+    }
+
+    fn tcp_speed(&self, steps: &Vec<AnnotatedJoints>) {
+        if steps.len() < 2 {
+            println!("Not enough steps to calculate TCP speed.");
+            return;
+        }
+
+        const TIME_STEP: f64 = 1.0; // Assuming a nominal time step of 1 second
+
+        println!("TCP speeds ({} steps):", steps.len());
+        for window in steps.windows(2) {
+            if let [prev, next] = window {
+                // Compute the TCP poses for consecutive joints
+                let prev_pose = self.robot.forward(&prev.joints);
+                let next_pose = self.robot.forward(&next.joints);
+
+                // Calculate the translational distance between TCP poses
+                let distance = (next_pose.translation.vector - prev_pose.translation.vector).norm();
+
+                // Calculate speed (distance divided by time step)
+                let speed = distance / TIME_STEP;
+
+                // Print the speed and details of the poses
+                println!(
+                    "TCP Speed: {:.4} (from {:.5?} to {:.5?})",
+                    speed, prev_pose.translation.vector, next_pose.translation.vector
+                );
+            }
+        }
+    }
+
+    pub fn generate_constant_speed_path(
+        &self,
+        steps: &Vec<AnnotatedJoints>, // Original trajectory waypoints
+        v_tcp: f64,                   // Desired TCP speed
+        dt: f64,                      // Time step
+    ) -> Vec<AnnotatedJoints> {
+        let strong_interpolator = Interpolator::new(steps.clone());
+
+        let mut arc_lengths = Vec::new();
+        let mut cumulative_distance = 0.0;
+
+        // Step 1: Sample the interpolator to compute TCP arc lengths
+        let mut sampled_poses = Vec::new();
+        let num_samples = 10 * steps.len(); // Initial fine sampling resolution
+        for i in 0..=num_samples {
+            let t = i as f64 / num_samples as f64; // Timeline parameter in [0, 1]
+            let sample = strong_interpolator.interpolate(t);
+            let tcp_pose = self.robot.forward(&sample.joints);
+
+            // Store sampled TCP pose for distance computation
+            sampled_poses.push(tcp_pose);
+
+            // Compute distance from the previous sample (skip first sample)
+            if i > 0 {
+                let dist =
+                    (tcp_pose.translation.vector - sampled_poses[i - 1].translation.vector).norm();
+                cumulative_distance += dist;
+            }
+
+            arc_lengths.push(cumulative_distance); // Cumulative arc length
+        }
+
+        let total_arc_length = cumulative_distance;
+
+        // Step 2: Reparameterize timeline
+        let mut timeline_map = Vec::new();
+        for i in 0..arc_lengths.len() {
+            let s = arc_lengths[i] / total_arc_length; // Normalize arc length
+            timeline_map.push((s, i as f64 / num_samples as f64)); // (normalized length, t)
+        }
+
+        // Function to interpolate `s -> t` mapping
+        let interpolate_t = |s: f64| -> f64 {
+            for i in 1..timeline_map.len() {
+                let (s_prev, t_prev) = timeline_map[i - 1];
+                let (s_next, t_next) = timeline_map[i];
+
+                if s >= s_prev && s <= s_next {
+                    // Linear interpolation for simplicity
+                    let alpha = (s - s_prev) / (s_next - s_prev);
+                    return t_prev + alpha * (t_next - t_prev);
+                }
+            }
+            1.0 // Default to endpoint
+        };
+
+        // Step 3: Resample trajectory based on constant TCP speed
+        let mut path = Vec::with_capacity(2 * steps.len());
+        let step_distance = v_tcp * dt;
+        let num_steps = (total_arc_length / step_distance).ceil() as usize;
+
+        let mut s = 0.0;
+        let standard_step = 1.0 / num_steps as f64;
+        path.push(steps[0].clone());
+        while s <= 1.0 {
+            let prev = path.last().unwrap();
+            let mut step = standard_step;
+            loop {
+                let t_r = interpolate_t(s + step);
+
+                // Query the strong interpolator for the new parameter
+                let next = strong_interpolator.interpolate(t_r);
+                if transition_costs(&prev.joints, &next.joints,
+                                    &self.transition_coefficients,
+                ) < self.max_step_cost
+                {
+                    path.push(next);
+                    s = s + step;
+                    break
+                } else {
+                    // Try with smaller step
+                    step = 0.9 * step;
+                    assert!(step > 0.00001 * standard_step);
+                }
+            }
+        }
+        path.push(steps.last().unwrap().clone());
+        path
+    }
+
+    /// Linear interpolation between two joint configurations.
+    fn interpolate_joints(&self, from: &[f64; 6], to: &[f64; 6], t: f64) -> [f64; 6] {
+        let mut interpolated = [0.0; 6];
+        for i in 0..6 {
+            interpolated[i] = from[i] + t * (to[i] - from[i]);
+        }
+        interpolated
+    }
+
+    pub fn _generate_constant_speed_path(
+        &self,
+        steps: &Vec<AnnotatedJoints>,
+        v_tcp: f64, // Desired TCP speed
+        dt: f64,    // Time step
+    ) -> Vec<AnnotatedJoints> {
+        let strong_interpolator = Interpolator::new(steps.clone());
+
+        let mut arc_lengths = Vec::new();
+        let mut cumulative_distance = 0.0;
+
+        // Step 1: Sample the interpolator to compute TCP arc lengths
+        let mut sampled_poses = Vec::new();
+        let num_samples = 100; // Initial fine sampling resolution
+        for i in 0..=num_samples {
+            let t = i as f64 / num_samples as f64; // Timeline parameter in [0, 1]
+            let sample = strong_interpolator.interpolate(t);
+            let tcp_pose = self.robot.forward(&sample.joints);
+
+            // Store sampled TCP pose for distance computation
+            sampled_poses.push(tcp_pose);
+
+            // Compute distance from the previous sample (skip first sample)
+            if i > 0 {
+                let dist =
+                    (tcp_pose.translation.vector - sampled_poses[i - 1].translation.vector).norm();
+                cumulative_distance += dist;
+            }
+
+            arc_lengths.push(cumulative_distance); // Cumulative arc length
+        }
+
+        let total_arc_length = cumulative_distance;
+
+        // Step 2: Reparameterize timeline
+        let mut timeline_map = Vec::new();
+        for i in 0..arc_lengths.len() {
+            let s = arc_lengths[i] / total_arc_length; // Normalize arc length
+            timeline_map.push((s, i as f64 / num_samples as f64)); // (normalized length, t)
+        }
+
+        // Function to interpolate `s -> t` mapping
+        let interpolate_t = |s: f64| -> f64 {
+            for i in 1..timeline_map.len() {
+                let (s_prev, t_prev) = timeline_map[i - 1];
+                let (s_next, t_next) = timeline_map[i];
+
+                if s >= s_prev && s <= s_next {
+                    // Linear interpolation for simplicity
+                    let alpha = (s - s_prev) / (s_next - s_prev);
+                    return t_prev + alpha * (t_next - t_prev);
+                }
+            }
+            1.0 // Default to endpoint
+        };
+
+        // Step 3: Resample trajectory based on constant TCP speed
+        let mut path = Vec::new();
+        let step_distance = v_tcp * dt;
+        let num_steps = (total_arc_length / step_distance).ceil() as usize;
+
+        for i in 0..=num_steps {
+            let s = i as f64 / num_steps as f64; // Target progress in [0, 1]
+            let t_resampled = interpolate_t(s);
+
+            // Query the strong interpolator for the new parameter
+            let interpolated_joints = strong_interpolator.interpolate(t_resampled);
+            path.push(interpolated_joints);
+        }
+
+        path
     }
 }
