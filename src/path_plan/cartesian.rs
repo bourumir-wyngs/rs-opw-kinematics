@@ -269,6 +269,29 @@ impl Cartesian<'_> {
         // Add stroke
         trace.extend(stroke);
 
+        // Remove close poses
+        let trace = self.constant_speed(trace);
+
+        // Parallel check with early stopping
+        let excluded_joints = if self.cartesian_excludes_tool {
+            // Exclude tool for cartesian
+            HashSet::from([J_TOOL])
+        } else {
+            HashSet::with_capacity(0)
+        };
+        
+        let collides = trace.par_iter().any(|joints| {
+            // Check the stop flag at the start of the closure
+            if stop.load(Ordering::Relaxed) {
+                return true; // If we cancel, treat this as colliding
+            }
+            self.robot.collides_except(&joints.joints, &excluded_joints)
+        });
+
+        if collides {
+            return Err("Collision or cancel detected".into());
+        }
+
         if self.check_costs(&trace) {
             Ok(trace)
         } else {
@@ -286,20 +309,10 @@ impl Cartesian<'_> {
         println!("Cartesian planning started, computing strategy {work_path_start:?}");
 
         let started = Instant::now();
-        let excluded_joints = if self.cartesian_excludes_tool {
-            // Exclude tool for cartesian
-            HashSet::from([J_TOOL])
-        } else {
-            HashSet::with_capacity(0)
-        };
-
         let mut trace = Vec::with_capacity(100 + poses.len() + 10);
         // Push the strategy point, from here the move must be already CARTESIAN
         trace.push(work_path_start.clone());
 
-        // "Complete" trace with all intermediate poses. Onboarding is not included
-        // as rrt planner checks that path itself.
-        let mut check_trace = Vec::with_capacity(poses.len());
         let mut step = 1;
 
         let mut pairs_iterator = poses.windows(2);
@@ -318,27 +331,17 @@ impl Cartesian<'_> {
             let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
             match transition {
                 Ok(extension) => {
-                    check_trace.extend(extension.clone());
-                    if self.include_linear_interpolation {
-                        for (p, step) in extension.iter().enumerate() {
-                            let flags = if p < extension.len() - 1 {
-                                (to.flags | PathFlags::LIN_INTERP)
-                                    & !(PathFlags::STROKE | PathFlags::PARK)
-                            } else {
-                                to.flags
-                            };
-                            trace.push(AnnotatedJoints {
-                                joints: step.clone(),
-                                flags: flags,
-                            });
-                        }
-                    } else {
-                        if let Some(last) = extension.last() {
-                            trace.push(AnnotatedJoints {
-                                joints: *last,
-                                flags: to.flags,
-                            });
-                        }
+                    for (p, step) in extension.iter().enumerate() {
+                        let flags = if p < extension.len() - 1 {
+                            (to.flags | PathFlags::LIN_INTERP)
+                                & !(PathFlags::STROKE | PathFlags::PARK)
+                        } else {
+                            to.flags
+                        };
+                        trace.push(AnnotatedJoints {
+                            joints: step.clone(),
+                            flags: flags,
+                        });
                     }
                 }
 
@@ -353,7 +356,6 @@ impl Cartesian<'_> {
                     for next in solutions {
                         let path = self.rrt.plan_rrt(&prev.joints, &next, self.robot, stop);
                         if let Ok(path) = path {
-                            check_trace.extend(path.clone());
                             println!("  ... closed with RRT {} steps", path.len());
                             for step in path {
                                 trace.push(AnnotatedJoints {
@@ -388,24 +390,6 @@ impl Cartesian<'_> {
             return Err("Stopped".into());
         }
 
-        // Remove close poses
-        let trace = self.constant_speed(trace);
-
-        // Parallel check with early stopping
-        let collides = check_trace.par_iter().any(|joints| {
-            // Check the stop flag at the start of the closure
-            if stop.load(Ordering::Relaxed) {
-                return true; // If we cancel, treat this as colliding
-            }
-            self.robot.collides_except(joints, &excluded_joints)
-        });
-
-        if collides {
-            return Err("Collision or cancel detected".into());
-        }
-        if self.debug {
-            println!("Cartesian planning took {:?}", started.elapsed());
-        }
         Ok(trace)
     }
 
@@ -651,7 +635,7 @@ impl Cartesian<'_> {
 
         // Step 1: Sample the interpolator to compute TCP arc lengths
         let mut sampled_poses = Vec::new();
-        let num_samples = 10 * steps.len(); // Initial fine sampling resolution
+        let num_samples = 12 * steps.len(); // Initial fine sampling resolution
         for i in 0..=num_samples {
             let t = i as f64 / num_samples as f64; // Timeline parameter in [0, 1]
             let sample = strong_interpolator.interpolate(t);
@@ -710,13 +694,12 @@ impl Cartesian<'_> {
 
                 // Query the strong interpolator for the new parameter
                 let next = strong_interpolator.interpolate(t_r);
-                if transition_costs(&prev.joints, &next.joints,
-                                    &self.transition_coefficients,
-                ) < self.max_step_cost
+                if transition_costs(&prev.joints, &next.joints, &self.transition_coefficients)
+                    < self.max_step_cost
                 {
                     path.push(next);
                     s = s + step;
-                    break
+                    break;
                 } else {
                     // Try with smaller step
                     step = 0.9 * step;
@@ -724,7 +707,18 @@ impl Cartesian<'_> {
                 }
             }
         }
-        path.push(steps.last().unwrap().clone());
+        let last_step = steps.last().unwrap();
+        let last_path = path.last().unwrap();
+        if transition_costs(
+            &last_path.joints,
+            &last_path.joints,
+            &self.transition_coefficients,
+        ) > 0.001_f64.to_degrees()
+        {
+            // Add the last pose if for some reason we are not already at.
+            path.push(steps.last().unwrap().clone());
+        }
+
         path
     }
 
@@ -735,78 +729,5 @@ impl Cartesian<'_> {
             interpolated[i] = from[i] + t * (to[i] - from[i]);
         }
         interpolated
-    }
-
-    pub fn _generate_constant_speed_path(
-        &self,
-        steps: &Vec<AnnotatedJoints>,
-        v_tcp: f64, // Desired TCP speed
-        dt: f64,    // Time step
-    ) -> Vec<AnnotatedJoints> {
-        let strong_interpolator = Interpolator::new(steps.clone());
-
-        let mut arc_lengths = Vec::new();
-        let mut cumulative_distance = 0.0;
-
-        // Step 1: Sample the interpolator to compute TCP arc lengths
-        let mut sampled_poses = Vec::new();
-        let num_samples = 100; // Initial fine sampling resolution
-        for i in 0..=num_samples {
-            let t = i as f64 / num_samples as f64; // Timeline parameter in [0, 1]
-            let sample = strong_interpolator.interpolate(t);
-            let tcp_pose = self.robot.forward(&sample.joints);
-
-            // Store sampled TCP pose for distance computation
-            sampled_poses.push(tcp_pose);
-
-            // Compute distance from the previous sample (skip first sample)
-            if i > 0 {
-                let dist =
-                    (tcp_pose.translation.vector - sampled_poses[i - 1].translation.vector).norm();
-                cumulative_distance += dist;
-            }
-
-            arc_lengths.push(cumulative_distance); // Cumulative arc length
-        }
-
-        let total_arc_length = cumulative_distance;
-
-        // Step 2: Reparameterize timeline
-        let mut timeline_map = Vec::new();
-        for i in 0..arc_lengths.len() {
-            let s = arc_lengths[i] / total_arc_length; // Normalize arc length
-            timeline_map.push((s, i as f64 / num_samples as f64)); // (normalized length, t)
-        }
-
-        // Function to interpolate `s -> t` mapping
-        let interpolate_t = |s: f64| -> f64 {
-            for i in 1..timeline_map.len() {
-                let (s_prev, t_prev) = timeline_map[i - 1];
-                let (s_next, t_next) = timeline_map[i];
-
-                if s >= s_prev && s <= s_next {
-                    // Linear interpolation for simplicity
-                    let alpha = (s - s_prev) / (s_next - s_prev);
-                    return t_prev + alpha * (t_next - t_prev);
-                }
-            }
-            1.0 // Default to endpoint
-        };
-
-        // Step 3: Resample trajectory based on constant TCP speed
-        let mut path = Vec::new();
-        let step_distance = v_tcp * dt;
-        let num_steps = (total_arc_length / step_distance).ceil() as usize;
-
-        for i in 0..=num_steps {
-            let s = i as f64 / num_steps as f64; // Target progress in [0, 1]
-            let t_resampled = interpolate_t(s);
-
-            // Query the strong interpolator for the new parameter
-            let interpolated_joints = strong_interpolator.interpolate(t_resampled);
-            path.push(interpolated_joints);
-        }
-
-        path
     }
 }
