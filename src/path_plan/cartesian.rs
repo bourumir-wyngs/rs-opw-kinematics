@@ -36,10 +36,6 @@ pub struct Cartesian<'a> {
     /// Maximum allowed transition cost between Joints
     pub max_transition_cost: f64,
 
-    /// If the robot cannot reach exact orientation due to physical limits, allow that much deviation.
-    /// The position that is usually much more sensitive to deviations is not altered.
-    pub max_orientation_deviation: f64,
-
     /// Maximal rotation of any joint per step under any conditions. Set this to a large value,
     /// it is only to protect the hardware against something unexpected. If you exceed this limit,
     /// reduce the check_step_m to obtain a more fine-grained trajectory.
@@ -609,7 +605,7 @@ impl Cartesian<'_> {
     }
 
     fn constant_speed(&self, steps: Vec<AnnotatedJoints>) -> Vec<AnnotatedJoints> {
-        self.generate_constant_speed_path(&steps, 1.0, 0.005)
+        self.generate_constant_speed_path(&steps, 0.1, 0.1)
     }
 
     fn tcp_speed(&self, steps: &Vec<AnnotatedJoints>) {
