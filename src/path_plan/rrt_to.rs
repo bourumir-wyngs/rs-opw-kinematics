@@ -257,6 +257,5 @@ fn it_works() {
         &stop, // never stops
     )
     .unwrap();
-    println!("{result:?}");
     assert!(result.len() >= 4);
 }
