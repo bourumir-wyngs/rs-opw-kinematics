@@ -95,7 +95,7 @@ impl AnnotatedPose {
         let local_z_axis = rotation.transform_vector(&Vector3::z());
 
         // Compute the new translation by adding dz along the local Z-axis
-        let translation = self.pose.translation.vector + dz * local_z_axis;
+        let translation = self.pose.translation.vector - dz * local_z_axis;
 
         // Return a new Isometry3 with the updated translation and the same rotation
         AnnotatedPose {

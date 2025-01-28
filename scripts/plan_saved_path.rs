@@ -247,9 +247,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = planner.plan(
         &start,
-        &Some(steps.first().unwrap().elevate(-0.1)),
+        &Some(steps.first().unwrap().elevate(0.1)),
         &steps,
-        &Some(steps.last().unwrap().elevate(-0.1)),
+        &Some(steps.last().unwrap().elevate(0.1)),
     );
 
     let elapsed = started.elapsed();
