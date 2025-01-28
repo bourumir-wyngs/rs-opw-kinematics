@@ -219,36 +219,6 @@ impl Cartesian<'_> {
         }
     }
 
-    /// Computes pose, moved by the distance dz in the local orientation of the Isometry3.
-    /// This is used for computing starting and landing poses if the Cartesian path needs
-    /// to exclude the tool from collision check (as it touches the working surface during
-    /// operation)
-    ///
-    /// This function takes Option and returns None if None is passed. This is handy
-    /// when start and end poses are taken from the list that might be empty
-    ///
-    /// positive value of z means moving in negative direction (lifting up)
-    pub fn elevated_z(isometry: Option<&Isometry3<f64>>, dz: f64) -> Option<AnnotatedPose> {
-        if let Some(isometry) = isometry {
-            // Extract the rotation component as a UnitQuaternion
-            let rotation = isometry.rotation;
-
-            // Determine the local Z-axis direction (quaternion's orientation)
-            let local_z_axis = rotation.transform_vector(&Vector3::z());
-
-            // Compute the new translation by adding dz along the local Z-axis
-            let translation = isometry.translation.vector - dz * local_z_axis;
-
-            // Return a new Isometry3 with the updated translation and the same rotation
-            Some(AnnotatedPose {
-                pose: Isometry3::from_parts(translation.into(), rotation),
-                flags: PathFlags::NONE,
-            })
-        } else {
-            None
-        }
-    }
-
     fn probe_strategy(
         &self,
         start: &Joints,
