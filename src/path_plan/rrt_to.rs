@@ -138,7 +138,7 @@ where
 }
 
 /// search the path from start to goal which is free, using random_sample function
-/// Changes were made for this fuction 21 Dec 2024 by Bourumir Wyngs, making this
+/// Changes were made for this fuction 21 Dec 2024, 28 January 2025 by Bourumir Wyngs, making this
 /// function Rayon friendly
 pub fn dual_rrt_connect<FF, FR, N>(
     start: &[N],
@@ -253,7 +253,7 @@ fn it_works() {
         },
         0.2,
         1000,
-        false,
+        true,
         &stop, // never stops
     )
     .unwrap();
