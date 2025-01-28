@@ -208,6 +208,8 @@ fn smooth_path_looped<N>(
     if path.len() < 3 || path.len() > 24 {
         return;
     }
+    // Raise it square once
+    let ll = extend_length * extend_length;
 
     // Continue smoothing until no changes are made
     'outer: loop {
@@ -222,7 +224,8 @@ fn smooth_path_looped<N>(
                 }
 
                 // Check if two points are close enough to smooth
-                if squared_euclidean(&path[a], &path[b]).sqrt() < extend_length {
+                if squared_euclidean(&path[a], &path[b]) < ll {
+                    println!("RRT smoothed 0.. {} {}..{}", path.len(), a, b);                    
                     // Remove intermediate points between a and b
                     path.drain(a + 1..b);
                     smoothed = true; // Mark that a change was made
