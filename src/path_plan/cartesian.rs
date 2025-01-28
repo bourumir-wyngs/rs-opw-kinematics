@@ -66,10 +66,10 @@ pub struct Cartesian<'a> {
 
     /// Debug mode for logging
     pub debug: bool,
-    
+
     /// Enables massive parallelism. This should normally be enabled, except then troubleshooting
     /// when ordered debug messages may be preferred.
-    pub parallel: bool
+    pub parallel: bool,
 }
 
 struct Transition {
@@ -99,9 +99,9 @@ impl Cartesian<'_> {
     pub fn plan(
         &self,
         from: &Joints,
-        land_first: &Option<Pose>,
-        steps: &Vec<Pose>,
-        park: &Option<Pose>,
+        land_first: &Option<AnnotatedPose>,
+        steps: &Vec<AnnotatedPose>,
+        park: &Option<AnnotatedPose>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.robot.collides(from) {
             return Err("Onboarding point collides".into());
@@ -117,13 +117,16 @@ impl Cartesian<'_> {
             return Ok(vec![]); // No job to do
         };
 
-        let strategies = self.robot.inverse_continuing(land, from);
+        let strategies = self.robot.inverse_continuing(&land.pose, from);
         if strategies.is_empty() {
-            return Err("Unable to start from onboarding point".into());
+            return Err(format!(
+                "Unable to start from joints {:?} to onboarding point {:?}, no strategies possible",
+                from, land
+            ));
         }
         println!("Strategies to try: {}", strategies.len());
 
-        let poses = self.with_intermediate_poses(land_first, &steps, park);
+        let poses = self.with_additional_poses(land_first, &steps, park);
 
         // Global stop once a solution is found
         let stop = Arc::new(AtomicBool::new(false));
@@ -225,7 +228,7 @@ impl Cartesian<'_> {
     /// when start and end poses are taken from the list that might be empty
     ///
     /// positive value of z means moving in negative direction (lifting up)
-    pub fn elevated_z(isometry: Option<&Isometry3<f64>>, dz: f64) -> Option<Isometry3<f64>> {
+    pub fn elevated_z(isometry: Option<&Isometry3<f64>>, dz: f64) -> Option<AnnotatedPose> {
         if let Some(isometry) = isometry {
             // Extract the rotation component as a UnitQuaternion
             let rotation = isometry.rotation;
@@ -237,7 +240,10 @@ impl Cartesian<'_> {
             let translation = isometry.translation.vector - dz * local_z_axis;
 
             // Return a new Isometry3 with the updated translation and the same rotation
-            Some(Isometry3::from_parts(translation.into(), rotation))
+            Some(AnnotatedPose {
+                pose: Isometry3::from_parts(translation.into(), rotation),
+                flags: PathFlags::NONE,
+            })
         } else {
             None
         }
@@ -498,35 +504,30 @@ impl Cartesian<'_> {
         }
     }
 
-    fn with_intermediate_poses(
+    fn with_additional_poses(
         &self,
-        land: &Option<Pose>,
-        steps: &Vec<Pose>,
-        park: &Option<Pose>,
+        land: &Option<AnnotatedPose>,
+        steps: &Vec<AnnotatedPose>,
+        park: &Option<AnnotatedPose>,
     ) -> Vec<AnnotatedPose> {
         let mut poses = Vec::with_capacity(steps.len() + 2);
 
         // Add the landing pose if one provided
         if let Some(land) = land {
             poses.push(AnnotatedPose {
-                pose: *land,
-                flags: PathFlags::LAND,
+                pose: land.pose.clone(),
+                flags: PathFlags::PARK | land.flags,
             });
         }
 
         // Add the steps and intermediate poses between them
-        for step in steps {
-            poses.push(AnnotatedPose {
-                pose: step.clone(),
-                flags: PathFlags::STROKE,
-            });
-        }
+        poses.extend(steps);
 
         // Add the parking pose if one provided
         if let Some(park) = park {
             poses.push(AnnotatedPose {
-                pose: park.clone(),
-                flags: PathFlags::PARK,
+                pose: park.pose.clone(),
+                flags: PathFlags::PARK | park.flags,
             });
         }
 

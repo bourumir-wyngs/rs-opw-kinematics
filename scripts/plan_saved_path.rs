@@ -11,6 +11,7 @@ use std::f64::consts::PI;
 use std::fs;
 use std::time::Instant;
 use rs_read_trimesh::load_trimesh;
+use rs_opw_kinematics::annotations::{AnnotatedPose, PathFlags};
 
 // The initial position of the robotic arm.
 // const HOME: [f64; 6] = [-2.0, 1.451, -1.642, 0.0, 0.0, 0.0];
@@ -204,7 +205,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // In production, other poses are normally given in Cartesian, but here they are given
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
-    let steps = isometries;
+    let steps: Vec<AnnotatedPose> = isometries.into_iter().map(|step| AnnotatedPose {
+        pose: step,
+        flags: PathFlags::STROKE
+    }).collect();
 
     // Creat Cartesian planner
     let planner = Cartesian {
@@ -243,9 +247,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = planner.plan(
         &start,
-        &Cartesian::elevated_z(steps.first(), 0.1),
+        &Some(steps.first().unwrap().elevate(-0.1)),
         &steps,
-        &Cartesian::elevated_z(steps.last(), 0.1),
+        &Some(steps.last().unwrap().elevate(-0.1)),
     );
 
     let elapsed = started.elapsed();
