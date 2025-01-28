@@ -3,8 +3,18 @@ use crate::annotations::AnnotatedJoints;
 /// Structure representing the interpolator with the original trajectory steps.
 /// Uses cubic Bezier curves.
 pub (crate) struct Interpolator {
-    steps: Vec<AnnotatedJoints>, // The key points along the trajectory
+    pub (crate) steps: Vec<AnnotatedJoints>, // The key points along the trajectory
     tangents: Vec<[f64; 6]>,     // Precomputed tangents for smoother Bezier curves
+}
+
+impl Interpolator {
+    pub(crate) fn first(&self) -> AnnotatedJoints {
+        self.steps.first().expect("empty interpolator").clone()
+    }
+
+    pub(crate) fn last(&self) -> AnnotatedJoints {
+        self.steps.last().expect("empty interpolator").clone()
+    }    
 }
 
 impl Interpolator {

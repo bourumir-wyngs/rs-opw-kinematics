@@ -407,8 +407,9 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
     //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
     let path = generate_R_waypoints(
         -0.1, 0.35, 0.4, 0.2, 0.02);
+    
     let engraving =
-        PROJECTOR.project_cylinder_path(&mesh,
+     /*   PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
                                         0.5,
                                         0.35 ..0.6,
@@ -416,7 +417,9 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
                                         axis)?;                                       
      
         // This output is not doable
-      /*
+        
+     */
+      
         PROJECTOR.project_cylinder_path(&mesh,
                                         &path,
                                         0.5,
@@ -424,7 +427,7 @@ fn generate_R_on_goblet_cylinder() -> Result<(), String> {
                                         0. ..0.5 * PI,
                                         axis)?;
                                                                                 
-       */
+      
 
 
     let el_ep = t_ep.elapsed();

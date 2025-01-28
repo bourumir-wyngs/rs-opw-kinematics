@@ -6,9 +6,7 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints, dump_solutions, transition_costs};
-use bevy::render::render_resource::encase::private::RuntimeSizedArray;
-use bitflags::Flags;
+use crate::utils::{assert_pose_eq, dump_joints, transition_costs};
 use nalgebra::{Isometry3, Vector3};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
@@ -35,11 +33,6 @@ pub struct Cartesian<'a> {
 
     /// Maximum allowed transition cost between Joints
     pub max_transition_cost: f64,
-
-    /// Maximal rotation of any joint per step under any conditions. Set this to a large value,
-    /// it is only to protect the hardware against something unexpected. If you exceed this limit,
-    /// reduce the check_step_m to obtain a more fine-grained trajectory.
-    pub max_step_cost: f64,
 
     /// Transition cost coefficients (smaller joints are allowed to rotate more)
     pub transition_coefficients: Joints,
@@ -68,8 +61,15 @@ pub struct Cartesian<'a> {
     /// Time out for path planning
     pub time_out_seconds: u64,
 
+    /// Settings governing the final constant speed adjustments
+    pub speed: Speed,
+
     /// Debug mode for logging
     pub debug: bool,
+    
+    /// Enables massive parallelism. This should normally be enabled, except then troubleshooting
+    /// when ordered debug messages may be preferred.
+    pub parallel: bool
 }
 
 struct Transition {
@@ -78,6 +78,19 @@ struct Transition {
     to: AnnotatedPose,
     previous: Joints,
     solutions: Solutions,
+}
+
+/// Defines the velocity settings of the produced path.
+pub struct Speed {
+    /// Desired TCP speed
+    pub v_tcp: f64,
+    /// Time step between the subsequent robot joint presentations in trajectory)
+    pub dt: f64,
+    /// Maximal rotation of any joint per step under any conditions. Setting this to a larger
+    /// value will result in less poses where lots of rotation occurs without moving TCP much.
+    /// Excessive value may simplify the path enough to result in collisions, causing the planning
+    /// to faile during the final check step.
+    pub max_step_cost: f64,
 }
 
 impl Cartesian<'_> {
@@ -130,7 +143,7 @@ impl Cartesian<'_> {
             }
         });
 
-        if true {
+        if self.parallel {
             // Parallel version
             strategies
                 .par_iter()
@@ -145,13 +158,15 @@ impl Cartesian<'_> {
                         &stop,
                     ) {
                         Ok(outcome) => {
-                            println!("Strategy worked out: {:?}", strategy);
+                            if self.debug {
+                                println!("Strategy branch worked out: {:?}", strategy);
+                            }
                             stop.store(true, Ordering::Relaxed);
                             Some(Ok(outcome))
                         }
                         Err(msg) => {
                             if self.debug {
-                                println!("Strategy failed: {:?}, {}", strategy, msg);
+                                println!("Strategy branch failed: {:?}, {}", strategy, msg);
                             }
                             None // Continue searching
                         }
@@ -279,7 +294,7 @@ impl Cartesian<'_> {
         } else {
             HashSet::with_capacity(0)
         };
-        
+
         let collides = trace.par_iter().any(|joints| {
             // Check the stop flag at the start of the closure
             if stop.load(Ordering::Relaxed) {
@@ -292,7 +307,7 @@ impl Cartesian<'_> {
             return Err("Collision or cancel detected".into());
         }
 
-        if self.check_costs(&trace) {
+        if self.costs_safety_check(&trace) {
             Ok(trace)
         } else {
             Err("Transition costs too high".into())
@@ -518,68 +533,22 @@ impl Cartesian<'_> {
         poses
     }
 
-    /// Add intermediate poses. start and end poses are not added.
-    fn add_intermediate_poses(
-        &self,
-        start: &Pose,
-        end: &Pose,
-        poses: &mut Vec<AnnotatedPose>,
-        flags: PathFlags,
-    ) {
-        // Calculate the translation difference and distance
-        let translation_diff = end.translation.vector - start.translation.vector;
-        let translation_distance = translation_diff.norm();
-
-        // Calculate the rotation difference and angle
-        let rotation_diff = end.rotation * start.rotation.inverse();
-        let rotation_angle = rotation_diff.angle();
-
-        // Calculate the number of steps required for translation and rotation
-        let translation_steps = (translation_distance / self.check_step_m).ceil() as usize;
-        let rotation_steps = (rotation_angle / self.check_step_rad).ceil() as usize;
-
-        // Choose the greater step count to achieve finer granularity between poses
-        let steps = translation_steps.max(rotation_steps).max(1);
-
-        // Calculate incremental translation and rotation per chosen step count
-        let translation_step = translation_diff / steps as f64;
-
-        // Generate each intermediate pose. Start and end poses are excluded.
-        for i in 1..steps {
-            let fraction = i as f64 / steps as f64;
-
-            // Interpolate translation and rotation
-            let intermediate_translation = start.translation.vector + translation_step * i as f64;
-            let intermediate_rotation = start.rotation.slerp(&end.rotation, fraction);
-
-            // Construct the intermediate pose
-            let intermediate_pose =
-                Pose::from_parts(intermediate_translation.into(), intermediate_rotation);
-
-            poses.push(AnnotatedPose {
-                pose: intermediate_pose,
-                flags: flags | PathFlags::LIN_INTERP,
-            });
-        }
-    }
-
-    fn check_costs(&self, steps: &Vec<AnnotatedJoints>) -> bool {
-        use crate::utils::transition_costs;
-
+    /// Safety check verifying if no joint rotates more than than allowed in velocity settings.
+    fn costs_safety_check(&self, steps: &Vec<AnnotatedJoints>) -> bool {
         // Pairwise iterate over adjacent steps and check transition costs
         for pair in steps.windows(2) {
             if let [from, to] = pair {
                 let cost =
                     transition_costs(&from.joints, &to.joints, &self.transition_coefficients);
-                if cost > self.max_step_cost {
+                if cost > self.speed.max_step_cost {
                     println!(
                         "Transition cost exceeded: {:.1} > {} between: {:?} and {:?},",
                         cost.to_degrees(),
-                        self.max_step_cost.to_degrees(),
+                        self.speed.max_step_cost.to_degrees(),
                         from,
                         to
                     );
-                    //return false;
+                    return false;
                 }
             }
         }
@@ -589,56 +558,17 @@ impl Cartesian<'_> {
     }
 
     fn constant_speed(&self, steps: Vec<AnnotatedJoints>) -> Vec<AnnotatedJoints> {
-        self.generate_constant_speed_path(&steps, 0.1, 0.1)
-    }
-
-    fn tcp_speed(&self, steps: &Vec<AnnotatedJoints>) {
-        if steps.len() < 2 {
-            println!("Not enough steps to calculate TCP speed.");
-            return;
-        }
-
-        const TIME_STEP: f64 = 1.0; // Assuming a nominal time step of 1 second
-
-        println!("TCP speeds ({} steps):", steps.len());
-        for window in steps.windows(2) {
-            if let [prev, next] = window {
-                // Compute the TCP poses for consecutive joints
-                let prev_pose = self.robot.forward(&prev.joints);
-                let next_pose = self.robot.forward(&next.joints);
-
-                // Calculate the translational distance between TCP poses
-                let distance = (next_pose.translation.vector - prev_pose.translation.vector).norm();
-
-                // Calculate speed (distance divided by time step)
-                let speed = distance / TIME_STEP;
-
-                // Print the speed and details of the poses
-                println!(
-                    "TCP Speed: {:.4} (from {:.5?} to {:.5?})",
-                    speed, prev_pose.translation.vector, next_pose.translation.vector
-                );
-            }
-        }
-    }
-
-    pub fn generate_constant_speed_path(
-        &self,
-        steps: &Vec<AnnotatedJoints>, // Original trajectory waypoints
-        v_tcp: f64,                   // Desired TCP speed
-        dt: f64,                      // Time step
-    ) -> Vec<AnnotatedJoints> {
-        let strong_interpolator = Interpolator::new(steps.clone());
+        let interpolator = Interpolator::new(steps);
 
         let mut arc_lengths = Vec::new();
         let mut cumulative_distance = 0.0;
 
         // Step 1: Sample the interpolator to compute TCP arc lengths
         let mut sampled_poses = Vec::new();
-        let num_samples = 12 * steps.len(); // Initial fine sampling resolution
+        let num_samples = 12 * interpolator.steps.len(); // Initial fine sampling resolution
         for i in 0..=num_samples {
             let t = i as f64 / num_samples as f64; // Timeline parameter in [0, 1]
-            let sample = strong_interpolator.interpolate(t);
+            let sample = interpolator.interpolate(t);
             let tcp_pose = self.robot.forward(&sample.joints);
 
             // Store sampled TCP pose for distance computation
@@ -679,13 +609,13 @@ impl Cartesian<'_> {
         };
 
         // Step 3: Resample trajectory based on constant TCP speed
-        let mut path = Vec::with_capacity(2 * steps.len());
-        let step_distance = v_tcp * dt;
+        let mut path = Vec::with_capacity(2 * interpolator.steps.len());
+        let step_distance = self.speed.v_tcp * self.speed.dt;
         let num_steps = (total_arc_length / step_distance).ceil() as usize;
 
         let mut s = 0.0;
         let standard_step = 1.0 / num_steps as f64;
-        path.push(steps[0].clone());
+        path.push(interpolator.first());
         while s <= 1.0 {
             let prev = path.last().unwrap();
             let mut step = standard_step;
@@ -693,9 +623,9 @@ impl Cartesian<'_> {
                 let t_r = interpolate_t(s + step);
 
                 // Query the strong interpolator for the new parameter
-                let next = strong_interpolator.interpolate(t_r);
+                let next = interpolator.interpolate(t_r);
                 if transition_costs(&prev.joints, &next.joints, &self.transition_coefficients)
-                    < self.max_step_cost
+                    < self.speed.max_step_cost
                 {
                     path.push(next);
                     s = s + step;
@@ -707,7 +637,7 @@ impl Cartesian<'_> {
                 }
             }
         }
-        let last_step = steps.last().unwrap();
+        let last_step = interpolator.last();
         let last_path = path.last().unwrap();
         if transition_costs(
             &last_path.joints,
@@ -716,7 +646,7 @@ impl Cartesian<'_> {
         ) > 0.001_f64.to_degrees()
         {
             // Add the last pose if for some reason we are not already at.
-            path.push(steps.last().unwrap().clone());
+            path.push(last_step);
         }
 
         path
@@ -729,5 +659,36 @@ impl Cartesian<'_> {
             interpolated[i] = from[i] + t * (to[i] - from[i]);
         }
         interpolated
+    }
+
+    /// Helper method to dump TCP speeds of the trajectory
+    pub fn tcp_speed_dump(&self, steps: &Vec<AnnotatedJoints>) {
+        if steps.len() < 2 {
+            println!("Not enough steps to calculate TCP speed.");
+            return;
+        }
+
+        const TIME_STEP: f64 = 1.0; // Assuming a nominal time step of 1 second
+
+        println!("TCP speeds ({} steps):", steps.len());
+        for window in steps.windows(2) {
+            if let [prev, next] = window {
+                // Compute the TCP poses for consecutive joints
+                let prev_pose = self.robot.forward(&prev.joints);
+                let next_pose = self.robot.forward(&next.joints);
+
+                // Calculate the translational distance between TCP poses
+                let distance = (next_pose.translation.vector - prev_pose.translation.vector).norm();
+
+                // Calculate speed (distance divided by time step)
+                let speed = distance / TIME_STEP;
+
+                // Print the speed and details of the poses
+                println!(
+                    "TCP Speed: {:.4} (from {:.5?} to {:.5?})",
+                    speed, prev_pose.translation.vector, next_pose.translation.vector
+                );
+            }
+        }
     }
 }

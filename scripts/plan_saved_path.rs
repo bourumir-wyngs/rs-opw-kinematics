@@ -1,5 +1,5 @@
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
-use rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS};
+use rs_opw_kinematics::cartesian::{Cartesian, Speed, DEFAULT_TRANSITION_COSTS};
 use rs_opw_kinematics::collisions::{CheckMode, CollisionBody, SafetyDistances, NEVER_COLLIDES, TOUCH_ONLY};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
@@ -212,10 +212,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
-        max_step_cost: 3_f64.to_radians(), // safety check, max rotation of any joint per step
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
         linear_recursion_depth: 9,
+        
+        speed: Speed {
+            dt: 0.1,
+            v_tcp: 1.0,
+            max_step_cost: 10f64.to_radians(),            
+        },
 
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
@@ -228,6 +233,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // included in the output. Otherwise, they are checked but not included in the output
         cartesian_excludes_tool: true,
         time_out_seconds: 60,
+        
+        parallel: true,
         debug: true,
     };
 
