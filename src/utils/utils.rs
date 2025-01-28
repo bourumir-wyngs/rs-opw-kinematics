@@ -78,7 +78,6 @@ pub fn dump_joints(joints: &Joints) {
     }
     println!("[{}]", row_str.trim_end());
 }
-
 pub fn dump_pose(isometry: &Isometry3<f64>) {
     // Extract translation components
     let translation = isometry.translation.vector;
@@ -96,6 +95,10 @@ pub fn dump_pose(isometry: &Isometry3<f64>) {
 /// Allows to specify joint values in degrees (converts to radians)
 pub fn as_radians(degrees: [i32; 6]) -> Joints {
     std::array::from_fn(|i| (degrees[i] as f64).to_radians())
+}
+
+pub fn as_degrees(radians: &Joints) -> [f64; 6] {
+    std::array::from_fn(|i| (radians[i] as f64).to_radians())
 }
 
 /// formatting for YAML output

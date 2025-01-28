@@ -1,7 +1,7 @@
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt_to::{dual_rrt_connect};
-use crate::utils::dump_joints;
+use crate::utils::{as_degrees, as_radians, dump_joints};
 use std::sync::atomic::{AtomicBool};
 use std::time::Instant;
 
@@ -73,6 +73,7 @@ impl RRTPlanner {
             random_joint_angles,
             self.step_size_joint_space, // Step size in joint space
             self.max_try,               // Max iterations
+            true,
             &stop,
         );
 
@@ -120,7 +121,7 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         stop: &AtomicBool,
     ) -> Result<Vec<Joints>, String> {
-        println!("RRT started {:?} -> {:?}", start, goal);
+        println!("RRT started {:.1?} -> {:.1?}", as_degrees(start), as_degrees(goal));
         let started = Instant::now();
         let path = self.plan_path(&kinematics, start, goal, stop);
         let spent = started.elapsed();
@@ -173,7 +174,7 @@ impl RRTPlanner {
             }
         }
         // self.print_summary(&result);
-        println!("RRT Took {:?} for {:?} -> {:?}", &spent, start, goal);
+        println!("RRT Took {:?} for {:.1?} -> {:.1?}", &spent, as_degrees(start), as_degrees(goal));
 
         result
     }

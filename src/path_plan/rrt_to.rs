@@ -19,6 +19,8 @@
 use kdtree::distance::squared_euclidean;
 use num_traits::float::Float;
 use num_traits::identities::Zero;
+use rand::distributions::Uniform;
+use rand::prelude::Distribution;
 use std::fmt::Debug;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -145,7 +147,8 @@ pub fn dual_rrt_connect<FF, FR, N>(
     random_sample: FR,
     extend_length: N,
     num_max_try: usize,
-    stop: &AtomicBool, 
+    smoothed: bool,
+    stop: &AtomicBool,
 ) -> Result<Vec<Vec<N>>, String>
 where
     FF: FnMut(&[N]) -> bool,
@@ -179,6 +182,10 @@ where
                     if tree_b.name == "start" {
                         a_all.reverse();
                     }
+
+                    if smoothed {
+                        smooth_path_looped(&mut a_all, extend_length, stop);
+                    }
                     return Ok(a_all);
                 }
             }
@@ -188,3 +195,68 @@ where
     Err("failed".to_string())
 }
 
+
+/// A smoother that does not rely on randomness but has the length limit.
+fn smooth_path_looped<N>(
+    path: &mut Vec<Vec<N>>,
+    extend_length: N,
+    stop: &AtomicBool,
+) where
+    N: Float + Debug,
+{
+    // We cannot really smooth long paths this way, it is worst case O(path.len()^3)
+    if path.len() < 3 || path.len() > 24 {
+        return;
+    }
+
+    // Continue smoothing until no changes are made
+    'outer: loop {
+        let mut smoothed = false; // Flag to track smoothing in this iteration
+
+        // Iterate through all pairs of points (a, b)
+        for a in 0..path.len() - 2 {
+            for b in a + 2..path.len() {
+                // Stop immediately if "stop" flag is set
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Check if two points are close enough to smooth
+                if squared_euclidean(&path[a], &path[b]).sqrt() < extend_length {
+                    // Remove intermediate points between a and b
+                    path.drain(a + 1..b);
+                    smoothed = true; // Mark that a change was made
+                    break 'outer; // Exit both loops, start a new pass
+                }
+            }
+        }
+
+        // If no smoothing was done, terminate the loop
+        if !smoothed {
+            break; // Exit the outer loop
+        }
+    }
+}
+
+#[test]
+fn it_works() {
+    use rand::distributions::{Distribution, Uniform};
+    let stop = AtomicBool::new(false);
+    let mut result = dual_rrt_connect(
+        &[-1.2, 0.0],
+        &[1.2, 0.0],
+        |p: &[f64]| !(p[0].abs() < 1.0 && p[1].abs() < 1.0),
+        || {
+            let between = Uniform::new(-2.0, 2.0);
+            let mut rng = rand::thread_rng();
+            vec![between.sample(&mut rng), between.sample(&mut rng)]
+        },
+        0.2,
+        1000,
+        false,
+        &stop, // never stops
+    )
+    .unwrap();
+    println!("{result:?}");
+    assert!(result.len() >= 4);
+}
