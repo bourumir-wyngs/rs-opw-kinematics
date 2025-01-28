@@ -222,8 +222,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         speed: Speed {
             dt: 0.1,
-            v_tcp: 1.0,
-            max_step_cost: 10f64.to_radians(),            
+            v_tcp: 0.1,
+            max_step_cost: 3_f64.to_radians(),
         },
 
         // RRT planner that computes the non-Cartesian path from starting position to landing pose

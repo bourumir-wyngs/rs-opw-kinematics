@@ -1,4 +1,3 @@
-use rs_opw_kinematics::smoother;
 use nalgebra::Isometry3;
 use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
@@ -10,6 +9,8 @@ use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::head_lifter::HeadLifter;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
+use rs_opw_kinematics::smoother;
+use rs_opw_kinematics::smoother::Smoother;
 use rs_opw_kinematics::synthetic_meshes::{cylinder_mesh, sphere_mesh, sphere_with_recessions};
 use rs_read_trimesh::load_trimesh;
 use std::f32::consts::PI;
@@ -17,7 +18,6 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::time::Instant;
-use rs_opw_kinematics::smoother::Smoother;
 
 static PROJECTOR: Projector = Projector {
     check_points: 24, // Defined number of normals to check
@@ -34,7 +34,13 @@ fn pause() {
 
 /// Generate the waypoint that make the letter R
 #[allow(non_snake_case)] // we generate uppercase R
-fn generate_R_waypoints(from_x: f32, from_y: f32, final_width: f32, final_height: f32, min_dist: f32) -> Vec<AnnotatedPathStep> {
+fn generate_R_waypoints(
+    from_x: f32,
+    from_y: f32,
+    final_width: f32,
+    final_height: f32,
+    min_dist: f32,
+) -> Vec<AnnotatedPathStep> {
     let mut waypoints = Vec::new();
 
     let width = 1.0;
@@ -104,13 +110,16 @@ fn generate_R_waypoints(from_x: f32, from_y: f32, final_width: f32, final_height
     waypoints.extend(generate_line((0.0, height * 0.5), (width * 0.3, 0.0)));
 
     // Scale
-    waypoints = waypoints.iter().map(|step|->AnnotatedPathStep {
-        AnnotatedPathStep {
-            x: step.x * final_width + from_x,
-            y: step.y * final_height + from_y,
-            flags: PathFlags::NONE,
-        }
-    }).collect();
+    waypoints = waypoints
+        .iter()
+        .map(|step| -> AnnotatedPathStep {
+            AnnotatedPathStep {
+                x: step.x * final_width + from_x,
+                y: step.y * final_height + from_y,
+                flags: PathFlags::NONE,
+            }
+        })
+        .collect();
     waypoints
 }
 
@@ -378,15 +387,15 @@ fn generate_R_on_goblet() -> Result<(), String> {
                                         axis)?;
     */
     let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.04);
-    let engraving = PROJECTOR.project_flat_path(&mesh,
-                                    &path,
-                                    Axis::Y,
-                                    RayDirection::FromNegative)?;
+    let engraving =
+        PROJECTOR.project_flat_path(&mesh, &path, Axis::Y, RayDirection::FromNegative)?;
 
     let el_ep = t_ep.elapsed();
     println!(
         "Engraving {:?},  path {} points, engraving {} poses",
-        el_ep, path.len(), engraving.len()
+        el_ep,
+        path.len(),
+        engraving.len()
     );
 
     send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
@@ -401,46 +410,30 @@ fn generate_R_on_goblet() -> Result<(), String> {
 }
 
 fn generate_R_on_goblet_cylinder() -> Result<(), String> {
+    let easy_case = false;
     let mesh = load_trimesh("src/tests/data/goblet/goblet.stl", 1.0)?;
     let t_ep = Instant::now();
     let axis = Axis::Z;
     //let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
-    let path = generate_R_waypoints(
-        -0.1, 0.35, 0.4, 0.2, 0.02);
-    
-    let engraving =
-     /*   PROJECTOR.project_cylinder_path(&mesh,
-                                        &path,
-                                        0.5,
-                                        0.35 ..0.6,
-                                        0. ..0.5 * PI,
-                                        axis)?;                                       
-     
-        // This output is not doable
-        
-     */
-      
-        PROJECTOR.project_cylinder_path(&mesh,
-                                        &path,
-                                        0.5,
-                                        0.35 ..0.54, 
-                                        0. ..0.5 * PI,
-                                        axis)?;
-                                                                                
-      
+    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.02);
 
+    let engraving = if easy_case {
+        PROJECTOR.project_cylinder_path(&mesh, &path, 0.5, 0.35..0.6, 0. ..0.5 * PI, axis)
+    } else {
+        // This output is very difficult
+        PROJECTOR.project_cylinder_path(&mesh, &path, 0.5, 0.35..0.54, 0. ..0.5 * PI, axis)
+    }?;
 
     let el_ep = t_ep.elapsed();
     println!(
         "Engraving {:?},  path {} points, engraving {} poses",
-        el_ep, path.len(), engraving.len()
+        el_ep,
+        path.len(),
+        engraving.len()
     );
     let smoother = Smoother::new(0.5, 7);
     let engraving = smoother.smooth_orientations(&engraving);
-    let engraving = engraving.iter().map(|x| {
-       x.elevate(-0.002) 
-    }).collect();
-    
+    let engraving = engraving.iter().map(|x| x.elevate(-0.002)).collect();
 
     send_pose_message(&Sender::new("127.0.0.1", 5555), &engraving);
 
@@ -458,20 +451,16 @@ fn generate_R_on_cylinder() -> Result<(), String> {
     let t_ep = Instant::now();
     let axis = Axis::Z;
     let mesh = cylinder_mesh(0.2, 1.5, 64, axis);
-    let path = generate_R_waypoints(
-        -0.1, 0.35, 0.4, 0.2, 0.005);
+    let path = generate_R_waypoints(-0.1, 0.35, 0.4, 0.2, 0.005);
     let engraving =
-        PROJECTOR.project_cylinder_path(&mesh,
-                                        &path,
-                                        0.5,
-                                        0.4 ..0.58,
-                                        0. ..0.5 * PI,
-                                        axis)?;
+        PROJECTOR.project_cylinder_path(&mesh, &path, 0.5, 0.4..0.58, 0. ..0.5 * PI, axis)?;
 
     let el_ep = t_ep.elapsed();
     println!(
         "Engraving {:?},  path {} points, engraving {} poses",
-        el_ep, path.len(), engraving.len()
+        el_ep,
+        path.len(),
+        engraving.len()
     );
 
     let smoother = Smoother::new(0.5, 7);
@@ -513,5 +502,4 @@ fn main() {
     //return Ok(());
     generate_flat_projections();
     //return Ok(());
-
 }
