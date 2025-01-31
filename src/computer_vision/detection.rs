@@ -1,4 +1,4 @@
-use crate::computer_vision::{detect_circle, detect_circle_mat, Detection};
+use crate::computer_vision::{detect_circle_mat, Detection};
 use crate::hsv::{ColorId, DefinedColor};
 use opencv::core::Mat;
 use rayon::prelude::*;
@@ -32,7 +32,6 @@ pub fn detect_circles(img: &Mat) -> HashMap<ColorId, Detection> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::io::Reader as ImageReader;
     use opencv::imgcodecs;
 
     #[test]

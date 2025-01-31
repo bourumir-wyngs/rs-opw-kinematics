@@ -1,7 +1,5 @@
 use crate::hsv::{ColorId, DefinedColor};
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
-use bevy::utils::Instant;
-use image::{DynamicImage, GenericImageView};
 use opencv::{core, prelude::*};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -209,7 +207,6 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detect
     // Probe for the best radius around the detected center
     let best_center = (best.0 .0 as usize, best.0 .1 as usize);
     let (best_x, best_y) = best_center;
-    let now = Instant::now();
     let best_radius = gradient_based_radius(mask, best_center, width, height);
 
     if best_radius <= 1 {
@@ -223,12 +220,6 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detect
         y: best_y + 1,
         r: best_radius + 1,
     })
-}
-
-pub fn detect_circle(img: &DynamicImage, color: &DefinedColor) -> Result<Detection, String> {
-    let mut mask = detect_pixels(img, color);
-    let detection = hough_circle_detection(&mask, color.id())?;
-    detect_circle_iter2(&mut mask, &detection)
 }
 
 pub fn detect_circle_iter2(
@@ -257,10 +248,6 @@ pub fn detect_circle_mat(img: &Mat, color: &DefinedColor) -> Result<Detection, S
     let detection = hough_circle_detection(&mask, color.id())?;
     let result = detect_circle_iter2(&mut mask, &detection);
     result
-}
-
-fn detect_pixels(img: &DynamicImage, color: &DefinedColor) -> Vec<Vec<u16>> {
-    todo!()
 }
 
 fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
