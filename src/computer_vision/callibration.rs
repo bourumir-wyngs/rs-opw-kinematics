@@ -1,20 +1,22 @@
-use crate::hsv::DefinedColor;
+use crate::hsv::{ColorId, DefinedColor};
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 use bevy::utils::Instant;
 use image::{DynamicImage, GenericImageView};
-use opencv::{core, highgui, imgproc, prelude::*};
+use opencv::{core, prelude::*};
 use rayon::prelude::*;
 use std::collections::HashMap;
 
-const MIN_RADIUS: usize = 20;
+const MIN_RADIUS: usize = 5;
 const MAX_RADIUS: usize = 60;
 
-const IS_MATCHING: u16 = 32000;
-const IS_MATHING_MIN_THR: u16 = 16000; // 200;
+pub const BASIC_MULTIPLIER: usize = 100;
+pub const MIN_BRIGHTNESS: usize = 80;
+pub const IS_MATHING_MIN_THR: u16 = (BASIC_MULTIPLIER as u16 * 300) /(100+300+100); // 200;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
 /// Represents a detected circle in an image.
 pub struct Detection {
+    pub color: ColorId,
     pub x: usize, // X coordinate of the circle's center
     pub y: usize, // Y coordinate of the circle's center
     pub r: usize, // Radius of the detected circle
@@ -134,8 +136,8 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
 
     fn global_y(y_main:  isize, y_local:  isize) -> usize {
         (y_local + y_main  - MAX_RADIUS as isize) as usize
-    }    
-    
+    }
+
     let (height, width) = (mask.len() as isize, mask[0].len() as isize);
     // Create thread-local accumulators to avoid contention
     let votes: HashMap<(i16, i16), u16> = (0..height)
@@ -168,7 +170,7 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
                 {
                     if local[xx][yl as usize] > 0 { // width first
                         let yy = global_y(y, yl);
-                        *local_map.entry((xx as i16, yy as i16)).or_insert(0) += 1;
+                        *local_map.entry((xx as i16, yy as i16)).or_insert(0) += local[xx][yl as usize];
                     }
                 }
             }
@@ -186,15 +188,13 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
     votes
 }
 
-fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
+fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detection, String> {
     let (height, width) = (mask.len(), mask[0].len());
     let accumulator = process_mask(mask);
 
     if accumulator.is_empty() {
         return Err("No circle center detected".to_string());
     }
-
-    let now = Instant::now();
 
     // Assume 0.0 as the best center for start
     let mut best = accumulator.iter().next().unwrap();
@@ -218,6 +218,7 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
 
     // +1 adjustment introduced comparing with the reference image file.
     Ok(Detection {
+        color: color,
         x: best_x + 1,
         y: best_y + 1,
         r: best_radius + 1,
@@ -226,7 +227,7 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
 
 pub fn detect_circle(img: &DynamicImage, color: &DefinedColor) -> Result<Detection, String> {
     let mut mask = detect_pixels(img, color);
-    let detection = hough_circle_detection(&mask)?;
+    let detection = hough_circle_detection(&mask, color.id())?;
     detect_circle_iter2(&mut mask, &detection)
 }
 
@@ -248,49 +249,18 @@ pub fn detect_circle_iter2(
         }
     }
 
-    hough_circle_detection(mask)
+    hough_circle_detection(mask, detection.color)
 }
 
 pub fn detect_circle_mat(img: &Mat, color: &DefinedColor) -> Result<Detection, String> {
-    let np = Instant::now();
     let mut mask = detect_pixels_mat(img, color);
-    let detection = hough_circle_detection(&mask)?;
+    let detection = hough_circle_detection(&mask, color.id())?;
     let result = detect_circle_iter2(&mut mask, &detection);
     result
 }
 
 fn detect_pixels(img: &DynamicImage, color: &DefinedColor) -> Vec<Vec<u16>> {
-    let (width, height) = img.dimensions();
-
-    // Divide the image pixels into chunks of 256 for parallel processing
-    let binding = img.pixels().collect::<Vec<_>>();
-    let pixel_chunks: Vec<_> = binding.chunks(256).collect();
-
-    // Process each chunk in parallel
-    let high_score_coords: Vec<(u32, u32)> = pixel_chunks
-        .par_iter()
-        .flat_map(|chunk| {
-            let mut coords = Vec::new();
-
-            for (x, y, pixel) in *chunk {
-                if color.this_color(pixel) {
-                    if coords.is_empty() {
-                        coords.reserve(256);
-                    }
-                    coords.push((*x, *y));
-                }
-            }
-
-            coords
-        })
-        .collect();
-
-    // Create a binary mask from the collected coordinates
-    let mut mask = vec![vec![0u16; width as usize]; height as usize];
-    for (x, y) in high_score_coords {
-        mask[y as usize][x as usize] = IS_MATCHING;
-    }
-    mask
+    todo!()
 }
 
 fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
@@ -302,143 +272,71 @@ fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
         mat.is_continuous(),
         "Mat must be continuous for processing."
     );
-    let data = mat.data_bytes().unwrap();
-    let mut coords = Vec::new();
+    let mut mask = vec![vec![0u16; width as usize]; height as usize];
 
     for y in 0..height {
         for x in 0..width {
             let pixel = mat.at_2d::<core::Vec3b>(y, x).expect("Failed to get pixel");
-            if color.this_color_rgb(pixel[2], pixel[1], pixel[0]) {
-                // BGR
-                coords.push((x, y));
-            }
+            mask[y as usize][x as usize] = color.color_score(pixel[2], pixel[1], pixel[0]);
         }
     }
-    // Create a binary mask from the collected coordinates
-    let mut mask = vec![vec![0u16; width as usize]; height as usize];
-    for (x, y) in &coords {
-        mask[*y as usize][*x as usize] = IS_MATCHING;
-    }
+    //print_mask_to_ascii(&mask, "mask.txt").expect("Failed to print mask to ASCII");
     mask
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::detection::detect_circles;
 
-    #[test]
-    fn test_detect_all() -> Result<(), String> {
-        let image_path = "/home/audrius/opw/calibration/c2_Color.png";
+use std::fs::File;
+use std::io::{self, Write};
 
-        let img = image::io::Reader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
-        let detections = detect_circles(&img);
-        for (color, detection) in detections {
-            println!("{:?}: {:?}", color, detection);
+fn print_mask_to_ascii(mask: &Vec<Vec<u16>>, output_file: &str) -> io::Result<()> {
+    // Step 1: Find the min and max values in the mask
+    let mut min_value = u16::MAX;
+    let mut max_value = u16::MIN;
+
+    for row in mask.iter() {
+        for &value in row.iter() {
+            if value < min_value {
+                min_value = value;
+            }
+            if value > max_value {
+                max_value = value;
+            }
         }
-        Ok(())
     }
 
-    // #[test]
-    fn test_detect_red_circle() -> Result<(), String> {
-        let image_path = "src/tests/data/vision/rg_e.png";
+    // Step 2: Calculate the mapping range
+    let ascii_chars: Vec<char> = ('a'..='z').collect();
+    let num_chars = ascii_chars.len() as u16;
 
-        let img = image::io::Reader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
+    let map_to_ascii = |value: u16| -> char {
+        if max_value == min_value {
+            // Handle edge case where all mask values are the same
+            ascii_chars[0]
+        } else {
+            let normalized = ((value - min_value) as f64 / (max_value - min_value) as f64)
+                * (num_chars as f64 - 1.0);
+            ascii_chars[normalized as usize]
+        }
+    };
 
-        match detect_circle(&img, &DefinedColor::red()) {
-            Ok(detection) => {
-                let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
-                assert_eq!(x, 332);
-                assert_eq!(y, 432);
-                assert_eq!(radius, 32);
+    // Step 3: Write ASCII art to a file
+    let mut file = File::create(output_file)?;
+
+    for row in mask.iter() {
+        for &value in row.iter() {
+            let v = map_to_ascii(value);
+            if v >= 'o' {
+                write!(file, "{}", v)?;
+            } else {
+                write!(file, "{}", ' ')?;
             }
-            Err(e) => {
-                eprintln!("Error occurred: {}", e);
-                assert!(false, "Error during detection: {}", e);
-            }
-        };
-        Ok(())
+        }
+        writeln!(file)?; // Newline after each row
     }
 
-    // #[test]
-    fn test_detect_green_circle() -> Result<(), String> {
-        let image_path = "src/tests/data/vision/rg_e.png";
+    // Step 4: Write the min and max values at the end
+    writeln!(file, "\nMin Value: {}", min_value)?;
+    writeln!(file, "Max Value: {}", max_value)?;
 
-        let img = image::io::Reader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
-
-        match detect_circle(&img, &DefinedColor::green()) {
-            Ok(detection) => {
-                let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
-                assert_eq!(x, 534);
-                assert_eq!(y, 434);
-                assert_eq!(radius, 32);
-            }
-            Err(e) => {
-                eprintln!("Error occurred: {}", e);
-                assert!(false, "Error during detection: {}", e);
-            }
-        };
-        Ok(())
-    }
-
-    // #[test]
-    fn test_detect_blue_circle() -> Result<(), String> {
-        let image_path = "src/tests/data/vision/rg_e.png";
-
-        let img = image::io::Reader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
-
-        match detect_circle(&img, &DefinedColor::blue()) {
-            Ok(detection) => {
-                let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
-                assert_eq!(x, 536);
-                assert_eq!(y, 202);
-                assert_eq!(radius, 32);
-            }
-            Err(e) => {
-                eprintln!("Error occurred: {}", e);
-                assert!(false, "Error during detection: {}", e);
-            }
-        };
-        Ok(())
-    }
-
-    // #[test]
-    fn test_detect_yellow_circle() -> Result<(), String> {
-        let image_path = "src/tests/data/vision/rg_e.png";
-
-        let img = image::io::Reader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
-
-        match detect_circle(&img, &DefinedColor::yellow()) {
-            Ok(detection) => {
-                let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
-                assert_eq!(x, 332);
-                assert_eq!(y, 202);
-                assert_eq!(radius, 32);
-            }
-            Err(e) => {
-                eprintln!("Error occurred: {}", e);
-                assert!(false, "Error during detection: {}", e);
-            }
-        };
-        Ok(())
-    }
+    Ok(())
 }

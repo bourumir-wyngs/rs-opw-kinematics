@@ -66,28 +66,6 @@ fn mat_from_depth16(depth_frame: &DepthFrame) -> core::Mat {
     depth_mat
 }
 
-/// Colorizes a single channel OpenCV mat. The mat's current
-/// range will be mapped to a [0..255] range and then a color map
-/// is applied.
-fn colorized_mat(mat: &core::Mat) -> core::Mat {
-    let mut normalized = Mat::default();
-    core::normalize(
-        &mat,
-        &mut normalized,
-        0.0,
-        255.0,
-        core::NORM_MINMAX,
-        core::CV_8UC1,
-        &core::no_array(),
-    )
-        .unwrap();
-
-    let mut colorized = Mat::default();
-    imgproc::apply_color_map(&normalized, &mut colorized, imgproc::COLORMAP_JET).unwrap();
-
-    colorized
-}
-
 fn main() -> Result<()> {
     // Check for depth or color-compatible devices.
     let queried_devices = HashSet::new(); // Query any devices
@@ -101,15 +79,16 @@ fn main() -> Result<()> {
     config
         .enable_device_from_serial(devices[0].info(Rs2CameraInfo::SerialNumber).unwrap())?
         .disable_all_streams()?
-        .enable_stream(Rs2StreamKind::Depth, None, 1280, 0, Rs2Format::Z16, 15)?
-        .enable_stream(Rs2StreamKind::Color, None, 1280, 0, Rs2Format::Rgb8, 15)?;
+        .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 15)?
+        .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 15)?;
 
     // Change pipeline's type from InactivePipeline -> ActivePipeline
     let mut pipeline = pipeline.start(Some(config))?;
 
     // process frames
     let timeout = Duration::from_millis(500);
-    let color = DefinedColor::green();
+    //let colors = [DefinedColor::green(), DefinedColor::red(), DefinedColor::blue()];
+    let colors = [DefinedColor::blue()];
     loop {
         let nf = Instant::now();
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
@@ -118,12 +97,15 @@ fn main() -> Result<()> {
 
             // There is only one depth and one color stream configured.
             if let Some(color_frame) = color_frames.first() {
-                let now_mat = Instant::now();
+
                 let color_mat = mat_from_color(color_frame);
-                let now_detect = Instant::now();
-                let detection = detect_circle_mat(&color_mat, &color);
-                let center_str = format!("Detection: {:?} in {:?}", detection, now_detect.elapsed());
-                println!("{}", center_str);
+                for color in colors.iter() {
+                    let now_detect = Instant::now();
+                    let detection = detect_circle_mat(&color_mat, &color);
+                    let center_str = format!("{:?} in {:?}", detection, now_detect.elapsed());
+                    println!("{}", center_str);
+                    return Ok(());
+                }
             } else { 
                 println!("No color frames available");
             }

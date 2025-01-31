@@ -1,20 +1,15 @@
-use crate::computer_vision::{detect_circle, Detection};
+use crate::computer_vision::{detect_circle, detect_circle_mat, Detection};
 use crate::hsv::{ColorId, DefinedColor};
-use image::DynamicImage;
-use std::collections::HashMap;
+use opencv::core::Mat;
 use rayon::prelude::*;
+use std::collections::HashMap;
 
-pub fn detect_circles(img: &DynamicImage) -> HashMap<ColorId, Detection> {
+pub fn detect_circles(img: &Mat) -> HashMap<ColorId, Detection> {
     // List of primary colors to probe
     let colors = vec![
         DefinedColor::red(),
         DefinedColor::green(),
         DefinedColor::blue(),
-        // DefinedColor::orange()
-        // DefinedColor::yellow(),
-        // DefinedColor::cyan(),
-        // DefinedColor::magenta(), 
-        // DefinedColor::brown() // does not work reliably
     ];
 
     // Use parallel iterator to process each color and collect results into a vector
@@ -22,9 +17,9 @@ pub fn detect_circles(img: &DynamicImage) -> HashMap<ColorId, Detection> {
         .into_par_iter()
         .filter_map(|color| {
             // Try detecting circles for the current color
-            if let Ok(detection) = detect_circle(img, &color) {
-                    // Return the color ID and detection if successfully detected
-                    return Some((color.id(), detection));
+            if let Ok(detection) = detect_circle_mat(img, &color) {
+                // Return the color ID and detection if successfully detected
+                return Some((color.id(), detection));
             }
             None // Skip if detection is unsuccessful
         })
@@ -38,27 +33,47 @@ pub fn detect_circles(img: &DynamicImage) -> HashMap<ColorId, Detection> {
 mod tests {
     use super::*;
     use image::io::Reader as ImageReader;
+    use opencv::imgcodecs;
 
     #[test]
-    fn test_detect_circles() -> Result<(), String> {
-        let image_path = "src/tests/data/vision/rg_e.png";
+    fn test_detect_circles() -> Result<(), Box<dyn std::error::Error>> {
+        let image_path = "src/tests/data/vision/b_Color.png";
 
-        let img = ImageReader::open(image_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?
-            .decode()
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
-
+        let img = imgcodecs::imread(image_path, imgcodecs::IMREAD_COLOR)?;
         let detections = detect_circles(&img);
 
         // Expected detections
         let expected_detections = HashMap::from([
-            (ColorId::Yellow, Detection { x: 332, y: 202, r: 32 }),
-            (ColorId::Green, Detection { x: 534, y: 434, r: 32 }),
-            (ColorId::Blue, Detection { x: 536, y: 202, r: 32 }),
-            (ColorId::Red, Detection { x: 332, y: 432, r: 32 }),
+            (
+                ColorId::Green,
+                Detection {
+                    color: ColorId::Green,
+                    x: 228,
+                    y: 96,
+                    r: 8,
+                },
+            ),
+            (
+                ColorId::Blue,
+                Detection {
+                    color: ColorId::Blue,
+                    x: 308,
+                    y: 97,
+                    r: 13,
+                },
+            ),
+            (
+                ColorId::Red,
+                Detection {
+                    color: ColorId::Red,
+                    x: 218,
+                    y: 124,
+                    r: 15,
+                },
+            ),
         ]);
 
-        println!("Detections: {:?}", detections);        
+        println!("Detections: {:?}", detections);
 
         // Ensure the number of detections matches
         assert_eq!(
