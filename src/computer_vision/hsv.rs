@@ -1,3 +1,4 @@
+use opencv::core::Vec3b;
 use image::Rgba;
 
 /// Represents a range in the HSV color space.
@@ -84,7 +85,45 @@ pub enum DefinedColor {
     Yellow { range: HSVRange, id: ColorId },
     Cyan { range: HSVRange, id: ColorId },
     Magenta { range: HSVRange, id: ColorId },
+    Brown { range: HSVRange, id: ColorId },
+    Orange { range: HSVRange, id: ColorId },
 }
+
+impl DefinedColor {
+    pub(crate) fn this_color_chunk(&self, chunk: &&[u8]) -> bool {
+        let b = chunk[0];
+        let g = chunk[1];
+        let r = chunk[2];
+        match self {
+            DefinedColor::Red { range, .. }
+            | DefinedColor::Green { range, .. }
+            | DefinedColor::Blue { range, .. }
+            | DefinedColor::Yellow { range, .. }
+            | DefinedColor::Cyan { range, .. }
+            | DefinedColor::Magenta { range, .. }
+            | DefinedColor::Brown { range, .. }
+            | DefinedColor::Orange { range, .. }            
+            => range.this_color(r, g, b),
+        }
+    }
+
+    pub(crate) fn this_color_rgb(&self, r: u8, g: u8, b: u8) -> bool {
+        match self {
+            DefinedColor::Red { range, .. }
+            | DefinedColor::Green { range, .. }
+            | DefinedColor::Blue { range, .. }
+            | DefinedColor::Yellow { range, .. }
+            | DefinedColor::Cyan { range, .. }
+            | DefinedColor::Magenta { range, .. }
+            | DefinedColor::Brown { range, .. }
+            | DefinedColor::Orange { range, .. }
+            => range.this_color(r, g, b),
+        }        
+    }
+    
+}
+
+
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
 pub enum ColorId {
@@ -94,6 +133,8 @@ pub enum ColorId {
     Yellow,
     Cyan,
     Magenta,
+    Brown, 
+    Orange
 }
 
 impl DefinedColor {
@@ -113,7 +154,7 @@ impl DefinedColor {
     pub fn green() -> Self {
         DefinedColor::Green {
             range: HSVRange {
-                hue_ranges: vec![(85.0, 160.0)], // Green hue range
+                hue_ranges: vec![(131., 171.0)], // Green hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
@@ -125,21 +166,32 @@ impl DefinedColor {
     pub fn blue() -> Self {
         DefinedColor::Blue {
             range: HSVRange {
-                hue_ranges: vec![(210.0, 270.0)], // Blue hue range
+                hue_ranges: vec![(170.0, 212.0)], // Blue hue range
                 saturation_range: (0.5, 1.0),
                 value_range: (0.2, 1.0),
             },
             id: ColorId::Blue,
         }
-    }
+    }    
+
+    pub fn orange() -> Self {
+        DefinedColor::Orange {
+            range: HSVRange {
+                hue_ranges: vec![(10.0, 20.0)], // Orange hue range
+                saturation_range: (0.5, 1.0),                  // Saturation range
+                value_range: (0.5, 1.0),                       // Value range
+            },
+            id: ColorId::Red,
+        }
+    }    
 
     /// Creates an instance of the Yellow color with its HSV range.
     pub fn yellow() -> Self {
         DefinedColor::Yellow {
             range: HSVRange {
-                hue_ranges: vec![(40.0, 65.0)], // Yellow hue range
+                hue_ranges: vec![(30.0, 40.0)], // Yellow hue range
                 saturation_range: (0.5, 1.0),
-                value_range: (0.2, 1.0),
+                value_range: (0.50, 1.0),
             },
             id: ColorId::Yellow,
         }
@@ -161,13 +213,24 @@ impl DefinedColor {
     pub fn magenta() -> Self {
         DefinedColor::Magenta {
             range: HSVRange {
-                hue_ranges: vec![(290.0, 320.0)], // Magenta hue range
-                saturation_range: (0.5, 1.0),
-                value_range: (0.2, 1.0),
+                hue_ranges: vec![(224.0-10.0, 224.0+10.)], // Magenta hue range
+                saturation_range: (0.26, 0.52),
+                value_range: (0.3, 0.9),
             },
             id: ColorId::Magenta,
         }
     }
+
+    pub fn brown() -> Self {
+        DefinedColor::Brown {
+            range: HSVRange {
+                hue_ranges: vec![(25., 57.)], // Magenta hue range
+                saturation_range: (0.8, 1.0),
+                value_range: (0.0, 0.64),
+            },
+            id: ColorId::Brown,
+        }
+    }    
 
     /// Determines if the given RGB value matches the HSV range for this primary color.
     pub fn this_color(&self, color: &Rgba<u8>) -> bool {
@@ -175,9 +238,11 @@ impl DefinedColor {
         match self {
             DefinedColor::Red { range, .. }
             | DefinedColor::Green { range, .. }
+            | DefinedColor::Orange { range, .. }
             | DefinedColor::Blue { range, .. }
             | DefinedColor::Yellow { range, .. }
             | DefinedColor::Cyan { range, .. }
+            | DefinedColor::Brown { range, .. }
             | DefinedColor::Magenta { range, .. } => range.this_color(r, g, b),
         }
     }
@@ -186,10 +251,12 @@ impl DefinedColor {
     pub fn id(&self) -> ColorId {
         match self {
             DefinedColor::Red { id, .. }
+            | DefinedColor::Orange { id, .. }
             | DefinedColor::Green { id, .. }
             | DefinedColor::Blue { id, .. }
             | DefinedColor::Yellow { id, .. }
             | DefinedColor::Cyan { id, .. }
+            | DefinedColor::Brown { id, .. }
             | DefinedColor::Magenta { id, .. } => *id,
         }
     }

@@ -10,9 +10,11 @@ pub fn detect_circles(img: &DynamicImage) -> HashMap<ColorId, Detection> {
         DefinedColor::red(),
         DefinedColor::green(),
         DefinedColor::blue(),
-        DefinedColor::yellow(),
-        DefinedColor::cyan(),
-        DefinedColor::magenta(),
+        // DefinedColor::orange()
+        // DefinedColor::yellow(),
+        // DefinedColor::cyan(),
+        // DefinedColor::magenta(), 
+        // DefinedColor::brown() // does not work reliably
     ];
 
     // Use parallel iterator to process each color and collect results into a vector

@@ -20,6 +20,7 @@ use std::{
     io::{self, Write},
     time::Duration,
 };
+use image::{DynamicImage, ImageBuffer, Rgb};
 
 fn main() -> Result<()> {
     // Check for depth or color-compatible devices.
@@ -56,7 +57,7 @@ fn main() -> Result<()> {
     let mut pipeline = pipeline.start(Some(config))?;
 
     // process frames
-    for i in 0..1000 {
+    for i in 0..10 {
         let timeout = Duration::from_millis(5000);
         let frames = pipeline.wait(Some(timeout))?;
 
@@ -88,7 +89,7 @@ fn main() -> Result<()> {
                 .get(rbg_frame.width() / 2, rbg_frame.height() / 2)
                 .unwrap();
             match pixel {
-                PixelKind::Bgr8 { b, g, r } => {
+                PixelKind::Rgb8 { b, g, r } => {
                     bb = *b;
                     rr = *r;
                     gg = *g;

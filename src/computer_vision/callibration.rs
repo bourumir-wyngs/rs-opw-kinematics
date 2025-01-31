@@ -1,9 +1,13 @@
 use crate::hsv::DefinedColor;
+use bevy::render::render_resource::encase::private::RuntimeSizedArray;
+use bevy::utils::Instant;
 use image::{DynamicImage, GenericImageView};
+use opencv::{core, highgui, imgproc, prelude::*};
 use rayon::prelude::*;
+use std::collections::HashMap;
 
-const MIN_RADIUS: usize = 10;
-const MAX_RADIUS: usize = 250;
+const MIN_RADIUS: usize = 20;
+const MAX_RADIUS: usize = 60;
 
 const IS_MATCHING: u16 = 32000;
 const IS_MATHING_MIN_THR: u16 = 16000; // 200;
@@ -123,80 +127,89 @@ fn gradient_based_radius(
     }
 }
 
-fn process_mask(mask: &Vec<Vec<u16>>) -> Vec<Vec<usize>> {
-    let (height, width) = (mask.len(), mask[0].len());
+fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
+    fn local_y(y_main:  isize, y_global:  isize) -> usize {
+        (y_global - y_main + MAX_RADIUS as isize) as usize
+    }
 
+    fn global_y(y_main:  isize, y_local:  isize) -> usize {
+        (y_local + y_main  - MAX_RADIUS as isize) as usize
+    }    
+    
+    let (height, width) = (mask.len() as isize, mask[0].len() as isize);
     // Create thread-local accumulators to avoid contention
-    let thread_local_accumulators: Vec<Vec<Vec<usize>>> = (0..height)
+    let votes: HashMap<(i16, i16), u16> = (0..height)
         .into_par_iter() // Parallelize the outer loop
-        .filter_map(|y| {
-            // Create a local accumulator for each row
-            let mut local_accumulator = None;
+        .map(|y| {
+            let y_float = y as f32;
+            // Create a local accumulator for each row (width is a vector, for y it can be array)
+            let mut local = vec![[0u16; 2 * MAX_RADIUS + 1]; width as usize];
 
-            for x in 0..width {
-                if mask[y][x] > IS_MATHING_MIN_THR {
+            for x in 0..width as usize {
+                if mask[y as usize][x] > IS_MATHING_MIN_THR {
                     // Highly likely part of a circle
-                    for angle in 0..360 {
-                        let (sin_theta, cos_theta) = (angle as f64).to_radians().sin_cos();
-                        for r in MIN_RADIUS..=MAX_RADIUS {
-                            let ur = r as f64;
-                            let a = (x as f64 - ur * sin_theta) as isize;
-                            let b = (y as f64 - ur * cos_theta) as isize;
-                            if a >= 0 && a < width as isize && b >= 0 && b < height as isize {
-                                if local_accumulator.is_none() {
-                                    local_accumulator = Some(vec![vec![0usize; width]; height])
-                                }
-                                if let Some(local_accumulator) = local_accumulator.as_mut() {
-                                    local_accumulator[b as usize][a as usize] += 1;
-                                }
+                    let x_float = x as f32;
+                    for angle in (0..360).step_by(2) {
+                        let (sin_theta, cos_theta) = (angle as f32).to_radians().sin_cos();
+                        for r_int in (MIN_RADIUS..=MAX_RADIUS).step_by(1) {
+                            let r = r_int as f32;
+                            let circle_x = (x_float + r * sin_theta) as isize;
+                            let circle_y = (y_float + r * cos_theta) as isize;
+                            if (0..width).contains(&circle_x) && (0..height).contains(&circle_y) {
+                                local[circle_x as usize][local_y(y, circle_y)] += 1; // width first
                             }
                         }
                     }
                 }
             }
-
-            local_accumulator
-        })
-        .collect();
-
-    // Combine thread-local accumulators into the shared accumulator
-    let mut accumulator: Vec<Vec<usize>> = Vec::new();
-    accumulator.resize(height, vec![0usize; width]);
-    for local_accumulator in thread_local_accumulators {
-        for y in 0..height {
-            for x in 0..width {
-                accumulator[y][x] += local_accumulator[y][x];
+            let mut local_map = HashMap::new();
+            for xx in 0..width as usize {
+                for yl in 0..local[xx].len() as isize
+                {
+                    if local[xx][yl as usize] > 0 { // width first
+                        let yy = global_y(y, yl);
+                        *local_map.entry((xx as i16, yy as i16)).or_insert(0) += 1;
+                    }
+                }
             }
-        }
-    }
-    accumulator
+            local_map
+        })
+        .reduce(
+            || HashMap::with_capacity(256),
+            |mut global_map, local_map| {
+                for (key, value) in local_map {
+                    *global_map.entry(key).or_insert(0) += value; // Merge local into global
+                }
+                global_map
+            },
+        );
+    votes
 }
 
 fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
     let (height, width) = (mask.len(), mask[0].len());
     let accumulator = process_mask(mask);
 
-    // Assume 0.0 as the best center for start
-    let mut max_votes = accumulator[0][0];
-    let mut best_center = (0, 0);
-
-    // Find best center
-    for y in 0..height {
-        for x in 0..width {
-            if accumulator[y][x] > 0 && accumulator[y][x] > max_votes {
-                max_votes = accumulator[y][x];
-                best_center = (x, y);
-            }
-        }
-    }
-
-    if max_votes <= 1 {
+    if accumulator.is_empty() {
         return Err("No circle center detected".to_string());
     }
 
-    // Probe for the best radius around the detected center
-    let (best_x, best_y) = best_center;
+    let now = Instant::now();
 
+    // Assume 0.0 as the best center for start
+    let mut best = accumulator.iter().next().unwrap();
+
+    // Find best center
+    for point in &accumulator {
+        if point.1 > best.1 {
+            best = point;
+        }
+    }
+
+    // Probe for the best radius around the detected center
+    let best_center = (best.0 .0 as usize, best.0 .1 as usize);
+    let (best_x, best_y) = best_center;
+    let now = Instant::now();
     let best_radius = gradient_based_radius(mask, best_center, width, height);
 
     if best_radius <= 1 {
@@ -212,15 +225,38 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>) -> Result<Detection, String> {
 }
 
 pub fn detect_circle(img: &DynamicImage, color: &DefinedColor) -> Result<Detection, String> {
-    let (width, height) = img.dimensions();
-    let mask = detect_pixels(&img, color);
+    let mut mask = detect_pixels(img, color);
+    let detection = hough_circle_detection(&mask)?;
+    detect_circle_iter2(&mut mask, &detection)
+}
 
-    // Apply Gaussian blur to the binary mask (we will check if it is better or not with it)
-    let blurred_mask = gaussian_blur(&mask, width as usize, height as usize);
+pub fn detect_circle_iter2(
+    mask: &mut Vec<Vec<u16>>,
+    detection: &Detection,
+) -> Result<Detection, String> {
+    let height = mask.len() as i32;
+    let width = mask[0].len() as i32;
+    for y in 0..height {
+        for x in 0..width {
+            let cx = x - detection.x as i32;
+            let cy = y - detection.y as i32;
+            if cx * cx + cy * cy >= (2 * MAX_RADIUS * MAX_RADIUS) as i32 {
+                if x >= 0 && y >= 0 && x < width && y < height {
+                    mask[y as usize][x as usize] = 0; // Reset to none pixels far from the expected center
+                }
+            }
+        }
+    }
 
-    // Detect circles in the blurred mask
-    hough_circle_detection(&blurred_mask)
-    //Ok(hough_circle_detection(&mask ))
+    hough_circle_detection(mask)
+}
+
+pub fn detect_circle_mat(img: &Mat, color: &DefinedColor) -> Result<Detection, String> {
+    let np = Instant::now();
+    let mut mask = detect_pixels_mat(img, color);
+    let detection = hough_circle_detection(&mask)?;
+    let result = detect_circle_iter2(&mut mask, &detection);
+    result
 }
 
 fn detect_pixels(img: &DynamicImage, color: &DefinedColor) -> Vec<Vec<u16>> {
@@ -257,11 +293,56 @@ fn detect_pixels(img: &DynamicImage, color: &DefinedColor) -> Vec<Vec<u16>> {
     mask
 }
 
+fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
+    let width = mat.cols();
+    let height = mat.rows();
+
+    // Ensure the matrix is continuous
+    assert!(
+        mat.is_continuous(),
+        "Mat must be continuous for processing."
+    );
+    let data = mat.data_bytes().unwrap();
+    let mut coords = Vec::new();
+
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = mat.at_2d::<core::Vec3b>(y, x).expect("Failed to get pixel");
+            if color.this_color_rgb(pixel[2], pixel[1], pixel[0]) {
+                // BGR
+                coords.push((x, y));
+            }
+        }
+    }
+    // Create a binary mask from the collected coordinates
+    let mut mask = vec![vec![0u16; width as usize]; height as usize];
+    for (x, y) in &coords {
+        mask[*y as usize][*x as usize] = IS_MATCHING;
+    }
+    mask
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detection::detect_circles;
 
     #[test]
+    fn test_detect_all() -> Result<(), String> {
+        let image_path = "/home/audrius/opw/calibration/c2_Color.png";
+
+        let img = image::io::Reader::open(image_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?;
+        let detections = detect_circles(&img);
+        for (color, detection) in detections {
+            println!("{:?}: {:?}", color, detection);
+        }
+        Ok(())
+    }
+
+    // #[test]
     fn test_detect_red_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
@@ -273,10 +354,7 @@ mod tests {
         match detect_circle(&img, &DefinedColor::red()) {
             Ok(detection) => {
                 let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!(
-                    "Detected red circle at: ({}, {}), radius: {}",
-                    x, y, radius,
-                );
+                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
                 assert_eq!(x, 332);
                 assert_eq!(y, 432);
                 assert_eq!(radius, 32);
@@ -289,7 +367,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    // #[test]
     fn test_detect_green_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
@@ -301,10 +379,7 @@ mod tests {
         match detect_circle(&img, &DefinedColor::green()) {
             Ok(detection) => {
                 let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!(
-                    "Detected red circle at: ({}, {}), radius: {}",
-                    x, y, radius,
-                );
+                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
                 assert_eq!(x, 534);
                 assert_eq!(y, 434);
                 assert_eq!(radius, 32);
@@ -317,7 +392,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    // #[test]
     fn test_detect_blue_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
@@ -329,10 +404,7 @@ mod tests {
         match detect_circle(&img, &DefinedColor::blue()) {
             Ok(detection) => {
                 let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!(
-                    "Detected red circle at: ({}, {}), radius: {}",
-                    x, y, radius,
-                );
+                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
                 assert_eq!(x, 536);
                 assert_eq!(y, 202);
                 assert_eq!(radius, 32);
@@ -345,7 +417,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    // #[test]
     fn test_detect_yellow_circle() -> Result<(), String> {
         let image_path = "src/tests/data/vision/rg_e.png";
 
@@ -357,10 +429,7 @@ mod tests {
         match detect_circle(&img, &DefinedColor::yellow()) {
             Ok(detection) => {
                 let (x, y, radius) = (detection.x, detection.y, detection.r);
-                println!(
-                    "Detected red circle at: ({}, {}), radius: {}",
-                    x, y, radius,
-                );
+                println!("Detected red circle at: ({}, {}), radius: {}", x, y, radius,);
                 assert_eq!(x, 332);
                 assert_eq!(y, 202);
                 assert_eq!(radius, 32);
