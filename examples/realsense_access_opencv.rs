@@ -90,6 +90,22 @@ fn get_intrinsics_from_depth(depth_frame: &DepthFrame) -> Option<Rs2Intrinsics> 
     }
 }
 
+/// Distance reading from the ball refers to the distance of its surface. Actual
+/// distance to the center can be obtained by adding r to depth. r can be obtained
+/// from the observed diameter of the ball along x and y.
+fn radius_in_meters(r: f32, z: f32, intr: &Rs2Intrinsics) -> f32 {
+    // Ball diameter can be directly measured and is 2 cm. Once we operate in real units
+    // at this point there is no need to guess the size.
+    return 0.01;
+    // Real-world distance per pixel at depth z (using the X scale factor as default)
+    let scale_x = z / intr.fx();
+    // If you want to use Y direction scale for robustness:
+    // let scale_y = z / intr.fy();
+
+    // Convert pixel radius to meters using the scale factor
+    r * scale_x
+}
+
 fn depth_pixel_to_3d(u: f32, v: f32, z: f32, intr: &Rs2Intrinsics) -> ParryPoint<f32> {
     // Using the pinhole camera model:
     // X = (u - cx) / fx * z
@@ -97,7 +113,7 @@ fn depth_pixel_to_3d(u: f32, v: f32, z: f32, intr: &Rs2Intrinsics) -> ParryPoint
     // Z = z
     let x = (u - intr.ppx()) / intr.fx() * z;
     let y = (v - intr.ppy()) / intr.fy() * z;
-    // Realsense viewer understands x and y swapped.
+
     ParryPoint::new(x, y, z)
 }
 
@@ -242,15 +258,18 @@ fn main() -> Result<()> {
                                     let point = depth_pixel_to_3d(
                                         detection.x as f32,
                                         detection.y as f32,
-                                        *depth_in_m,
+                                        // Account for ball radius, report here center, not surface.
+                                        *depth_in_m,  
                                         intrinsics,
                                     );
+                                    let fr = radius_in_meters(detection.r as f32, *depth_in_m, intrinsics);
                                     print!(
-                                        "{:?}: {:.2}, {:.2}, {:.2}  ",
+                                        "{:?}: {:.2}, {:.2}, {:.2} R {:.4} ",
                                         color.id(),
                                         point.x,
                                         point.y,
-                                        point.z
+                                        point.z + fr,
+                                        fr
                                     );
                                     stats.entry(color.id()).or_insert(Vec::new()).push(point);
                                 }
