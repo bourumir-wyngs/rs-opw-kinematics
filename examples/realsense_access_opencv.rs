@@ -19,6 +19,9 @@ use rs_opw_kinematics::hsv::{ColorId, DefinedColor};
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
 
+// We do not need to compute this if we operate in real units.
+const BALL_RADIUS: f32 = 0.01;
+
 /// Converts a RealSense ColorFrame with BGR8 color to an
 /// OpenCV mat also with BGR8 color
 fn mat_from_color(color_frame: &ColorFrame) -> core::Mat {
@@ -88,22 +91,6 @@ fn get_intrinsics_from_depth(depth_frame: &DepthFrame) -> Option<Rs2Intrinsics> 
     } else {
         None
     }
-}
-
-/// Distance reading from the ball refers to the distance of its surface. Actual
-/// distance to the center can be obtained by adding r to depth. r can be obtained
-/// from the observed diameter of the ball along x and y.
-fn radius_in_meters(r: f32, z: f32, intr: &Rs2Intrinsics) -> f32 {
-    // Ball diameter can be directly measured and is 2 cm. Once we operate in real units
-    // at this point there is no need to guess the size.
-    return 0.01;
-    // Real-world distance per pixel at depth z (using the X scale factor as default)
-    let scale_x = z / intr.fx();
-    // If you want to use Y direction scale for robustness:
-    // let scale_y = z / intr.fy();
-
-    // Convert pixel radius to meters using the scale factor
-    r * scale_x
 }
 
 fn depth_pixel_to_3d(u: f32, v: f32, z: f32, intr: &Rs2Intrinsics) -> ParryPoint<f32> {
@@ -249,7 +236,7 @@ fn main() -> Result<()> {
                 print!("                          \r{}: ", n);
                 for color in colors.iter() {
                     let detection = detect_circle_mat(&color_mat, &color);
-                    if let Ok(mut detection) = detection {
+                    if let Ok(detection) = detection {
                         if let Ok(depth_in_m) =
                             depth_mat.at_2d::<f32>(detection.y as i32, detection.x as i32)
                         {
@@ -262,14 +249,12 @@ fn main() -> Result<()> {
                                         *depth_in_m,  
                                         intrinsics,
                                     );
-                                    let fr = radius_in_meters(detection.r as f32, *depth_in_m, intrinsics);
                                     print!(
-                                        "{:?}: {:.2}, {:.2}, {:.2} R {:.4} ",
+                                        "{:?}: {:.2}, {:.2}, {:.2}",
                                         color.id(),
                                         point.x,
                                         point.y,
-                                        point.z + fr,
-                                        fr
+                                        point.z + BALL_RADIUS,
                                     );
                                     stats.entry(color.id()).or_insert(Vec::new()).push(point);
                                 }

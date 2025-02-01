@@ -17,86 +17,6 @@ pub struct Detection {
     pub color: ColorId,
     pub x: usize, // X coordinate of the circle's center
     pub y: usize, // Y coordinate of the circle's center
-    pub r: usize, // Radius of the detected circle
-    pub depth: usize // Depth in "depth pixels" that are adjusted to be the same as for x, y and r.
-}
-
-fn gradient_based_radius(
-    mask: &Vec<Vec<u16>>,   // Input mask, typically a grayscale image
-    center: (usize, usize), // Known circle center (cx, cy)
-    width: usize,           // Width of the mask
-    height: usize,          // Height of the mask
-) -> usize {
-    fn estimate_gradient_threshold(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> f64 {
-        let mut gradients: Vec<f64> = Vec::new();
-
-        // Compute gradients for the mask
-        for y in 1..(height - 1) {
-            for x in 1..(width - 1) {
-                let dx = (mask[y][x + 1] as i32 - mask[y][x - 1] as i32) as f64;
-                let dy = (mask[y + 1][x] as i32 - mask[y - 1][x] as i32) as f64;
-
-                // Compute gradient magnitude
-                let grad_magnitude = (dx * dx + dy * dy).sqrt();
-                gradients.push(grad_magnitude);
-            }
-        }
-
-        // Calculate mean and standard deviation
-        let mean: f64 = gradients.iter().sum::<f64>() / gradients.len() as f64;
-        let variance: f64 =
-            gradients.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gradients.len() as f64;
-        let std_dev = variance.sqrt();
-
-        // Set threshold as mean + standard deviation multiplier (e.g., 1.5)
-        let threshold = mean + 1.5 * std_dev;
-
-        threshold
-    }
-
-    let (cx, cy) = center;
-    let directions = 360; // Number of radial directions to sample (angles in degrees)
-    let mut radii: Vec<usize> = Vec::with_capacity(directions); // To store radii where edges are detected
-    let threshold = estimate_gradient_threshold(mask, width, height);
-
-    // Loop through radial directions
-    for angle in 0..directions {
-        let (sin_theta, cos_theta) = (angle as f64).to_radians().sin_cos();
-
-        // Track gradient magnitudes along this ray
-        let mut previous_intensity: i32 = mask[cy][cx] as i32;
-        for r in MIN_RADIUS..=MAX_RADIUS {
-            // Compute the coordinates for this radius and direction
-            let x = cx as isize + (cos_theta * r as f64) as isize;
-            let y = cy as isize + (sin_theta * r as f64) as isize;
-
-            // Check if x, y are within bounds
-            if x < 0 || x >= width as isize || y < 0 || y >= height as isize {
-                break;
-            }
-
-            let current_intensity = mask[y as usize][x as usize] as i32;
-            let gradient_magnitude = (current_intensity - previous_intensity).abs() as f64;
-
-            // Detect an edge: Look for a substantial gradient change
-            if gradient_magnitude > threshold {
-                // Threshold for edge detection
-                radii.push(r);
-                break; // Stop once an edge is detected for this direction
-            }
-
-            // Update previous intensity for the next step
-            previous_intensity = current_intensity;
-        }
-    }
-
-    // Return the median radius since it's robust to outliers
-    if !radii.is_empty() {
-        radii.sort(); // Sort radii
-        radii[radii.len() / 2] // Median radius
-    } else {
-        0 // Return 0 if no edges are detected
-    }
 }
 
 fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
@@ -179,19 +99,12 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detect
     // Probe for the best radius around the detected center
     let best_center = (best.0 .0 as usize, best.0 .1 as usize);
     let (best_x, best_y) = best_center;
-    let best_radius = gradient_based_radius(mask, best_center, width, height);
-
-    if best_radius <= 1 {
-        return Err("No valid circle diameter detected".to_string());
-    }
 
     // +1 adjustment introduced comparing with the reference image file.
     Ok(Detection {
         color: color,
         x: best_x + 1,
         y: best_y + 1,
-        r: best_radius + 1,
-        depth: 0 // to be populated later from depth frame
     })
 }
 
