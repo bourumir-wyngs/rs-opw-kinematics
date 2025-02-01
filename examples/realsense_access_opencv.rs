@@ -18,9 +18,14 @@ use rs_opw_kinematics::computer_vision::detect_circle_mat;
 use rs_opw_kinematics::hsv::{ColorId, DefinedColor};
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
+use nalgebra::Point3;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
+
+pub fn ch4_hydrogen_distance(l: f64) -> f64 {
+    2.0 * l * (2.0 / 3.0_f64).sqrt()
+}
 
 /// Converts a RealSense ColorFrame with BGR8 color to an
 /// OpenCV mat also with BGR8 color
@@ -165,7 +170,6 @@ fn scalar_stats(values: &[f32]) -> (f32, f32) {
     (median, robust_std_dev)
 }
 
-
 // Calculate stats for the full vector of ParryPoints
 fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f32>) {
     // Extract scalar values for x, y, and z
@@ -184,7 +188,6 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
         ParryPoint::new(std_dev_x, std_dev_y, std_dev_z),
     )
 }
-
 
 fn main() -> Result<()> {
     // Check for depth or color-compatible devices.
@@ -246,7 +249,7 @@ fn main() -> Result<()> {
                                         detection.x as f32,
                                         detection.y as f32,
                                         // Account for ball radius, report here center, not surface.
-                                        *depth_in_m,  
+                                        *depth_in_m,
                                         intrinsics,
                                     );
                                     print!(
@@ -281,13 +284,61 @@ fn main() -> Result<()> {
 
     // Estimate result
     println!("Estimating");
+
+    let mut ests = HashMap::new();
+
     for (color, points) in stats.iter() {
         let (avg, std_dev) = calculate_stats(&points);
         println!(
             "{:?}: ({:.4} ± {:.4}, {:.4} ± {:.4}, {:.4} ± {:.4})",
             color, avg.x, std_dev.x, avg.y, std_dev.y, avg.z, std_dev.z
         );
+        ests.insert(*color, ParryPoint::new(avg.x, avg.y, avg.z));
+    }
+
+    if rr_check(&ests) {
+        println!("Estimates are correct");
+    } else {
+        println!("Estimates are incorrect");
     }
 
     Ok(())
+}
+
+fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> bool {
+    println!("Estimated distance between balls");
+    use parry3d::math::Point as ParryPoint;
+
+    fn distance(p1: &ParryPoint<f32>, p2: &ParryPoint<f32>) -> f32 {
+        ((p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2) + (p1.z - p2.z).powi(2)).sqrt()
+    }
+
+    // Example points
+    let point_r = ests[&ColorId::Red];
+    let point_g = ests[&ColorId::Green];
+    let point_b = ests[&ColorId::Blue];
+
+    // Compute edges
+    let rg = distance(&point_r, &point_g);
+    let gb = distance(&point_g, &point_b);
+    let br = distance(&point_b, &point_r);
+
+    // Print edge lengths
+    println!("Edges: rg {:.4}, gb {:.4} , br{:.4},", rg, gb, br);
+    let sides = [rg, gb, br];
+    let mean = sides.iter().copied().map(|x| x as f64).sum::<f64>() / sides.len() as f64;
+    let max_difference = sides
+        .iter()
+        .copied()
+        .map(|x| ((x as f64 - mean).abs()))
+        .fold(f64::NAN, f64::max);
+
+
+    println!("Side max difference {}", max_difference);
+
+    let tolerance =  0.003;
+
+
+    max_difference <= tolerance
+
 }

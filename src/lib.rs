@@ -156,6 +156,10 @@ pub mod computer_vision;
 pub mod hsv;
 
 #[cfg(feature = "vision")]
+#[path = "computer_vision/find_transform.rs"]
+pub mod find_transform;
+
+#[cfg(feature = "vision")]
 #[path = "computer_vision/detection.rs"]
 pub mod detection;
 

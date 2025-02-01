@@ -49,8 +49,6 @@ mod tests {
                     color: ColorId::Green,
                     x: 228,
                     y: 96,
-                    r: 8,
-                    depth: 0
                 },
             ),
             (
@@ -59,8 +57,6 @@ mod tests {
                     color: ColorId::Blue,
                     x: 308,
                     y: 97,
-                    r: 13,
-                    depth: 0
                 },
             ),
             (
@@ -69,8 +65,6 @@ mod tests {
                     color: ColorId::Red,
                     x: 218,
                     y: 124,
-                    r: 15,
-                    depth: 0
                 },
             ),
         ]);
