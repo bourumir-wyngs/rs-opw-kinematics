@@ -50,6 +50,7 @@ mod tests {
                     x: 228,
                     y: 96,
                     r: 8,
+                    depth: 0
                 },
             ),
             (
@@ -59,6 +60,7 @@ mod tests {
                     x: 308,
                     y: 97,
                     r: 13,
+                    depth: 0
                 },
             ),
             (
@@ -68,6 +70,7 @@ mod tests {
                     x: 218,
                     y: 124,
                     r: 15,
+                    depth: 0
                 },
             ),
         ]);

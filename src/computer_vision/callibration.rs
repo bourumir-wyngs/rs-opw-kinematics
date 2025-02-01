@@ -11,42 +11,14 @@ pub const BASIC_MULTIPLIER: usize = 100;
 pub const MIN_BRIGHTNESS: usize = 80;
 pub const IS_MATHING_MIN_THR: u16 = (BASIC_MULTIPLIER as u16 * 300) /(100+300+100); // 200;
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 /// Represents a detected circle in an image.
 pub struct Detection {
     pub color: ColorId,
     pub x: usize, // X coordinate of the circle's center
     pub y: usize, // Y coordinate of the circle's center
     pub r: usize, // Radius of the detected circle
-}
-
-/// Applies a simple Gaussian blur to the image mask.
-fn gaussian_blur(mask: &Vec<Vec<u16>>, width: usize, height: usize) -> Vec<Vec<u16>> {
-    let kernel: [[f64; 5]; 5] = [
-        [1.0, 4.0, 7.0, 4.0, 1.0],
-        [4.0, 16.0, 26.0, 16.0, 4.0],
-        [7.0, 26.0, 41.0, 26.0, 7.0],
-        [4.0, 16.0, 26.0, 16.0, 4.0],
-        [1.0, 4.0, 7.0, 4.0, 1.0],
-    ];
-
-    let kernel_sum: f64 = kernel.iter().flatten().sum();
-
-    let mut blurred = vec![vec![0u16; width]; height];
-
-    for y in 2..height - 2 {
-        for x in 2..width - 2 {
-            let mut sum = 0.0;
-            for ky in 0..5 {
-                for kx in 0..5 {
-                    sum += kernel[ky][kx] * mask[y + ky - 2][x + kx - 2] as f64;
-                }
-            }
-            blurred[y][x] = (sum / kernel_sum) as u16;
-        }
-    }
-
-    blurred
+    pub depth: usize // Depth in "depth pixels" that are adjusted to be the same as for x, y and r.
 }
 
 fn gradient_based_radius(
@@ -219,6 +191,7 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detect
         x: best_x + 1,
         y: best_y + 1,
         r: best_radius + 1,
+        depth: 0 // to be populated later from depth frame
     })
 }
 
