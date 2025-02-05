@@ -153,15 +153,24 @@ pub mod computer_vision;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/hsv.rs"]
-pub mod hsv;
+mod hsv;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/find_transform.rs"]
-pub mod find_transform;
+mod find_transform;
+
+#[cfg(feature = "vision")]
+#[path = "computer_vision/transform_io.rs"]
+pub mod transform_io;
+
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/detection.rs"]
-pub mod detection;
+mod detection;
+
+#[cfg(feature = "vision")]
+#[path = "realsense/realsense_access_opencv.rs"]
+pub mod realsense;
 
 
 

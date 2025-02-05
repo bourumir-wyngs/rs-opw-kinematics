@@ -1,7 +1,8 @@
 //! This example opens and streams from a sensor, copys the frame data to an OpenCV
 //! Mat and shows the frame's contents in an OpenCV Window
 
-use anyhow::{ensure, Result};
+use anyhow::{anyhow, ensure, Result};
+use nalgebra::{Point3, Transform3};
 use opencv::{core, prelude::*};
 use parry3d::math::Point as ParryPoint;
 use realsense_rust::base::Rs2Intrinsics;
@@ -14,14 +15,19 @@ use realsense_rust::{
     kind::{Rs2CameraInfo, Rs2Format, Rs2StreamKind},
     pipeline::InactivePipeline,
 };
-use rs_opw_kinematics::computer_vision::detect_circle_mat;
-use rs_opw_kinematics::hsv::{ColorId, DefinedColor};
+use crate::computer_vision::detect_circle_mat;
+use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
+use crate::hsv::{ColorId, DefinedColor};
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
-use nalgebra::Point3;
+use std::fmt::format;
+use bevy::render::render_resource::ShaderType;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
+
+// Plain bond length surface to surface.
+const PLAIN_BOND: f32 = 0.032;
 
 pub fn ch4_hydrogen_distance(l: f64) -> f64 {
     2.0 * l * (2.0 / 3.0_f64).sqrt()
@@ -189,18 +195,32 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
     )
 }
 
-fn main() -> Result<()> {
+/// Callibrate Realsense device. This function requires to have RealSense device connected,
+/// and calibration target present in the view. The target is the tetrahedron, assembled
+/// from plastic balls of molecular modelling kit (kind of methane), standing on the apex,
+/// with top 3 apexes making the XY plane. The bottom apex (on what the tetrahedron is standing)
+/// is considered the origin of the coordinates. Z axis points upwards from it.
+/// The balls on the top must be green, blue and red (clockwise). Green ball is pointing in the
+/// direction of Y axis.
+///
+///  The function computes Transform from the camera system to the system coordinates as
+///  described above.
+pub fn calibrate_realsense() -> Result<(String, Transform3<f32>)> {
     // Check for depth or color-compatible devices.
     let queried_devices = HashSet::new(); // Query any devices
     let context = Context::new()?;
     let devices = context.query_devices(queried_devices);
-    ensure!(!devices.is_empty(), "No devices found");
+    if devices.is_empty() {
+        return Err(anyhow!("No devices found"));
+    }
 
     // create pipeline
     let pipeline = InactivePipeline::try_from(&context)?;
     let mut config = Config::new();
+    let serial = devices[0].info(Rs2CameraInfo::SerialNumber).unwrap();
+    println!("Using device: {:?}", serial);
     config
-        .enable_device_from_serial(devices[0].info(Rs2CameraInfo::SerialNumber).unwrap())?
+        .enable_device_from_serial(serial)?
         .disable_all_streams()?
         .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 30)?
         .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
@@ -283,9 +303,7 @@ fn main() -> Result<()> {
     }
 
     // Estimate result
-    println!("Estimating");
-
-    let mut ests = HashMap::new();
+    let mut ests = HashMap::with_capacity(3);
 
     for (color, points) in stats.iter() {
         let (avg, std_dev) = calculate_stats(&points);
@@ -296,16 +314,29 @@ fn main() -> Result<()> {
         ests.insert(*color, ParryPoint::new(avg.x, avg.y, avg.z));
     }
 
-    if rr_check(&ests) {
-        println!("Estimates are correct");
-    } else {
-        println!("Estimates are incorrect");
-    }
+    let check_result = rr_check(&ests)?;
+    ensure!(check_result, "RR check failed");
 
-    Ok(())
+    // Prepare calibration points
+    let red_ref = ests[&ColorId::Red];
+    let green_ref = ests[&ColorId::Green];
+    let blue_ref = ests[&ColorId::Blue];
+
+    // Estimates for points path planner and RViz use
+    let bond = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
+    let (red_obs, green_obs, blue_obs) = compute_tetrahedron_geometry(bond);
+    let transform = find_transform(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
+
+    println!("Transform: {:?}", transform);
+
+    Ok((serial.to_string_lossy().to_string(), transform))
 }
 
-fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> bool {
+fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
+    if ests.len() < 3 {
+        return Err(anyhow!("Not all points detected, only {:?}", ests.keys()));
+    }
+
     println!("Estimated distance between balls");
     use parry3d::math::Point as ParryPoint;
 
@@ -333,12 +364,16 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> bool {
         .map(|x| ((x as f64 - mean).abs()))
         .fold(f64::NAN, f64::max);
 
-
     println!("Side max difference {}", max_difference);
 
-    let tolerance =  0.003;
+    let tolerance = 0.003;
 
-
-    max_difference <= tolerance
-
+    let result = max_difference <= tolerance;
+    if !result {
+        return Err(anyhow!(
+            "Red, green and blue balls do not make equilateral triangle: R-G {}, G-B {}, B-R {}",
+            rg, gb, br
+        ));
+    }
+    Ok(result)
 }

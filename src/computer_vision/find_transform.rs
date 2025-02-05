@@ -1,5 +1,5 @@
+use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, Transform3, Translation3, Vector3};
 use parry3d::math::Point as ParryPoint;
-use nalgebra::{Point3, Isometry3, Translation3, Rotation3, Vector3, Transform3, Matrix4};
 
 /// Compute the coordinates of the tetrahedron's points: Apex and Base (Red, Green, Blue).
 ///
@@ -9,9 +9,14 @@ use nalgebra::{Point3, Isometry3, Translation3, Rotation3, Vector3, Transform3, 
 /// `bond_length` is the distance between any two connected vertices.
 ///
 /// Returns:
-/// - `apex`: The tip of the tetrahedron (standing point at the origin).
 /// - `red`, `green`, `blue`: Three points forming the base in the plane parallel to XY but at height Z.
-fn compute_tetrahedron_geometry(bond_length: f32) -> (ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>) {
+pub fn compute_tetrahedron_geometry(
+    bond_length: f32,
+) -> (
+    ParryPoint<f32>,
+    ParryPoint<f32>,
+    ParryPoint<f32>,
+) {
     // The apex of the tetrahedron (standing tip at the origin)
     let apex = ParryPoint::new(0.0, 0.0, 0.0);
 
@@ -29,8 +34,8 @@ fn compute_tetrahedron_geometry(bond_length: f32) -> (ParryPoint<f32>, ParryPoin
     // Red point (in the XY-plane rotated symmetrically)
     let red = ParryPoint::new(
         -base_radius * (3.0_f32.sqrt() / 2.0), // X-coordinate
-        -base_radius / 2.0,                   // Y-coordinate
-        base_height,                          // Z-coordinate
+        -base_radius / 2.0,                    // Y-coordinate
+        base_height,                           // Z-coordinate
     );
 
     // Blue point (mirror of red in the XY-plane)
@@ -40,10 +45,30 @@ fn compute_tetrahedron_geometry(bond_length: f32) -> (ParryPoint<f32>, ParryPoin
         base_height,                          // Z-coordinate
     );
 
-    (apex, red, green, blue)
+    (red, green, blue)
 }
 
-pub fn create_transform(
+/// Computes the transformation (scaling, rotation, translation)
+/// between a reference equilateral triangle and an observed triangle.
+///
+/// The function incorporates edge-length redundancy to make the computation more robust.
+///
+/// Returns:
+/// transform that includes translation and rotation, and may also include scaling.
+pub fn find_transform(
+    red_ref: ParryPoint<f32>,   // Reference Red point
+    green_ref: ParryPoint<f32>, // Reference Green point
+    blue_ref: ParryPoint<f32>,  // Reference Blue point
+    red_obs: ParryPoint<f32>,   // Observed Red point
+    green_obs: ParryPoint<f32>, // Observed Green point
+    blue_obs: ParryPoint<f32>,  // Observed Blue point
+) -> Transform3<f32> {
+    let (scaling, translation, rotation) =
+        compute_transform_components(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
+    create_transform(scaling, rotation, translation)
+}
+
+fn create_transform(
     scaling: f32,
     rotation: Rotation3<f32>,
     translation: Translation3<f32>,
@@ -54,7 +79,7 @@ pub fn create_transform(
     )
 }
 
-/// Computes the transformation (scaling, rotation, translation) 
+/// Computes the transformation (scaling, rotation, translation)
 /// between a reference equilateral triangle and an observed triangle.
 ///
 /// The function incorporates edge-length redundancy to make the computation more robust.
@@ -64,12 +89,12 @@ pub fn create_transform(
 /// - `translation` (Translation3<f32>): Translation vector aligning triangle centroids.
 /// - `rotation` (Rotation3<f32>): Rotation matrix aligning the observed triangle to the reference.
 fn compute_transform_components(
-    red_ref: Point3<f32>,   // Reference Red point
-    green_ref: Point3<f32>, // Reference Green point
-    blue_ref: Point3<f32>,  // Reference Blue point
-    red_obs: Point3<f32>,   // Observed Red point
-    green_obs: Point3<f32>, // Observed Green point
-    blue_obs: Point3<f32>,  // Observed Blue point
+    red_ref: ParryPoint<f32>,   // Reference Red point
+    green_ref: ParryPoint<f32>, // Reference Green point
+    blue_ref: ParryPoint<f32>,  // Reference Blue point
+    red_obs: ParryPoint<f32>,   // Observed Red point
+    green_obs: ParryPoint<f32>, // Observed Green point
+    blue_obs: ParryPoint<f32>,  // Observed Blue point
 ) -> (f32, Translation3<f32>, Rotation3<f32>) {
     // STEP 1: Compute centroids
     let centroid_ref = Point3::new(
@@ -166,15 +191,15 @@ fn compute_transform_components(
     } else {
         u * v_t
     };
-    let rotation = Rotation3::from_matrix_unchecked(rotation_matrix);    
+    let rotation = Rotation3::from_matrix_unchecked(rotation_matrix);
 
     (scaling, translation, rotation)
 }
 
 #[cfg(test)]
 mod tests {
-    use approx::relative_eq;
     use super::*;
+    use approx::relative_eq;
 
     #[test]
     fn test_compute_transform_with_rotation_all_axes() {
@@ -208,7 +233,9 @@ mod tests {
 
         // Call the function to compute the transformation
         let (computed_scaling, computed_translation, computed_rotation) =
-            compute_transform_components(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
+            compute_transform_components(
+                red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs,
+            );
 
         // Verify scaling
         assert!((computed_scaling - scaling).abs() < 1e-6);
@@ -221,7 +248,6 @@ mod tests {
         assert!(rotation_diff.angle() < 1e-6); // The angular difference should be negligible
     }
 
-
     fn distance(p1: &ParryPoint<f32>, p2: &ParryPoint<f32>) -> f32 {
         ((p2.x - p1.x).powi(2) + (p2.y - p1.y).powi(2) + (p2.z - p1.z).powi(2)).sqrt()
     }
@@ -229,12 +255,7 @@ mod tests {
     #[test]
     fn test_tetrahedron_geometry() {
         let bond_length = 1.0; // Define bond length
-        let (apex, red, green, blue) = compute_tetrahedron_geometry(bond_length);
-
-        // Verify Apex Position
-        assert!((apex.x - 0.0).abs() < 1e-6);
-        assert!((apex.y - 0.0).abs() < 1e-6);
-        assert!((apex.z - 0.0).abs() < 1e-6);
+        let (red, green, blue) = compute_tetrahedron_geometry(bond_length);
 
         // Verify Base Height (Z value of red, green, and blue must match computed base_height)
         let base_height = bond_length * (2.0_f32 / 3.0).sqrt();
@@ -246,16 +267,11 @@ mod tests {
         assert!((distance(&red, &green) - bond_length).abs() < 1e-6);
         assert!((distance(&green, &blue) - bond_length).abs() < 1e-6);
         assert!((distance(&blue, &red) - bond_length).abs() < 1e-6);
-
-        // Verify Distance from Apex to each Base Point (bond_length)
-        assert!((distance(&apex, &red) - bond_length).abs() < 1e-6);
-        assert!((distance(&apex, &green) - bond_length).abs() < 1e-6);
-        assert!((distance(&apex, &blue) - bond_length).abs() < 1e-6);
     }
 
     #[test]
     fn test_create_transform() {
-        use nalgebra::{Point3, Translation3, Rotation3, Vector3};
+        use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 
         // Define scaling, rotation, and translation
         let scaling = 2.0;
@@ -300,5 +316,5 @@ mod tests {
         }
 
         println!("Transformed point matches expected point!");
-    } 
+    }
 }
