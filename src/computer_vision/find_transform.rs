@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, Transform3, Translation3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Rotation3, Transform3, Translation3, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 
 /// Compute the coordinates of the tetrahedron's points: Apex and Base (Red, Green, Blue).
@@ -17,9 +17,6 @@ pub fn compute_tetrahedron_geometry(
     ParryPoint<f32>,
     ParryPoint<f32>,
 ) {
-    // The apex of the tetrahedron (standing tip at the origin)
-    let apex = ParryPoint::new(0.0, 0.0, 0.0);
-
     // Compute the height of the base plane from the origin (apex)
     // H_base = bond_length * sqrt(2/3)
     let base_height = bond_length * (2.0_f32 / 3.0).sqrt();
@@ -62,10 +59,11 @@ pub fn find_transform(
     red_obs: ParryPoint<f32>,   // Observed Red point
     green_obs: ParryPoint<f32>, // Observed Green point
     blue_obs: ParryPoint<f32>,  // Observed Blue point
-) -> Transform3<f32> {
-    let (scaling, translation, rotation) =
-        compute_transform_components(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
-    create_transform(scaling, rotation, translation)
+) -> Isometry3<f32> {
+    let translation =
+        compute_transform_components(red_obs, green_obs, blue_obs, red_ref, green_ref, blue_ref);
+    Isometry3::from_parts(translation, UnitQuaternion::identity())
+    //create_transform(scaling, rotation, translation)
 }
 
 fn create_transform(
@@ -79,6 +77,39 @@ fn create_transform(
     )
 }
 
+
+fn compute_transform_components(
+    red_ref: ParryPoint<f32>,   // Reference Red point
+    green_ref: ParryPoint<f32>, // Reference Green point
+    blue_ref: ParryPoint<f32>,  // Reference Blue point
+    red_obs: ParryPoint<f32>,   // Observed Red point
+    green_obs: ParryPoint<f32>, // Observed Green point
+    blue_obs: ParryPoint<f32>,  // Observed Blue point
+) -> Translation3<f32> {
+    // STEP 1: Compute centroids
+    let centroid_ref = Point3::new(
+        (red_ref.x + green_ref.x + blue_ref.x) / 3.0,
+        (red_ref.y + green_ref.y + blue_ref.y) / 3.0,
+        (red_ref.z + green_ref.z + blue_ref.z) / 3.0,
+    );
+
+    let centroid_obs = Point3::new(
+        (red_obs.x + green_obs.x + blue_obs.x) / 3.0,
+        (red_obs.y + green_obs.y + blue_obs.y) / 3.0,
+        (red_obs.z + green_obs.z + blue_obs.z) / 3.0,
+    );
+
+    // STEP 2: Compute translation aligning centroids
+    let translation_vector = Vector3::new(
+        centroid_obs.x - centroid_ref.x,
+        centroid_obs.y - centroid_ref.y,
+        centroid_obs.z - centroid_ref.z,
+    );
+    let translation = Translation3::from(translation_vector);
+
+    translation
+}
+
 /// Computes the transformation (scaling, rotation, translation)
 /// between a reference equilateral triangle and an observed triangle.
 ///
@@ -88,7 +119,7 @@ fn create_transform(
 /// - `scaling` (f32): Scaling factor between the reference and observed triangles.
 /// - `translation` (Translation3<f32>): Translation vector aligning triangle centroids.
 /// - `rotation` (Rotation3<f32>): Rotation matrix aligning the observed triangle to the reference.
-fn compute_transform_components(
+fn compute_transform_components_full(
     red_ref: ParryPoint<f32>,   // Reference Red point
     green_ref: ParryPoint<f32>, // Reference Green point
     blue_ref: ParryPoint<f32>,  // Reference Blue point

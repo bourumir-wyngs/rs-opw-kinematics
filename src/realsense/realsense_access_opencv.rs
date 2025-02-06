@@ -1,11 +1,15 @@
 //! This example opens and streams from a sensor, copys the frame data to an OpenCV
 //! Mat and shows the frame's contents in an OpenCV Window
 
+use crate::computer_vision::detect_circle_mat;
+use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
+use crate::hsv::{ColorId, DefinedColor};
 use anyhow::{anyhow, ensure, Result};
-use nalgebra::{Point3, Transform3};
+use nalgebra::{Isometry3, Point3, Transform3};
 use opencv::{core, prelude::*};
-use parry3d::math::Point as ParryPoint;
+use parry3d::math::{Point as ParryPoint, Point};
 use realsense_rust::base::Rs2Intrinsics;
+use realsense_rust::pipeline::ActivePipeline;
 use realsense_rust::prelude::FrameEx;
 use realsense_rust::{
     config::Config,
@@ -15,13 +19,8 @@ use realsense_rust::{
     kind::{Rs2CameraInfo, Rs2Format, Rs2StreamKind},
     pipeline::InactivePipeline,
 };
-use crate::computer_vision::detect_circle_mat;
-use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
-use crate::hsv::{ColorId, DefinedColor};
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
-use std::fmt::format;
-use bevy::render::render_resource::ShaderType;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
@@ -205,33 +204,9 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
 ///
 ///  The function computes Transform from the camera system to the system coordinates as
 ///  described above.
-pub fn calibrate_realsense() -> Result<(String, Transform3<f32>)> {
-    // Check for depth or color-compatible devices.
-    let queried_devices = HashSet::new(); // Query any devices
-    let context = Context::new()?;
-    let devices = context.query_devices(queried_devices);
-    if devices.is_empty() {
-        return Err(anyhow!("No devices found"));
-    }
+pub fn calibrate_realsense() -> Result<(String, Isometry3<f32>, HashMap<ColorId, ParryPoint<f32>>)> {
+    let (serial, mut pipeline) = open_pipeline()?;
 
-    // create pipeline
-    let pipeline = InactivePipeline::try_from(&context)?;
-    let mut config = Config::new();
-    let serial = devices[0].info(Rs2CameraInfo::SerialNumber).unwrap();
-    println!("Using device: {:?}", serial);
-    config
-        .enable_device_from_serial(serial)?
-        .disable_all_streams()?
-        .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 30)?
-        .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
-
-    // Change pipeline's type from InactivePipeline -> ActivePipeline
-    let mut pipeline = pipeline.start(Some(config))?;
-
-    let mut stats = HashMap::new();
-
-    // process frames
-    println!("Reading ");
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
     let colors = [
@@ -240,6 +215,7 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>)> {
         DefinedColor::blue(),
     ];
     let mut n = 0;
+    let mut stats = HashMap::new();
 
     'scan: loop {
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
@@ -318,18 +294,47 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>)> {
     ensure!(check_result, "RR check failed");
 
     // Prepare calibration points
-    let red_ref = ests[&ColorId::Red];
-    let green_ref = ests[&ColorId::Green];
-    let blue_ref = ests[&ColorId::Blue];
+    let red_obs = ests[&ColorId::Red];
+    let green_obs = ests[&ColorId::Green];
+    let blue_obs = ests[&ColorId::Blue];
 
     // Estimates for points path planner and RViz use
     let bond = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
-    let (red_obs, green_obs, blue_obs) = compute_tetrahedron_geometry(bond);
+    let (red_ref, green_ref, blue_ref) = compute_tetrahedron_geometry(bond - 0.05);
     let transform = find_transform(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
 
     println!("Transform: {:?}", transform);
 
-    Ok((serial.to_string_lossy().to_string(), transform))
+    Ok((serial, transform, ests))
+}
+
+/// Opem pipelinme, returns pipeline and device serial.
+fn open_pipeline() -> Result<(String, ActivePipeline)> {
+    // Check for depth or color-compatible devices.
+    let queried_devices = HashSet::new(); // Query any devices
+    let context = Context::new()?;
+    let devices = context.query_devices(queried_devices);
+    if devices.is_empty() {
+        return Err(anyhow!("No devices found"));
+    }
+
+    // create pipeline
+    let pipeline = InactivePipeline::try_from(&context)?;
+    let mut config = Config::new();
+    let serial = devices[0].info(Rs2CameraInfo::SerialNumber).unwrap();
+    println!("Using device: {:?}", serial);
+    config
+        .enable_device_from_serial(serial)?
+        .disable_all_streams()?
+        .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 30)?
+        .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
+
+    // Change pipeline's type from InactivePipeline -> ActivePipeline
+    let mut pipeline = pipeline.start(Some(config))?;
+    let serial = serial.to_string_lossy().to_string();
+    // process frames
+    println!("Reading {}", &serial);
+    Ok((serial, pipeline))
 }
 
 fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
@@ -372,8 +377,69 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
     if !result {
         return Err(anyhow!(
             "Red, green and blue balls do not make equilateral triangle: R-G {}, G-B {}, B-R {}",
-            rg, gb, br
+            rg,
+            gb,
+            br
         ));
     }
     Ok(result)
+}
+
+pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
+    let (serial, mut pipeline) = open_pipeline()?;
+    let timeout = Duration::from_millis(500);
+    let mut intrinsics = None;
+    let mut n = 0;
+    let mut clouds = Vec::with_capacity(2);
+
+    'scan: loop {
+        if let Ok(frames) = pipeline.wait(Some(timeout)) {
+            let depth_frames = frames.frames_of_type::<DepthFrame>();
+            // if let Some(intrinsics) = intrinsics.as_ref() {
+            // There is only one depth and one color stream configured.
+
+            if let Some(depth_frame) = depth_frames.first() {
+                if intrinsics.is_none() {
+                    intrinsics = get_intrinsics_from_depth(depth_frame);
+                }
+                let depth_mat = mat_from_depth16(depth_frame);
+                let mut points = Vec::with_capacity((depth_mat.rows() * depth_mat.cols()) as usize);
+                for row in 0..depth_mat.rows() {
+                    for col in 0..depth_mat.cols() {
+                        if let Ok(depth_in_m) = depth_mat.at_2d::<f32>(row, col) {
+                            if let Some(intrinsics) = intrinsics.as_ref() {
+                                if *depth_in_m > 0.01 {
+                                    let point = depth_pixel_to_3d(
+                                        col as f32,
+                                        row as f32,
+                                        *depth_in_m,
+                                        intrinsics,
+                                    );
+                                    points.push(point);
+                                }
+                            }
+                        }
+                    }
+                }
+                clouds.push(points);
+                points = Vec::new();
+            } else {
+                print!("No depth frames available");
+                continue 'scan;
+            }            
+        } else {
+            print!("No any frames available");
+        }
+        n = clouds.len();
+        if n >= 2 {
+            break 'scan;
+        }
+    }
+
+    if clouds.is_empty() {
+        Err(anyhow!("Failed to get mesh"))
+    } else {
+        println!("zeferved {} points, {} clouds from {}", clouds[0].len(), clouds.len(), serial);
+        Ok(clouds[0].clone())
+    }
 }

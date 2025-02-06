@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.0"
+version = "1.8.1"
 autoexamples = true
 edition = "2021"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -67,7 +67,7 @@ once_cell = "1.20.2"
 
 # Optional (computer vision)
 realsense-rust = "1.2.3"
-opencv = {version = "0.94.2", optional = true}
+opencv = {version = "0.94.2", optional = true, default-features = true}
 anyhow = "1.0.94"
 
 [features]

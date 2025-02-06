@@ -153,7 +153,7 @@ pub mod computer_vision;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/hsv.rs"]
-mod hsv;
+pub mod hsv;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/find_transform.rs"]
