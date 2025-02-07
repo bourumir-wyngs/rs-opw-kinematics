@@ -3,7 +3,7 @@
 
 use crate::computer_vision::detect_circle_mat;
 use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
-use crate::hsv::{ColorId, DefinedColor};
+use crate::colors::{ColorId, DefinedColor};
 use anyhow::{anyhow, ensure, Result};
 use nalgebra::{Isometry3, Point3, Transform3};
 use opencv::{core, prelude::*};
@@ -27,10 +27,6 @@ const BALL_RADIUS: f32 = 0.01;
 
 // Plain bond length surface to surface.
 const PLAIN_BOND: f32 = 0.032;
-
-pub fn ch4_hydrogen_distance(l: f64) -> f64 {
-    2.0 * l * (2.0 / 3.0_f64).sqrt()
-}
 
 /// Converts a RealSense ColorFrame with BGR8 color to an
 /// OpenCV mat also with BGR8 color
@@ -300,7 +296,7 @@ pub fn calibrate_realsense() -> Result<(String, Isometry3<f32>, HashMap<ColorId,
 
     // Estimates for points path planner and RViz use
     let bond = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
-    let (red_ref, green_ref, blue_ref) = compute_tetrahedron_geometry(bond - 0.05);
+    let (red_ref, green_ref, blue_ref) = compute_tetrahedron_geometry(bond);
     let transform = find_transform(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
 
     println!("Transform: {:?}", transform);

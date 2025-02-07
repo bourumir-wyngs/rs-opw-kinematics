@@ -1,4 +1,4 @@
-use crate::hsv::{ColorId, DefinedColor};
+use crate::colors::{ColorId, DefinedColor};
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 use opencv::{core, prelude::*};
 use rayon::prelude::*;
@@ -161,7 +161,7 @@ fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
 use std::fs::File;
 use std::io::{self, Write};
 
-fn print_mask_to_ascii(mask: &Vec<Vec<u16>>, output_file: &str) -> io::Result<()> {
+pub (crate) fn print_mask_to_ascii(mask: &Vec<Vec<u16>>, output_file: &str) -> io::Result<()> {
     // Step 1: Find the min and max values in the mask
     let mut min_value = u16::MAX;
     let mut max_value = u16::MIN;

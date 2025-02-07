@@ -1,5 +1,12 @@
 use crate::computer_vision::{BASIC_MULTIPLIER, MIN_BRIGHTNESS};
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub enum ColorId {
+    Red,
+    Green,
+    Blue,
+}
+
 /// Enum representing primary colors with associated HSV ranges.
 #[derive(Debug, Clone)]
 pub enum DefinedColor {
@@ -28,14 +35,6 @@ impl DefinedColor {
             }
         }        
     }    
-}
-
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub enum ColorId {
-    Red,
-    Green,
-    Blue,
 }
 
 impl DefinedColor {

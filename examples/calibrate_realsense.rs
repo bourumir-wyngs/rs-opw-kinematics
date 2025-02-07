@@ -10,7 +10,8 @@ use std::fs::File;
 use std::io::Write;
 use std::thread::sleep;
 use nalgebra::Point3;
-use rs_opw_kinematics::hsv::{ColorId, DefinedColor};
+use rs_opw_kinematics::colors::{ColorId, DefinedColor};
+use rs_opw_kinematics::find_transform::base_height;
 
 /// Write a vector of points to a PLY file compatible with MeshLab
 fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()> {
@@ -88,10 +89,6 @@ pub fn main() -> anyhow::Result<()> {
         .iter()
         .map(|point| transform.transform_point(&point))
         .collect();
-
-    //send_cloud(&points, (55, 0, 0));
-    //send_cloud(&filtered_points, (255, 0, 0));
-    //send_cloud(&transformed_points, (0, 64, 0), 0.7);
     
     let red = ests[&ColorId::Red];
     let green = ests[&ColorId::Green];
@@ -108,7 +105,10 @@ pub fn main() -> anyhow::Result<()> {
         (red.z + green.z + blue.z) / 3.0,
     );    
     
+    // This is at the height of the color bubble plane
     let t_centroid = transform.transform_point(&centroid.into());
+    let base_height = base_height(0.032 + 2.0* 0.01);
+    let t_centroid = Point3::new(t_centroid.x, t_centroid.y, t_centroid.z - base_height);
 
     send_cloud(&unfiltered_points, (200, 0, 0), 0.01);
     send_cloud(&filtered_points, (200, 200, 200), 0.01);

@@ -152,21 +152,16 @@ pub mod mesh_from_field;
 pub mod computer_vision;
 
 #[cfg(feature = "vision")]
-#[path = "computer_vision/hsv.rs"]
-pub mod hsv;
+#[path = "computer_vision/colors.rs"]
+pub mod colors;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/find_transform.rs"]
-mod find_transform;
+pub mod find_transform;
 
 #[cfg(feature = "vision")]
 #[path = "computer_vision/transform_io.rs"]
 pub mod transform_io;
-
-
-#[cfg(feature = "vision")]
-#[path = "computer_vision/detection.rs"]
-mod detection;
 
 #[cfg(feature = "vision")]
 #[path = "realsense/realsense_access_opencv.rs"]
