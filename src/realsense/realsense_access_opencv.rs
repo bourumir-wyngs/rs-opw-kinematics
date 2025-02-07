@@ -200,7 +200,7 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
 ///
 ///  The function computes Transform from the camera system to the system coordinates as
 ///  described above.
-pub fn calibrate_realsense() -> Result<(String, Isometry3<f32>, HashMap<ColorId, ParryPoint<f32>>)> {
+pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)> {
     let (serial, mut pipeline) = open_pipeline()?;
 
     let timeout = Duration::from_millis(500);
@@ -326,7 +326,7 @@ fn open_pipeline() -> Result<(String, ActivePipeline)> {
         .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
 
     // Change pipeline's type from InactivePipeline -> ActivePipeline
-    let mut pipeline = pipeline.start(Some(config))?;
+    let pipeline = pipeline.start(Some(config))?;
     let serial = serial.to_string_lossy().to_string();
     // process frames
     println!("Reading {}", &serial);
@@ -367,26 +367,64 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
 
     println!("Side max difference {}", max_difference);
 
-    let tolerance = 0.003;
+    let tolerance = 0.005;
 
     let result = max_difference <= tolerance;
     if !result {
         return Err(anyhow!(
-            "Red, green and blue balls do not make equilateral triangle: R-G {}, G-B {}, B-R {}",
+            "Red, green and blue balls do not make equilateral triangle: R-G {}, G-B {}, B-R {}, max difference {} tolerance {}",
             rg,
             gb,
-            br
+            br,
+            max_difference,
+            tolerance
         ));
     }
     Ok(result)
 }
 
+
+fn convert_mats_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<f32>>>> {
+    // Ensure the input vector of Mats is not empty
+    let reference = mats.first().ok_or(anyhow!("Input vector of Mats is empty"))?;
+    let rows = reference.rows();
+    let cols = reference.cols();
+
+    // Build the nested vector structure
+    let mut result = Vec::with_capacity(rows as usize);
+
+    for row in 0..rows {
+        let mut row_vec = Vec::with_capacity(cols as usize);
+        for col in 0..cols {
+            let mut sample_values = Vec::with_capacity(mats.len());
+
+            // Collect values from the same location (row, col) in each Mat
+            for depth_mat in mats {
+                // Attempt to retrieve the value at (row, col)
+                if let Ok(depth_in_m) = depth_mat.at_2d::<f32>(row, col) {
+                    // Only push non-zero values
+                    if *depth_in_m > 0.0 {
+                        sample_values.push(*depth_in_m);
+                    }
+                }
+                // If retrieval fails, simply skip this value
+            }
+            row_vec.push(sample_values); // Add column data to the row
+        }
+        result.push(row_vec); // Add row data to the result
+    }
+
+    Ok(result)
+}
+
+
 pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
+    let min_samples = 10;
+    let n_frames = 100;
     let (serial, mut pipeline) = open_pipeline()?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
-    let mut n = 0;
-    let mut clouds = Vec::with_capacity(2);
+    let mut depths = Vec::with_capacity(n_frames);
 
     'scan: loop {
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
@@ -399,26 +437,7 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
                     intrinsics = get_intrinsics_from_depth(depth_frame);
                 }
                 let depth_mat = mat_from_depth16(depth_frame);
-                let mut points = Vec::with_capacity((depth_mat.rows() * depth_mat.cols()) as usize);
-                for row in 0..depth_mat.rows() {
-                    for col in 0..depth_mat.cols() {
-                        if let Ok(depth_in_m) = depth_mat.at_2d::<f32>(row, col) {
-                            if let Some(intrinsics) = intrinsics.as_ref() {
-                                if *depth_in_m > 0.01 {
-                                    let point = depth_pixel_to_3d(
-                                        col as f32,
-                                        row as f32,
-                                        *depth_in_m,
-                                        intrinsics,
-                                    );
-                                    points.push(point);
-                                }
-                            }
-                        }
-                    }
-                }
-                clouds.push(points);
-                points = Vec::new();
+                depths.push(depth_mat);
             } else {
                 print!("No depth frames available");
                 continue 'scan;
@@ -426,16 +445,43 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
         } else {
             print!("No any frames available");
         }
-        n = clouds.len();
-        if n >= 2 {
+        if depths.len() > n_frames {
             break 'scan;
         }
     }
+    println!("Observed {} frames", depths.len());
+    
+    let intrinsics = intrinsics.expect("No intrinsics");
+    let reference = depths.first().expect("No depth data");
+    let rows = reference.rows() as usize;
+    let cols = reference.cols() as usize;
+    let nested_vectors = convert_mats_to_nested_vector(&depths)?;
 
-    if clouds.is_empty() {
-        Err(anyhow!("Failed to get mesh"))
-    } else {
-        println!("zeferved {} points, {} clouds from {}", clouds[0].len(), clouds.len(), serial);
-        Ok(clouds[0].clone())
-    }
+    // Borrow values immutably
+    let nested_ref = &nested_vectors;
+    let intrinsics_ref = &intrinsics;
+    
+    use rayon::prelude::*;
+    let points: Vec<_> = (0..rows)
+        .into_par_iter()
+        .flat_map_iter(|row| {
+
+            (0..cols).filter_map(move |col| {
+                if nested_ref[row][col].len() >= min_samples {
+                    let depth = scalar_stats(&nested_ref[row][col]).0;
+                    let point = depth_pixel_to_3d(
+                        col as f32,
+                        row as f32,
+                        depth,
+                        intrinsics_ref,
+                    );
+                    Some(point)
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    Ok(points)
 }

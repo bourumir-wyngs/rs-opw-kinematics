@@ -5,4 +5,4 @@
 /amb/
 /.run/*.run.xml
 /src/*(copy).ply
-/calibration.json
+/calibration_ok.json

@@ -6,13 +6,13 @@ use parry3d::math::Point as ParryPoint;
 
 
 /// Tetrahedron is standing on the bottom vertex. The top 3 vertices form a plane parallel to XY
-/// (while Z = const = base_height). They make equilateral triangle. Green vertex belongs to Y
+/// (while Z = const = 0). They make equilateral triangle. Green vertex belongs to Y
 /// axis in a positive direction. "Red" vertex has the larger X coordinate than "Green",
 /// "Blue" has the smaller X coordinate than "Green".
 pub fn compute_tetrahedron_geometry(
     bond_length: f32,
 ) -> (ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>) {
-    let base_height = base_height(bond_length);
+    let base_height = 0.0; // The algorithm works with centroid of top apexexs as origin
     let sqrt_1_2 = (1.0_f32 / 2.0).sqrt(); // Used for base triangle geometry
     let base_radius_xy = bond_length * sqrt_1_2; // Distance from centroid to any base vertex in XY plane
 
@@ -25,8 +25,8 @@ pub fn compute_tetrahedron_geometry(
 
     let rb_y_offset = -base_radius_xy / 2.0;
     let rb_x_offset = (0.75_f32).sqrt() * base_radius_xy;
+    
     let blue = ParryPoint::new(-rb_x_offset, rb_y_offset, base_height);
-
     let red = ParryPoint::new(rb_x_offset, rb_y_offset, base_height);
 
     (red, green, blue)
@@ -58,11 +58,10 @@ pub fn find_transform(
     red_obs: ParryPoint<f32>,   // Observed Red point
     green_obs: ParryPoint<f32>, // Observed Green point
     blue_obs: ParryPoint<f32>,  // Observed Blue point
-) -> Isometry3<f32> {
-    let translation =
+) -> Transform3<f32> {
+    let (scaling, translation, rotation) =
         compute_transform_components(red_obs, green_obs, blue_obs, red_ref, green_ref, blue_ref);
-    Isometry3::from_parts(translation, UnitQuaternion::identity())
-    //create_transform(scaling, rotation, translation)
+    create_transform(scaling, rotation, translation)
 }
 
 fn create_transform(
@@ -72,11 +71,11 @@ fn create_transform(
 ) -> Transform3<f32> {
     let scaling_matrix = Matrix4::new_nonuniform_scaling(&Vector3::new(scaling, scaling, scaling));
     Transform3::from_matrix_unchecked(
-        translation.to_homogeneous() * rotation.to_homogeneous() * scaling_matrix,
+        scaling_matrix * rotation.to_homogeneous() * translation.to_homogeneous(),
     )
 }
 
-fn compute_transform_components(
+fn _compute_transform_components(
     red_ref: ParryPoint<f32>,   // Reference Red point
     green_ref: ParryPoint<f32>, // Reference Green point
     blue_ref: ParryPoint<f32>,  // Reference Blue point
@@ -117,7 +116,7 @@ fn compute_transform_components(
 /// - `scaling` (f32): Scaling factor between the reference and observed triangles.
 /// - `translation` (Translation3<f32>): Translation vector aligning triangle centroids.
 /// - `rotation` (Rotation3<f32>): Rotation matrix aligning the observed triangle to the reference.
-fn compute_transform_components_full(
+fn compute_transform_components(
     red_ref: ParryPoint<f32>,   // Reference Red point
     green_ref: ParryPoint<f32>, // Reference Green point
     blue_ref: ParryPoint<f32>,  // Reference Blue point
@@ -137,6 +136,8 @@ fn compute_transform_components_full(
         (red_obs.y + green_obs.y + blue_obs.y) / 3.0,
         (red_obs.z + green_obs.z + blue_obs.z) / 3.0,
     );
+    
+    println!("Centroid of the reference triangle: {:?}", centroid_ref);
 
     // STEP 2: Compute translation aligning centroids
     let translation_vector = Vector3::new(
@@ -213,7 +214,8 @@ fn compute_transform_components_full(
     // Ensure it's a proper orthogonal rotation (determinant = 1, no reflection)
     let det = rotation_matrix.determinant();
     println!("Determinant of the rotation matrix: {}", det);
-    let rotation_matrix = if (u * v_t).determinant() < 0.0 {
+    // Determinant must stay negative to have assumed orientation
+    let rotation_matrix = if (u * v_t).determinant() > 0.0 {
         let mut u_fixed = u.clone();
         u_fixed.column_mut(2).neg_mut(); // Flip the sign of the last column
         u_fixed * v_t
@@ -221,6 +223,7 @@ fn compute_transform_components_full(
         u * v_t
     };
     let rotation = Rotation3::from_matrix_unchecked(rotation_matrix);
+    //let rotation = UnitQuaternion::identity().to_rotation_matrix();
 
     (scaling, translation, rotation)
 }
@@ -229,56 +232,6 @@ fn compute_transform_components_full(
 mod tests {
     use super::*;
     use approx::relative_eq;
-
-    /*
-    #[test]
-    fn test_compute_transform_with_rotation_all_axes() {
-        // Define reference points of an equilateral triangle
-        let sqrt_3: f32 = 3.0_f32.sqrt();
-        let red_ref = Point3::new(-0.5, -sqrt_3 / 6.0, 0.0);
-        let green_ref = Point3::new(0.5, -sqrt_3 / 6.0, 0.0);
-        let blue_ref = Point3::new(0.0, sqrt_3 / 3.0, 0.0);
-
-        // Define observed points (scaled, translated, rotated)
-        let scaling = 2.0;
-        let translation = Vector3::new(1.0, 2.0, 3.0);
-
-        // Define rotations around all three axes
-        let angle_x = std::f32::consts::FRAC_PI_6; // 30 degrees around X-axis
-        let angle_y = std::f32::consts::FRAC_PI_4; // 45 degrees around Y-axis
-        let angle_z = std::f32::consts::FRAC_PI_3; // 60 degrees around Z-axis
-
-        // Create individual rotations
-        let rotation_x = Rotation3::from_axis_angle(&Vector3::x_axis(), angle_x);
-        let rotation_y = Rotation3::from_axis_angle(&Vector3::y_axis(), angle_y);
-        let rotation_z = Rotation3::from_axis_angle(&Vector3::z_axis(), angle_z);
-
-        // Combine the rotations
-        let rotation = rotation_z * rotation_y * rotation_x;
-
-        // Calculate observed points based on the transformation
-        let red_obs = rotation * (red_ref * scaling) + translation;
-        let green_obs = rotation * (green_ref * scaling) + translation;
-        let blue_obs = rotation * (blue_ref * scaling) + translation;
-
-        // Call the function to compute the transformation
-        let (computed_scaling, computed_translation, computed_rotation) =
-            compute_transform_components(
-                red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs,
-            );
-
-        // Verify scaling
-        assert!((computed_scaling - scaling).abs() < 1e-6);
-
-        // Verify translation
-        assert!((computed_translation.vector - translation).norm() < 1e-6);
-
-        // Verify rotation
-        let rotation_diff = computed_rotation * rotation.inverse();
-        assert!(rotation_diff.angle() < 1e-6); // The angular difference should be negligible
-    }
-
-     */
 
     fn distance(p1: &ParryPoint<f32>, p2: &ParryPoint<f32>) -> f32 {
         ((p2.x - p1.x).powi(2) + (p2.y - p1.y).powi(2) + (p2.z - p1.z).powi(2)).sqrt()
@@ -300,7 +253,8 @@ mod tests {
         assert_abs_diff_eq!(blue.z, red.z, epsilon = 1e-6);
         
         // Check this is consistent with our base_height function
-        assert_abs_diff_eq!(red.z, base_height(bond_length), epsilon = 1e-6);        
+        // assert_abs_diff_eq!(red.z, base_height(bond_length), epsilon = 1e-6);        
+        assert_abs_diff_eq!(red.z, 0.0, epsilon = 1e-6);
 
         // Calculate distances between each pair
         let red_green_dist = distance(&red, &green);
