@@ -167,7 +167,9 @@ pub mod transform_io;
 #[path = "realsense/realsense_access_opencv.rs"]
 pub mod realsense;
 
-
+#[cfg(feature = "vision")]
+#[path = "computer_vision/dbscan_r.rs"]
+pub mod dbscan_r;
 
 
 

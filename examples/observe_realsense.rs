@@ -17,7 +17,8 @@ use rs_opw_kinematics::transform_io::transform_to_json;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::thread::sleep;
-use dbscan::{Classification, Model};
+//use dbscan::{Classification, Model};
+use rs_opw_kinematics::dbscan_r::{largest_cluster, Classification, Model};
 use geo::Euclidean;
 use ndarray::{array, Array2};
 
@@ -83,47 +84,13 @@ fn filter_points_by_distance(
     filtered_points
 }
 
-
-fn largest_cluster(output: Vec<Classification>, points: &Vec<Point<f32>>) -> Vec<Point<f32>> {
-    let mut cluster_counts: HashMap<usize, usize> = HashMap::new();
-
-    // Count occurrences of each cluster (excluding Noise)
-    for classification in output.iter() {
-        if let Classification::Core(cluster_id) = classification {
-            *cluster_counts.entry(*cluster_id).or_insert(0) += 1;
-        }
-    }
-
-    // Find the largest cluster
-    let largest_cluster_id = cluster_counts.into_iter()
-        .max_by_key(|&(_, count)| count)
-        .map(|(id, _)| id);
-
-    // Filter output to keep only the largest cluster
-    if let Some(largest_cluster_id) = largest_cluster_id {
-        points
-            .iter()
-            .zip(output.iter()) // Combine points and output into an iterator of pairs
-            .filter_map(|(point, classification)| match classification {
-                Classification::Core(cluster_id) | Classification::Edge(cluster_id) if *cluster_id == largest_cluster_id => {
-                    Some(*point)
-                }
-                _ => None,
-            })
-            .collect() // Collect the filtered points into a Vec<Point<f32>>
-    } else {
-        Vec::new()
-    }
-}
-
 fn biggest_object_dbscan(points: &Vec<Point<f32>>, r: f32, min_points: usize) -> Vec<Point<f32>> {
-    let model = Model::new(r as f64, min_points);
-    let inputs: Vec<Vec<f32>> = points
-        .iter()
-        .map(|p| vec![p.x, p.y, p.z]) // Create a Vec<f32> for each point
-        .collect();
-    let output = model.run(&inputs);
-    largest_cluster(output, points)
+    let now = std::time::Instant::now();
+    let model = Model::new(r, min_points);
+    let output = model.run(points);
+    let c = largest_cluster(output, points);
+    println!("DBSCAN {:?}", now.elapsed());
+    c
 }
 
 
@@ -143,6 +110,11 @@ pub fn main() -> anyhow::Result<()> {
         Point::new(0.3, 0.25, 1.0),      // Max bounds
     );
 
+    let _aabb = Aabb::new(
+        Point::new(-1., -1., 0.035), // Min bounds
+        Point::new(1., 1., 1.0),      // Max bounds
+    );
+
     let transformed_points: Vec<Point<f32>> = points
         .iter()
         .map(|point| transform.transform_point(&point))
@@ -150,12 +122,12 @@ pub fn main() -> anyhow::Result<()> {
 
     // Discard, another point must be within 5 mm
     //let transformed_points: Vec<Point<f32>> = filter_points_by_distance(transformed_points, 0.005, 4);
-    
+
     let filtered_points = filter_points_in_aabb(&transformed_points, &aabb);
     let unfiltered_points = filter_points_not_in_aabb(&transformed_points, &aabb);
 
-    let linfa = biggest_object_dbscan(&filtered_points, 0.03, 20);    
-    
+    let linfa = biggest_object_dbscan(&filtered_points, 0.03, 20);
+
     let bond = 0.032 + 2.0 * 0.01;
     send_cloud(&linfa, (255, 255, 0), 1.0);
     send_cloud(&filtered_points, (200, 200, 200), 0.5);

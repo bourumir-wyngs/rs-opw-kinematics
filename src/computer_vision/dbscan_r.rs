@@ -20,6 +20,8 @@
 
 type ParryPoint = parry3d::math::Point<f32>;
 
+use std::collections::HashMap;
+use parry3d::math::Point;
 use Classification::{Core, Edge, Noise};
 
 /// Classification according to the DBSCAN algorithm
@@ -43,12 +45,46 @@ pub fn cluster(eps: f32, min_points: usize, input: &Vec<ParryPoint>) -> Vec<Clas
     Model::new(eps, min_points).run(input)
 }
 
+pub fn largest_cluster(output: Vec<Classification>, points: &Vec<Point<f32>>) -> Vec<Point<f32>> {
+    let mut cluster_counts: HashMap<u8, usize> = HashMap::new();
+
+    // Count occurrences of each cluster (excluding Noise)
+    for classification in output.iter() {
+        if let Core(cluster_id) = classification {
+            *cluster_counts.entry(*cluster_id).or_insert(0) += 1;
+        }
+    }
+
+    // Find the largest cluster
+    let largest_cluster_id = cluster_counts.into_iter()
+        .max_by_key(|&(_, count)| count)
+        .map(|(id, _)| id);
+
+    // Filter output to keep only the largest cluster
+    if let Some(largest_cluster_id) = largest_cluster_id {
+        points
+            .iter()
+            .zip(output.iter()) // Combine points and output into an iterator of pairs
+            .filter_map(|(point, classification)| match classification {
+                //Classification::Core(cluster_id) | Classification::Edge(cluster_id) if *cluster_id == largest_cluster_id => {
+                Classification::Core(cluster_id) if *cluster_id == largest_cluster_id => {
+                    Some(*point)
+                }
+                _ => None,
+            })
+            .collect() // Collect the filtered points into a Vec<Point<f32>>
+    } else {
+        Vec::new()
+    }
+}
+
+
 /// DBSCAN parameters
 pub struct Model {
     /// Epsilon value - maximum distance between points in a cluster
     pub eps_squared: f32,
     /// Minimum number of points in a cluster
-    pub mpt: usize,
+    pub min_points: usize,
 
     c: Vec<Classification>,
     v: Vec<bool>,
@@ -63,7 +99,7 @@ impl Model {
     pub fn new(eps: f32, min_points: usize) -> Model {
         Model {
             eps_squared: eps * eps,
-            mpt: min_points,
+            min_points: min_points,
             c: Vec::new(),
             v: Vec::new(),
         }
@@ -78,7 +114,7 @@ impl Model {
         let mut new_cluster = false;
         while let Some(ind) = queue.pop() {
             let neighbors = self.range_query(&population[ind], population);
-            if neighbors.len() < self.mpt {
+            if neighbors.len() < self.min_points {
                 continue;
             }
             new_cluster = true;
@@ -111,7 +147,7 @@ impl Model {
         }
 
         // Parallelizing this does only marginally increases performance for very large queries.
-        // For anything smaller it is a disaster.
+        // For anything smaller it is a disaster. KDTree was also tried, for some reason does not help
         population
             .iter()
             .enumerate()
@@ -133,7 +169,7 @@ impl Model {
         self.v = vec![false; population.len()];
 
         let mut cluster = 0;
-        let mut queue = Vec::with_capacity(population.len() / 2);
+        let mut queue = Vec::new();
 
         for idx in 0..population.len() {
             if self.v[idx] {
@@ -151,3 +187,4 @@ impl Model {
         self.c
     }
 }
+
