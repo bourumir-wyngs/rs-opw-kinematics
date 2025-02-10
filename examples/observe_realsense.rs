@@ -12,7 +12,7 @@ use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::{Read};
 use std::thread::sleep;
-use rs_opw_kinematics::meshbuilder::construct_parry_trimesh;
+use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
 
 /// Function to filter points that belong to a given AABB

@@ -1,6 +1,8 @@
-use std::collections::HashMap;
-use parry3d::shape::TriMesh;
 use crate::organized_point::OrganizedPoint;
+use bevy::render::render_resource::encase::private::RuntimeSizedArray;
+use bevy::render::render_resource::ShaderType;
+use parry3d::shape::TriMesh;
+use std::collections::HashMap;
 
 pub fn construct_parry_trimesh_sequential(points: Vec<OrganizedPoint>) -> TriMesh {
     // Map grid (row, col) -> index in the vertices list
@@ -47,7 +49,7 @@ pub fn construct_parry_trimesh_sequential(points: Vec<OrganizedPoint>) -> TriMes
         }
         if v1.is_none() || v2.is_none() || v3.is_none() {
             let alt_v3 = grid.get(&(row + 2, col + 1)); // Two rows below
-            let alt_v1 = grid.get(&(row, col - 1));     // Left neighbor
+            let alt_v1 = grid.get(&(row, col - 1)); // Left neighbor
 
             add_triangle(v3, alt_v1, alt_v3); // Alternate triangle for diagonal recovery
         }
@@ -57,68 +59,47 @@ pub fn construct_parry_trimesh_sequential(points: Vec<OrganizedPoint>) -> TriMes
     TriMesh::new(vertices, indices)
 }
 
-
 pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
     use rayon::prelude::*;
 
-    fn add_triangle(
-        v0: Option<&u32>,
-        v1: Option<&u32>,
-        v2: Option<&u32>,
-        triangles: &mut Vec<[u32; 3]>,
-    ) {
-        if v0.is_some() && v1.is_some() && v2.is_some() {
-            triangles.push([*v0.unwrap(), *v1.unwrap(), *v2.unwrap()]);
-        }
-    }    
-    
     // Step 1: Build the grid and vertices (sequential)
     let mut grid = HashMap::with_capacity(points.len());
     let mut vertices = Vec::with_capacity(points.len());
 
     for (index, point) in points.iter().enumerate() {
-        grid.insert((point.row, point.col), index as u32);
+        grid.insert((point.row as i32, point.col as i32), index as u32);
         vertices.push(point.point);
     }
 
-    // Step 2: Parallel triangle creation using per-thread buffers
     let thread_triangle_vectors: Vec<Vec<[u32; 3]>> = points
-        .par_iter() // Parallel iteration over points
-        .map(|point| {
-            let row = point.row;
-            let col = point.col;
-            let mut local_triangles = Vec::new();
+        .par_iter()
+        .enumerate() // Access point with its index
+        .map(|(index, point)| {
+            let mut local_triangles = Vec::with_capacity(2);
+
+            let row = point.row as i32;
+            let col = point.col as i32;
+
+            // Current point
+            let v = index as u32; // Current point is the `index`
 
             // Generate primary triangles
-            let v0 = grid.get(&(row, col));
-            let v1 = grid.get(&(row, col + 1));
-            let v2 = grid.get(&(row + 1, col));
-            add_triangle(v0, v1, v2, &mut local_triangles);
+            if let Some(&v_uf) = grid.get(&(row + 1, col + 1)) {
+                if let Some(&v_u) = grid.get(&(row + 1, col)) {
+                    local_triangles.push([v_uf, v_u, v]);
+                }
 
-            let v3 = grid.get(&(row + 1, col + 1));
-            add_triangle(v1, v3, v2, &mut local_triangles);
-
-            // Generate fallback triangles
-            if v0.is_none() || v1.is_none() || v2.is_none() {
-                let alt_v1 = grid.get(&(row, col - 1)); // Left neighbor
-                let alt_v2 = grid.get(&(row - 1, col)); // Top neighbor
-                add_triangle(v0, alt_v1, alt_v2, &mut local_triangles);
+                if let Some(&v_f) = grid.get(&(row, col + 1)) {
+                    local_triangles.push([v, v_f, v_uf]);
+                }
             }
 
-            if v1.is_none() || v2.is_none() || v3.is_none() {
-                let alt_v3 = grid.get(&(row + 2, col + 1)); // Two rows below
-                let alt_v1 = grid.get(&(row, col - 1)); // Left neighbor
-                add_triangle(v3, alt_v1, alt_v3, &mut local_triangles);
-            }
-
-            local_triangles // Return thread-local triangles
+            local_triangles
         })
-        .collect(); // Aggregate all thread-local triangle vectors
+        .collect();
 
-    // Step 3: Merge all thread-local triangle vectors
     let indices: Vec<[u32; 3]> = thread_triangle_vectors.into_iter().flatten().collect();
-
-    // Step 4: Construct the final TriMesh
     TriMesh::new(vertices, indices)
 }
+
 
