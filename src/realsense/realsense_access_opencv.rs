@@ -1,9 +1,9 @@
 //! This example opens and streams from a sensor, copys the frame data to an OpenCV
 //! Mat and shows the frame's contents in an OpenCV Window
 
+use crate::colors::{ColorId, DefinedColor};
 use crate::computer_vision::detect_circle_mat;
 use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
-use crate::colors::{ColorId, DefinedColor};
 use anyhow::{anyhow, ensure, Result};
 use nalgebra::{Isometry3, Point3, Transform3};
 use opencv::{core, prelude::*};
@@ -21,6 +21,7 @@ use realsense_rust::{
 };
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
+use crate::organized_point::OrganizedPoint;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
@@ -200,7 +201,8 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
 ///
 ///  The function computes Transform from the camera system to the system coordinates as
 ///  described above.
-pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)> {
+pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)>
+{
     let (serial, mut pipeline) = open_pipeline()?;
 
     let timeout = Duration::from_millis(500);
@@ -383,10 +385,11 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
     Ok(result)
 }
 
-
 fn convert_mats_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<f32>>>> {
     // Ensure the input vector of Mats is not empty
-    let reference = mats.first().ok_or(anyhow!("Input vector of Mats is empty"))?;
+    let reference = mats
+        .first()
+        .ok_or(anyhow!("Input vector of Mats is empty"))?;
     let rows = reference.rows();
     let cols = reference.cols();
 
@@ -417,7 +420,6 @@ fn convert_mats_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<f32>>>> 
     Ok(result)
 }
 
-
 pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
     let min_samples = 10;
     let n_frames = 100;
@@ -441,7 +443,7 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
             } else {
                 print!("No depth frames available");
                 continue 'scan;
-            }            
+            }
         } else {
             print!("No any frames available");
         }
@@ -450,7 +452,7 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
         }
     }
     println!("Observed {} frames", depths.len());
-    
+
     let intrinsics = intrinsics.expect("No intrinsics");
     let reference = depths.first().expect("No depth data");
     let rows = reference.rows() as usize;
@@ -460,21 +462,15 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
     // Borrow values immutably
     let nested_ref = &nested_vectors;
     let intrinsics_ref = &intrinsics;
-    
+
     use rayon::prelude::*;
     let points: Vec<_> = (0..rows)
         .into_par_iter()
         .flat_map_iter(|row| {
-
             (0..cols).filter_map(move |col| {
                 if nested_ref[row][col].len() >= min_samples {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
-                    let point = depth_pixel_to_3d(
-                        col as f32,
-                        row as f32,
-                        depth,
-                        intrinsics_ref,
-                    );
+                    let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
                     Some(point)
                 } else {
                     None
@@ -484,4 +480,66 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
         .collect();
 
     Ok(points)
+}
+
+pub fn observe_3dx() -> Result<Vec<OrganizedPoint>> {
+    let min_samples = 10;
+    let n_frames = 100;
+    let (serial, mut pipeline) = open_pipeline()?;
+    let timeout = Duration::from_millis(500);
+    let mut intrinsics = None;
+    let mut depths = Vec::with_capacity(n_frames);
+
+    'scan: loop {
+        if let Ok(frames) = pipeline.wait(Some(timeout)) {
+            let depth_frames = frames.frames_of_type::<DepthFrame>();
+            // if let Some(intrinsics) = intrinsics.as_ref() {
+            // There is only one depth and one color stream configured.
+
+            if let Some(depth_frame) = depth_frames.first() {
+                if intrinsics.is_none() {
+                    intrinsics = get_intrinsics_from_depth(depth_frame);
+                }
+                let depth_mat = mat_from_depth16(depth_frame);
+                depths.push(depth_mat);
+            } else {
+                print!("No depth frames available");
+                continue 'scan;
+            }
+        } else {
+            print!("No any frames available");
+        }
+        if depths.len() > n_frames {
+            break 'scan;
+        }
+    }
+    println!("Observed {} frames", depths.len());
+
+    let intrinsics = intrinsics.expect("No intrinsics");
+    let reference = depths.first().expect("No depth data");
+    let rows = reference.rows() as usize;
+    let cols = reference.cols() as usize;
+    let nested_vectors = convert_mats_to_nested_vector(&depths)?;
+
+    // Borrow values immutably
+    let nested_ref = &nested_vectors;
+    let intrinsics_ref = &intrinsics;
+
+    use rayon::prelude::*;
+    let organized: Vec<_> = (0..rows)
+        .into_par_iter()
+        .flat_map_iter(|row| {
+            (0..cols).filter_map(move |col| {
+                if nested_ref[row][col].len() >= min_samples {
+                    let depth = scalar_stats(&nested_ref[row][col]).0;
+                    let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
+                    Some(OrganizedPoint { point, row, col })
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    Ok(organized)
 }

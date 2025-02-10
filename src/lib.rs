@@ -171,6 +171,13 @@ pub mod realsense;
 #[path = "computer_vision/dbscan_r.rs"]
 pub mod dbscan_r;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/meshbuilder.rs"]
+pub mod meshbuilder;
+
+#[cfg(feature = "vision")]
+#[path = "computer_vision/organized_point.rs"]
+pub mod organized_point;
 
 
 

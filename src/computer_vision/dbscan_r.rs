@@ -18,11 +18,9 @@
 //! 
 //! Thanks to the rusty_machine implementation for inspiration
 
-type ParryPoint = parry3d::math::Point<f32>;
-
 use std::collections::HashMap;
-use parry3d::math::Point;
 use Classification::{Core, Edge, Noise};
+use crate::organized_point::OrganizedPoint;
 
 /// Classification according to the DBSCAN algorithm
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -41,11 +39,14 @@ pub enum Classification {
 /// * `eps` - maximum distance between datapoints within a cluster
 /// * `min_points` - minimum number of datapoints to make a cluster
 /// * `input` - datapoints
-pub fn cluster(eps: f32, min_points: usize, input: &Vec<ParryPoint>) -> Vec<Classification> {
+pub fn cluster(eps: f32, min_points: usize, input: &Vec<OrganizedPoint>) -> Vec<Classification> {
     Model::new(eps, min_points).run(input)
 }
 
-pub fn largest_cluster(output: Vec<Classification>, points: &Vec<Point<f32>>) -> Vec<Point<f32>> {
+pub fn largest_cluster(
+    output: Vec<Classification>,
+    points: &Vec<OrganizedPoint>,
+) -> Vec<OrganizedPoint> {
     let mut cluster_counts: HashMap<u8, usize> = HashMap::new();
 
     // Count occurrences of each cluster (excluding Noise)
@@ -56,23 +57,23 @@ pub fn largest_cluster(output: Vec<Classification>, points: &Vec<Point<f32>>) ->
     }
 
     // Find the largest cluster
-    let largest_cluster_id = cluster_counts.into_iter()
+    let largest_cluster_id = cluster_counts
+        .into_iter()
         .max_by_key(|&(_, count)| count)
         .map(|(id, _)| id);
 
     // Filter output to keep only the largest cluster
     if let Some(largest_cluster_id) = largest_cluster_id {
         points
-            .iter()
-            .zip(output.iter()) // Combine points and output into an iterator of pairs
+            .iter() // Iterate over borrowed points
+            .zip(output.into_iter()) // Combine points and output into an iterator of pairs
             .filter_map(|(point, classification)| match classification {
-                //Classification::Core(cluster_id) | Classification::Edge(cluster_id) if *cluster_id == largest_cluster_id => {
-                Classification::Core(cluster_id) if *cluster_id == largest_cluster_id => {
-                    Some(*point)
+                Core(cluster_id) if cluster_id == largest_cluster_id => {
+                    Some(point.clone()) // Clone the point to collect it into a Vec
                 }
                 _ => None,
             })
-            .collect() // Collect the filtered points into a Vec<Point<f32>>
+            .collect() // Collect the filtered points into a Vec<OrganizedPoint>
     } else {
         Vec::new()
     }
@@ -107,7 +108,7 @@ impl Model {
 
     fn expand_cluster(
         &mut self,
-        population: &Vec<ParryPoint>,
+        population: &Vec<OrganizedPoint>,
         queue: &mut Vec<usize>,
         cluster: u8,
     ) -> bool {
@@ -137,12 +138,12 @@ impl Model {
     }
     
     #[inline]
-    fn range_query(&self, sample: &ParryPoint, population: &Vec<ParryPoint>) -> Vec<usize> {
+    fn range_query(&self, sample: &OrganizedPoint, population: &Vec<OrganizedPoint>) -> Vec<usize> {
         #[inline]
-        fn squared_euclidean_distance(a: &ParryPoint, b: &ParryPoint) -> f32 {
-            let x = a.x - b.x;
-            let y = a.y - b.y;
-            let z = a.z - b.z;
+        fn squared_euclidean_distance(a: &OrganizedPoint, b: &OrganizedPoint) -> f32 {
+            let x = a.point.x - b.point.x;
+            let y = a.point.y - b.point.y;
+            let z = a.point.z - b.point.z;
             x * x + y * y + z * z
         }
 
@@ -164,7 +165,7 @@ impl Model {
     /// # Arguments
     /// * `population` - a matrix of datapoints, organized by rows
     ///
-    pub fn run(mut self, population: &Vec<ParryPoint>) -> Vec<Classification> {
+    pub fn run(mut self, population: &Vec<OrganizedPoint>) -> Vec<Classification> {
         self.c = vec![Noise; population.len()];
         self.v = vec![false; population.len()];
 

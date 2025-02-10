@@ -104,7 +104,7 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [velocities](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
 - Joint [torques](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
-The same Joints structure is reused, the six values now representing either angular velocities in radians per second
+The same Joints structure is reused, the six values _now representing either angular velocities in radians per second
 or torques in Newton meters. For the end effector, it is possible to use either
 nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
 or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), both defining velocities in m/s or
@@ -122,7 +122,7 @@ the [tool](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/tool/struct
 nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
 both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
-now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
+_now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
 on a [base](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 "Robot with the tool" and "Robot on the base" can be constructed around
@@ -147,7 +147,7 @@ and calculated joint angles for the transformed (shifted and rotated) trajectory
 
 ## Individual link positions
 
-It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
+It is _now possible to obtain positions of individual links in forward kinematics. This would be needed for
 collision avoidance and graphical rendering of the robot.
 See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.7.0/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses)
 method.
@@ -162,7 +162,7 @@ The 5 DOF robot can still be represented with the same diagram, and has the same
 to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation
 but the rotation around the tool axis is not followed.
 
-Support for 5 DOF robots is now included through an additional 'dof' field in the
+Support for 5 DOF robots is _now included through an additional 'dof' field in the
 parameter data structure. 5 DOF inverse kinematics can also be requested for 6 DOF
 robots, particularly when the last joint is in constant motion (e.g., for drilling), or when maintaining precise tool
 rotation would cause the robot to exceed its constraints. This method is also faster to compute. If the robot is
@@ -207,7 +207,7 @@ from the solution list.
 For collision avoidance, you need to supply meshes for robot joints and, optionally, for the base, tool, 
 and environment objects.
 
-Starting with version 1.8.0, it is now possible to configure a safety distance — the minimum distance to a surface 
+Starting with version 1.8.0, it is _now possible to configure a safety distance — the minimum distance to a surface 
 below which a collision is detected. In most real-world scenarios, a robot must maintain a guaranteed clearance from 
 objects it might collide with (including its own parts) rather than simply avoiding surface contact.
 
@@ -439,7 +439,7 @@ You will find the complete code in cartesian_stroke.rs between examples.
     };
 
     // plan path
-    let started = Instant::now();
+    let started = Instant::_now();
     // start is Joints, starting position. land and park are landing and parking poses. steps is the vector of poses.
     let path = planner.plan(&start, &land, steps, &park);
     let elapsed = started.elapsed();
@@ -533,7 +533,7 @@ fn main() {
 }
 ```
 
-Starting from version 1.7.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
+Starting from version 1.7.0, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It _now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
 and integrating collision checking. See example _complete_visible_robot_.
 
@@ -570,7 +570,7 @@ is constructed from the extracted values.
 YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
 not accounted for). The URDF reader has als been extended to support such robots, but joint names must always be
 explicitly provided. Instead of specifying a name for joint 6, the name of the tool center point (TCP) must be given.
-Both YAML and URDF readers still try to get the parameter c4 that is now distance from J5 axis till TCP.
+Both YAML and URDF readers still try to get the parameter c4 that is _now distance from J5 axis till TCP.
 
 **Important:** The URDF reader assumes a robot with a parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
