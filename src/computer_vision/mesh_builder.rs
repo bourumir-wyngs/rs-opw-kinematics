@@ -83,7 +83,8 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
             // Current point
             let v = index as u32; // Current point is the `index`
 
-            // Generate primary triangles
+            // This will not work for the bottom edge row but there are one less gaps between 
+            // points than points, so all triangles will be generated.
             if let Some(&v_uf) = grid.get(&(row + 1, col + 1)) {
                 if let Some(&v_u) = grid.get(&(row + 1, col)) {
                     local_triangles.push([v_uf, v_u, v]);
