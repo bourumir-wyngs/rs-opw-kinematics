@@ -92,8 +92,15 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
                 if let Some(&v_f) = grid.get(&(row, col + 1)) {
                     local_triangles.push([v, v_f, v_uf]);
                 }
+            } else {
+                // If v_uf not available, one triangle still can be made trough v_u and v_f. 
+                // Otherwise will not be any
+                if let (Some(&v_u), Some(&v_f)) =
+                    (grid.get(&(row + 1, col)), grid.get(&(row, col + 1)))
+                {
+                    local_triangles.push([v_f, v_u, v]);
+                }
             }
-
             local_triangles
         })
         .collect();
@@ -101,5 +108,3 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
     let indices: Vec<[u32; 3]> = thread_triangle_vectors.into_iter().flatten().collect();
     TriMesh::new(vertices, indices)
 }
-
-
