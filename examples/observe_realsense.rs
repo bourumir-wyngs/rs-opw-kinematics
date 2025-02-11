@@ -1,23 +1,24 @@
 use rs_cxx_ros2_opw_bridge::sender::Sender;
+use std::f32::consts::PI;
 
-use anyhow::{Result};
+use anyhow::Result;
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
+use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use parry3d::bounding_volume::Aabb;
 use parry3d::math::Point;
-use parry3d::shape::{TriMesh};
-use rs_opw_kinematics::dbscan_r::{cluster_stats, Model};
-use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
-use rs_opw_kinematics::realsense::{observe_3dx};
-use rs_opw_kinematics::transform_io;
-use std::fs::File;
-use std::io::{Read};
-use std::thread::sleep;
-use nalgebra::Isometry3;
+use parry3d::shape::TriMesh;
 use rs_opw_kinematics::annotations::AnnotatedPose;
+use rs_opw_kinematics::dbscan_r::{cluster_stats, Model};
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
+use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
+use rs_opw_kinematics::realsense::observe_3dx;
+use rs_opw_kinematics::transform_io;
+use std::fs::File;
+use std::io::Read;
+use std::thread::sleep;
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -58,10 +59,11 @@ fn best_object_dbscan(
     let output_len = output.len();
     let c;
     let mut stats = cluster_stats(&output, points);
-    
+
     // Take the object closest to the X axis.
     stats.sort_by(|a, b| {
-        a.center.y
+        a.center
+            .y
             .abs()
             .partial_cmp(&b.center.y.abs())
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -72,8 +74,7 @@ fn best_object_dbscan(
     } else {
         c = Vec::new();
     }
-    
-    
+
     println!(
         "dbscan {:?} cluster size {} -> {}",
         now.elapsed(),
@@ -210,22 +211,40 @@ pub fn main() -> anyhow::Result<()> {
     );
     //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
     send_mesh(&mesh, (0, 128, 128), 0.8)?;
-    
+
     let projector = Projector {
         check_points: 64,
-        radius: 0.002
+        radius: 0.01,
     };
-    
-    let path = generate_raster_points(10,10);
-    if let Ok(stroke) = projector.project_flat_fitted(&mesh, &path, Axis::X, RayDirection::FromNegative) {
-        println!("Projection succeeded, {} poses.", stroke.len());
-        let sender = Sender::new("127.0.0.1", 5555);
-        sender.send_pose_message(&filter_valid_poses(&stroke));
+
+    let path = generate_raster_points(20, 20);
+    if true {
+        let a = 0_f32.to_radians();
+        let b = 180_f32.to_radians();
+        
+        if let Ok(stroke) = projector.project_cylinder_path_centered(
+            &mesh,
+            &path,
+            a..b,
+            Axis::Z,
+        ) {
+            let sender = Sender::new("127.0.0.1", 5555);
+            sender.send_pose_message(&filter_valid_poses(&stroke))?;
+        } else {
+            println!("Projection failed.");
+        }
     } else {
-        println!("Projection failed.");
-    }    
-    
-    
+        // flat projection
+        if let Ok(stroke) =
+            projector.project_flat_path_fitted(&mesh, &path, Axis::X, RayDirection::FromNegative)
+        {
+            println!("Projection succeeded, {} poses.", stroke.len());
+            let sender = Sender::new("127.0.0.1", 5555);
+            sender.send_pose_message(&filter_valid_poses(&stroke))?;
+        } else {
+            println!("Projection failed.");
+        }
+    }
 
     Ok(())
 }
@@ -265,4 +284,3 @@ pub fn filter_valid_poses(poses: &Vec<AnnotatedPose>) -> Vec<Isometry3<f64>> {
         .map(|pose| pose.pose)
         .collect()
 }
-

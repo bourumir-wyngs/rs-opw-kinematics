@@ -1,5 +1,5 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
-use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Point3, Quaternion, Translation3, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -141,7 +141,7 @@ impl Projector {
                 Axis::Z => Some(ParryPoint::new(point.x, point.y, intersection_point.z)),
             }
         } else {
-            println!("No intersection at point {:?}", point);
+            // println!("No intersection at point {:?}", point);
             None
         }
     }
@@ -211,9 +211,8 @@ impl Projector {
         axis: Axis,
     ) -> Option<AnnotatedPose> {
         // Project the central point
-        println!("Projecting point {:?}", point);
         let central_point = Self::project_point_flat(mesh, point, direction, axis)?;
-        if true {
+        if false {
             println!("Central point projection: {:?}", central_point);
         }
 
@@ -230,7 +229,7 @@ impl Projector {
             {
                 points.push(intersection);
             } else {
-                println!("No intersection at angle {}", angle.to_degrees());
+                //println!("No intersection at angle {}", angle.to_degrees());
             }
         }
 
@@ -384,6 +383,45 @@ impl Projector {
         Ok(isometries)
     }
 
+    pub fn project_cylinder_path_centered(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        angle: Range<f32>,
+        axis: Axis,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        let aabb = mesh.qbvh().root_aabb();
+        let height = aabb.mins.z..aabb.maxs.z;
+        
+        // Radius on XY plane such that AABB is fully in the circle.
+        // We use bigger value of radius (see below)
+        let radius = 0.5
+            * ((aabb.maxs.x - aabb.mins.x).powi(2) + (aabb.maxs.y - aabb.mins.y).powi(2)).sqrt();
+
+        // center on z
+        let cxz = (aabb.mins.x + aabb.maxs.x) / 2.0;
+        let cyz = (aabb.mins.y + aabb.maxs.y) / 2.0;
+
+        let mut mesh = mesh.clone();
+        let center = Isometry3::from_parts(
+            Translation3::new(-cxz, -cyz, 0.0),
+            UnitQuaternion::identity(),
+        );
+        let uncenter = center.inverse().cast();
+        mesh.transform_vertices(&center);
+
+        let projection =
+            self.project_cylinder_path(&mesh, path, 12.0 * radius, height, angle, axis)?;
+
+        Ok(projection
+            .into_iter()
+            .map(|p| AnnotatedPose {
+                pose: uncenter * p.pose,
+                flags: p.flags,
+            })
+            .collect())
+    }
+
     /// Project point into mesh along the given axis, starting from the given direction.
     /// 3 axes and 2 directions together allow 6 combinations corresponding the sides of a cube
     /// The normals of the object are always pointing inside, following the projection ray
@@ -424,13 +462,21 @@ impl Projector {
         Ok(isometries)
     }
 
-    pub fn project_flat_fitted(
+    pub fn project_flat_path_fitted(
         &self,
         mesh: &TriMesh,
         path: &Vec<AnnotatedPathStep>,
         axis: Axis,
         ray_direction: RayDirection,
     ) -> Result<Vec<AnnotatedPose>, String> {
+        fn or_one(w: f32) -> f32 {
+            if w == 0.0 {
+                1.0
+            } else {
+                w
+            }
+        };
+
         if path.is_empty() || mesh.vertices().is_empty() {
             return Ok(Vec::new());
         }
@@ -438,13 +484,18 @@ impl Projector {
         let wx = aabb.maxs.x - aabb.mins.x;
         let wy = aabb.maxs.y - aabb.mins.y;
         let wz = aabb.maxs.z - aabb.mins.z;
-        let (cx, cy, cz) = (aabb.mins.x, aabb.mins.y, aabb.mins.z);        
+        let (cx, cy, cz) = (aabb.mins.x, aabb.mins.y, aabb.mins.z);
+
+        let ((path_min_x, path_min_y), (path_max_x, path_max_y)) =
+            crate::engraving::find_min_max(&path);
+        let path_wx = or_one(path_max_x - path_min_x);
+        let path_wy = or_one(path_max_y - path_min_y);
 
         let isometries = path
             .into_iter()
             .map(|step| {
-                let x = (step.x + 1.0) / 2.0; // normalize to 0..1
-                let y = (step.y + 1.0) / 2.0;
+                let x = (step.x - path_min_x) / path_wx; // normalize to 0..1
+                let y = (step.y - path_min_y) / path_wy;
 
                 let point = match axis {
                     Axis::X => ParryPoint::new(0.0, x * wy + cy, y * wz + cz),

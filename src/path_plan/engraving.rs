@@ -6,19 +6,19 @@ use parry3d::shape::TriMesh;
 
 const MARGIN: f32 = 0.04;
 
-pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
-    let mut points = Vec::with_capacity(r * n);
-    let y_step = 2.0 / (r as f32 - 1.0); // Vertical spacing between rows
-    let x_step = 2.0 / (n as f32 - 1.0); // Horizontal spacing between points in a row
+pub fn generate_raster_points(rows: usize, cols: usize) -> Vec<AnnotatedPathStep> {
+    let mut points = Vec::with_capacity(rows * cols);
+    let y_step = 2.0 / (rows as f32 - 1.0); // Vertical spacing between rows
+    let x_step = 2.0 / (cols as f32 - 1.0); // Horizontal spacing between points in a row
 
-    for i in 0..r {
-        let y = -1.0 + i as f32 * y_step; // Calculate the y-coordinate for the row
+    for row in 0..rows {
+        let y = -1.0 + row as f32 * y_step; // Calculate the y-coordinate for the row
 
         // Conditional to alternate row directions
-        if i % 2 == 0 {
+        if row % 2 == 0 {
             // Even row: left-to-right
-            for j in 0..n {
-                let x = -1.0 + j as f32 * x_step;
+            for col in 0..cols {
+                let x = -1.0 + col as f32 * x_step;
                 points.push(AnnotatedPathStep {
                     x,
                     y,
@@ -27,7 +27,7 @@ pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
             }
         } else {
             // Odd row: right-to-left
-            for j in (0..n).rev() {
+            for j in (0..cols).rev() {
                 let x = -1.0 + j as f32 * x_step;
                 points.push(AnnotatedPathStep {
                     x,
