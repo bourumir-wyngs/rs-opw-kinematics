@@ -221,12 +221,12 @@ pub fn main() -> anyhow::Result<()> {
     if true {
         let a = 0_f32.to_radians();
         let b = 180_f32.to_radians();
-        
+
         if let Ok(stroke) = projector.project_cylinder_path_centered(
             &mesh,
             &path,
             a..b,
-            Axis::Z,
+            Axis::X,
         ) {
             let sender = Sender::new("127.0.0.1", 5555);
             sender.send_pose_message(&filter_valid_poses(&stroke))?;

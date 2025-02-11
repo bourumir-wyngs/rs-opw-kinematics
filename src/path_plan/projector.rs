@@ -1,5 +1,7 @@
 use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
-use nalgebra::{Isometry3, Point3, Quaternion, Translation3, Unit, UnitQuaternion, Vector3};
+use nalgebra::{
+    Isometry, Isometry3, Point3, Quaternion, Translation3, Unit, UnitQuaternion, Vector3,
+};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
 use parry3d::shape::TriMesh;
@@ -390,9 +392,23 @@ impl Projector {
         angle: Range<f32>,
         axis: Axis,
     ) -> Result<Vec<AnnotatedPose>, String> {
+        match axis {
+            Axis::X => self.project_cylinder_path_centered_x(mesh, path, angle, axis),
+            Axis::Y => self.project_cylinder_path_centered_y(mesh, path, angle, axis),
+            Axis::Z => self.project_cylinder_path_centered_z(mesh, path, angle, axis),
+        }
+    }
+    
+    fn project_cylinder_path_centered_z(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        angle: Range<f32>,
+        axis: Axis,
+    ) -> Result<Vec<AnnotatedPose>, String> {
         let aabb = mesh.qbvh().root_aabb();
         let height = aabb.mins.z..aabb.maxs.z;
-        
+
         // Radius on XY plane such that AABB is fully in the circle.
         // We use bigger value of radius (see below)
         let radius = 0.5
@@ -402,11 +418,77 @@ impl Projector {
         let cxz = (aabb.mins.x + aabb.maxs.x) / 2.0;
         let cyz = (aabb.mins.y + aabb.maxs.y) / 2.0;
 
-        let mut mesh = mesh.clone();
         let center = Isometry3::from_parts(
             Translation3::new(-cxz, -cyz, 0.0),
             UnitQuaternion::identity(),
         );
+        
+        self.finish_cylindric_projection(path, angle, axis, height, radius, &mesh, &center)
+    }
+
+    fn project_cylinder_path_centered_x(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        angle: Range<f32>,
+        axis: Axis,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        let aabb = mesh.qbvh().root_aabb();
+        let height = aabb.mins.x..aabb.maxs.x;
+
+        // Radius on XY plane such that AABB is fully in the circle.
+        // We use bigger value of radius (see below)
+        let radius = 0.5
+            * ((aabb.maxs.z - aabb.mins.z).powi(2) + (aabb.maxs.y - aabb.mins.y).powi(2)).sqrt();
+
+        // center on x
+        let czx = (aabb.mins.z + aabb.maxs.z) / 2.0;
+        let cyx = (aabb.mins.y + aabb.maxs.y) / 2.0;
+
+        let center = Isometry3::from_parts(
+            Translation3::new(0.0, -cyx, -czx),
+            UnitQuaternion::identity(),
+        );
+        self.finish_cylindric_projection(path, angle, axis, height, radius, &mesh, &center)
+    }
+
+    fn project_cylinder_path_centered_y(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        angle: Range<f32>,
+        axis: Axis,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        let aabb = mesh.qbvh().root_aabb();
+        let height = aabb.mins.y..aabb.maxs.y;
+
+        // Radius on XY plane such that AABB is fully in the circle.
+        // We use bigger value of radius (see below)
+        let radius = 0.5
+            * ((aabb.maxs.x - aabb.mins.x).powi(2) + (aabb.maxs.z - aabb.mins.z).powi(2)).sqrt();
+
+        // center on z
+        let czx = (aabb.mins.x + aabb.maxs.x) / 2.0;
+        let czy = (aabb.mins.z + aabb.maxs.z) / 2.0;
+
+        let center = Isometry3::from_parts(
+            Translation3::new(-czx, 0.0, -czy),
+            UnitQuaternion::identity(),
+        );
+        self.finish_cylindric_projection(path, angle, axis, height, radius, &mesh, &center)        
+    }
+
+    fn finish_cylindric_projection(
+        &self,
+        path: &Vec<AnnotatedPathStep>,
+        angle: Range<f32>,
+        axis: Axis,
+        height: Range<f32>,
+        radius: f32,
+        mesh: &TriMesh,
+        center: &Isometry3<f32>,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        let mut mesh = mesh.clone();
         let uncenter = center.inverse().cast();
         mesh.transform_vertices(&center);
 
