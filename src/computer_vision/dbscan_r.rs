@@ -10,17 +10,18 @@
 //! See `Ester, Martin, et al. "A density-based algorithm for discovering
 //! clusters in large spatial databases with noise." Kdd. Vol. 96. No. 34.
 //! 1996.` for the original paper
-//! 
-//! Changes maked 8 February by Bourumir Wyngs: 
+//!
+//! Changes maked 8 February by Bourumir Wyngs:
 //! - Switching into parry3d::math::Point<f32>
 //! - Reducing the number of categories till 256 (u8) that looks enough (we only use one)
-//! - Do not pull the root for the distance, compare squared values. 
-//! 
+//! - Do not pull the root for the distance, compare squared values.
+//!
 //! Thanks to the rusty_machine implementation for inspiration
 
+use crate::organized_point::OrganizedPoint;
+use parry3d::math::Point;
 use std::collections::HashMap;
 use Classification::{Core, Edge, Noise};
-use crate::organized_point::OrganizedPoint;
 
 /// Classification according to the DBSCAN algorithm
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -43,42 +44,62 @@ pub fn cluster(eps: f32, min_points: usize, input: &Vec<OrganizedPoint>) -> Vec<
     Model::new(eps, min_points).run(input)
 }
 
-pub fn largest_cluster(
-    output: Vec<Classification>,
-    points: &Vec<OrganizedPoint>,
-) -> Vec<OrganizedPoint> {
-    let mut cluster_counts: HashMap<u8, usize> = HashMap::new();
+pub struct ClusterStats {
+    pub id: u8,
+    pub size: usize,
+    pub center: Point<f32>,
 
-    // Count occurrences of each cluster (excluding Noise)
-    for classification in output.iter() {
-        if let Core(cluster_id) = classification {
-            *cluster_counts.entry(*cluster_id).or_insert(0) += 1;
+    // For calculating average center position
+    center_sums: Point<f64>,
+}
+
+pub fn cluster_stats(
+    output: &Vec<Classification>,
+    points: &Vec<OrganizedPoint>,
+) -> Vec<ClusterStats> {
+    let mut stats: HashMap<u8, ClusterStats> = HashMap::new();
+    for (cluster, point) in output.iter().zip(points.iter()) {
+        match cluster {
+            Core(id) => {
+                // Insert or update the ClusterStats entry
+                let cs = stats.entry(*id).or_insert(ClusterStats {
+                    id: *id,
+                    size: 0,
+                    center: Point::new(0.0, 0.0, 0.0),
+                    center_sums: Point::new(0.0, 0.0, 0.0),
+                });
+                cs.center_sums.coords = cs.center_sums.coords + point.point.coords.cast();
+                cs.size += 1;
+            }
+            _ => {} // Ignore non-core classifications
         }
     }
 
-    // Find the largest cluster
-    let largest_cluster_id = cluster_counts
-        .into_iter()
-        .max_by_key(|&(_, count)| count)
-        .map(|(id, _)| id);
-
-    // Filter output to keep only the largest cluster
-    if let Some(largest_cluster_id) = largest_cluster_id {
-        points
-            .iter() // Iterate over borrowed points
-            .zip(output.into_iter()) // Combine points and output into an iterator of pairs
-            .filter_map(|(point, classification)| match classification {
-                Core(cluster_id) if cluster_id == largest_cluster_id => {
-                    Some(point.clone()) // Clone the point to collect it into a Vec
-                }
-                _ => None,
-            })
-            .collect() // Collect the filtered points into a Vec<OrganizedPoint>
-    } else {
-        Vec::new()
+    let mut result: Vec<ClusterStats> = stats.into_values().collect();
+    for cs in &mut result {
+        cs.center = (cs.center_sums / cs.size as f64).cast();
     }
+
+    result.sort_by(|a, b| b.size.cmp(&a.size));
+
+    result
 }
 
+impl ClusterStats {
+    pub fn points(
+        &self,
+        output: &Vec<Classification>,
+        points: &Vec<OrganizedPoint>,
+    ) -> Vec<OrganizedPoint> {
+        let mut result: Vec<OrganizedPoint> = Vec::with_capacity(self.size);
+        for p in 0..points.len() {
+            if output[p] == Core(self.id) {
+                result.push(points[p].clone());
+            }
+        }
+        result
+    }
+}
 
 /// DBSCAN parameters
 pub struct Model {
@@ -136,7 +157,7 @@ impl Model {
         }
         new_cluster
     }
-    
+
     #[inline]
     fn range_query(&self, sample: &OrganizedPoint, population: &Vec<OrganizedPoint>) -> Vec<usize> {
         #[inline]
@@ -188,4 +209,3 @@ impl Model {
         self.c
     }
 }
-

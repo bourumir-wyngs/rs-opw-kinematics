@@ -5,7 +5,7 @@ use bevy::render::render_resource::encase::private::RuntimeSizedArray;
 use parry3d::bounding_volume::Aabb;
 use parry3d::math::Point;
 use parry3d::shape::{TriMesh};
-use rs_opw_kinematics::dbscan_r::{largest_cluster, Model};
+use rs_opw_kinematics::dbscan_r::{cluster_stats, Model};
 use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::realsense::{observe_3dx};
 use rs_opw_kinematics::transform_io;
@@ -43,7 +43,7 @@ fn is_point_in_aabb(point: &Point<f32>, aabb: &Aabb) -> bool {
         && point.z <= aabb.maxs.z
 }
 
-fn biggest_object_dbscan(
+fn best_object_dbscan(
     points: &Vec<OrganizedPoint>,
     r: f32,
     min_points: usize,
@@ -52,7 +52,24 @@ fn biggest_object_dbscan(
     let model = Model::new(r, min_points);
     let output = model.run(points);
     let output_len = output.len();
-    let c = largest_cluster(output, points);
+    let c;
+    let mut stats = cluster_stats(&output, points);
+    
+    // Take the object closest to the X axis.
+    stats.sort_by(|a, b| {
+        a.center.y
+            .abs()
+            .partial_cmp(&b.center.y.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(stats) = stats.first() {
+        c = stats.points(&output, points);
+    } else {
+        c = Vec::new();
+    }
+    
+    
     println!(
         "dbscan {:?} cluster size {} -> {}",
         now.elapsed(),
@@ -131,7 +148,7 @@ pub fn main() -> anyhow::Result<()> {
         Point::new(0.3, 0.25, 1.0),     // Max bounds
     );
 
-    let _aabb = Aabb::new(
+    let aabb = Aabb::new(
         Point::new(-1., -1., 0.035), // Min bounds
         Point::new(1., 1., 1.0),     // Max bounds
     );
@@ -152,7 +169,7 @@ pub fn main() -> anyhow::Result<()> {
 
     let filtered_points = filter_points_in_aabb(&transformed_points, &aabb);
     let unfiltered_points = filter_points_not_in_aabb(&transformed_points, &aabb);
-    let linfa = biggest_object_dbscan(&filtered_points, 0.03, 20);
+    let linfa = best_object_dbscan(&filtered_points, 0.03, 20);
 
     println!(
         "Observed {}, filtered {}, unfiltered {}, linfa {} points",
