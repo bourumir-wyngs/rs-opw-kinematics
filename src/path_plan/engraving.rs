@@ -40,6 +40,7 @@ pub fn generate_raster_points(r: usize, n: usize) -> Vec<AnnotatedPathStep> {
     points
 }
 
+
 pub fn axis_aligned_bounding_rectangle(
     mesh: &TriMesh,
     axis: Axis,

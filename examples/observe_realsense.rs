@@ -12,8 +12,12 @@ use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::{Read};
 use std::thread::sleep;
+use nalgebra::Isometry3;
+use rs_opw_kinematics::annotations::AnnotatedPose;
+use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
+use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -180,8 +184,8 @@ pub fn main() -> anyhow::Result<()> {
     );
 
     let bond = 0.032 + 2.0 * 0.01;
-    send_cloud(&linfa, (255, 255, 0), 1.0)?;
-    send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
+    //send_cloud(&linfa, (255, 255, 0), 1.0)?;
+    //send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
     send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
     let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
@@ -205,9 +209,60 @@ pub fn main() -> anyhow::Result<()> {
         mesh.vertices().len()
     );
     //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
-    send_mesh(&mesh, (0, 225, 0), 0.8)?;
+    send_mesh(&mesh, (0, 128, 128), 0.8)?;
+    
+    let projector = Projector {
+        check_points: 64,
+        radius: 0.002
+    };
+    
+    let path = generate_raster_points(10,10);
+    if let Ok(stroke) = projector.project_flat_fitted(&mesh, &path, Axis::X, RayDirection::FromNegative) {
+        println!("Projection succeeded, {} poses.", stroke.len());
+        let sender = Sender::new("127.0.0.1", 5555);
+        sender.send_pose_message(&filter_valid_poses(&stroke));
+    } else {
+        println!("Projection failed.");
+    }    
+    
+    
 
     Ok(())
 }
 
+pub fn filter_valid_poses(poses: &Vec<AnnotatedPose>) -> Vec<Isometry3<f64>> {
+    poses
+        .iter()
+        .filter(|pose| {
+            // Extract translation and rotation components
+            let translation = pose.pose.translation.vector;
+            let rotation = pose.pose.rotation;
+
+            // Check for NaN values in translation and rotation
+            if translation.x.is_nan()
+                || translation.y.is_nan()
+                || translation.z.is_nan()
+                || rotation.i.is_nan()
+                || rotation.j.is_nan()
+                || rotation.k.is_nan()
+                || rotation.w.is_nan()
+            {
+                return false; // NaN values -> invalid
+            }
+
+            // Check for zero-length quaternion
+            let quaternion_magnitude =
+                (rotation.i.powi(2) + rotation.j.powi(2) + rotation.k.powi(2) + rotation.w.powi(2))
+                    .sqrt();
+            if quaternion_magnitude < 1e-6 {
+                // Threshold to consider near zero-length
+                return false; // Zero-length quaternion -> invalid
+            }
+
+            // Pose passes all checks -> valid
+            true
+        })
+        .map(|pose| pose.pose)
+        .collect()
+}
 

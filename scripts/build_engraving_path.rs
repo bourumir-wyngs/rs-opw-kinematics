@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use parry3d::shape::TriMesh;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefIterator;
-use rs_cxx_ros2_opw_bridge::sender::Sender;
+use rs_cxx_ros2_opw_bridge::sender::{filter_valid_poses, Sender};
 use rs_opw_kinematics::annotations::{AnnotatedPathStep, AnnotatedPose, PathFlags};
 use rs_opw_kinematics::cartesian::Cartesian;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
@@ -186,42 +186,6 @@ fn write_isometries_to_json(
     file.write_all(json_output.as_bytes())
         .expect("Failed to write to file");
     Ok(())
-}
-
-fn filter_valid_poses(poses: &Vec<AnnotatedPose>) -> Vec<Isometry3<f64>> {
-    poses
-        .iter()
-        .filter(|pose| {
-            // Extract translation and rotation components
-            let translation = pose.pose.translation.vector;
-            let rotation = pose.pose.rotation;
-
-            // Check for NaN values in translation and rotation
-            if translation.x.is_nan()
-                || translation.y.is_nan()
-                || translation.z.is_nan()
-                || rotation.i.is_nan()
-                || rotation.j.is_nan()
-                || rotation.k.is_nan()
-                || rotation.w.is_nan()
-            {
-                return false; // NaN values -> invalid
-            }
-
-            // Check for zero-length quaternion
-            let quaternion_magnitude =
-                (rotation.i.powi(2) + rotation.j.powi(2) + rotation.k.powi(2) + rotation.w.powi(2))
-                    .sqrt();
-            if quaternion_magnitude < 1e-6 {
-                // Threshold to consider near zero-length
-                return false; // Zero-length quaternion -> invalid
-            }
-
-            // Pose passes all checks -> valid
-            true
-        })
-        .map(|pose| pose.pose)
-        .collect()
 }
 
 fn generate_flat_projections() -> Result<(), String> {

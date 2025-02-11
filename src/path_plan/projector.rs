@@ -2,6 +2,7 @@ use crate::annotations::{AnnotatedPathStep, AnnotatedPose};
 use nalgebra::{Isometry3, Point3, Quaternion, Unit, UnitQuaternion, Vector3};
 use parry3d::math::Point as ParryPoint;
 use parry3d::query::{Ray, RayCast};
+use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
 use std::ops::Range;
 
@@ -140,6 +141,7 @@ impl Projector {
                 Axis::Z => Some(ParryPoint::new(point.x, point.y, intersection_point.z)),
             }
         } else {
+            println!("No intersection at point {:?}", point);
             None
         }
     }
@@ -209,8 +211,9 @@ impl Projector {
         axis: Axis,
     ) -> Option<AnnotatedPose> {
         // Project the central point
+        println!("Projecting point {:?}", point);
         let central_point = Self::project_point_flat(mesh, point, direction, axis)?;
-        if false {
+        if true {
             println!("Central point projection: {:?}", central_point);
         }
 
@@ -402,6 +405,51 @@ impl Projector {
                     Axis::X => ParryPoint::new(0.0, step.x, step.y),
                     Axis::Y => ParryPoint::new(step.x, 0.0, step.y),
                     Axis::Z => ParryPoint::new(step.x, step.y, 0.0),
+                };
+                (point, step.flags) // Pass flags, we will need
+            })
+            .filter_map(|(point, step_flags)| {
+                if let Some(projected) = self.project_flat(mesh, &point, ray_direction, axis) {
+                    Some(AnnotatedPose {
+                        pose: projected.pose,
+                        // Pass path point flags, projector may add own flags
+                        flags: step_flags | projected.flags,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(isometries)
+    }
+
+    pub fn project_flat_fitted(
+        &self,
+        mesh: &TriMesh,
+        path: &Vec<AnnotatedPathStep>,
+        axis: Axis,
+        ray_direction: RayDirection,
+    ) -> Result<Vec<AnnotatedPose>, String> {
+        if path.is_empty() || mesh.vertices().is_empty() {
+            return Ok(Vec::new());
+        }
+        let aabb = mesh.qbvh().root_aabb();
+        let wx = aabb.maxs.x - aabb.mins.x;
+        let wy = aabb.maxs.y - aabb.mins.y;
+        let wz = aabb.maxs.z - aabb.mins.z;
+        let (cx, cy, cz) = (aabb.mins.x, aabb.mins.y, aabb.mins.z);        
+
+        let isometries = path
+            .into_iter()
+            .map(|step| {
+                let x = (step.x + 1.0) / 2.0; // normalize to 0..1
+                let y = (step.y + 1.0) / 2.0;
+
+                let point = match axis {
+                    Axis::X => ParryPoint::new(0.0, x * wy + cy, y * wz + cz),
+                    Axis::Y => ParryPoint::new(x * wx + cx, 0.0, y * wz + cz),
+                    Axis::Z => ParryPoint::new(x * wx + cx, y * wy + cy, 0.0),
                 };
                 (point, step.flags) // Pass flags, we will need
             })
@@ -614,7 +662,7 @@ impl Projector {
         // Normalize the angle to a range of 0 to 360 degrees
         let normalized_angle = if angle < 0.0 { angle + 360.0 } else { angle };
         normalized_angle
-    }    
+    }
 
     /// Determines which axis the vector connecting two points is most perpendicular to.
     fn find_most_perpendicular_axis_between_points(
@@ -652,7 +700,7 @@ impl Projector {
 
         // The alternative way seems unreliable
         // let axis = Self::find_most_perpendicular_axis_between_points(&from, &to);
-        let axis = cylinder_axis.clone(); // alternative 
+        let axis = cylinder_axis.clone(); // alternative
 
         let plane_points: Vec<_> = points.iter().map(|p| p.coords).collect();
         let avg_normal;
@@ -698,16 +746,15 @@ impl Projector {
                 match angle {
                     -1.0..=45.0 => Strategy::X,
 
-                    45.0..=90.0 => match Self::yz_normalized_angle(&avg_normal) {                        
+                    45.0..=90.0 => match Self::yz_normalized_angle(&avg_normal) {
                         // Attempts to resolve conlicts between Y cylinder
                         // and Z on goblet, but we get inverted quaternions, simpler approach is more stable.
                         //0.0..=45.0 => Strategy::ZSpecTwistX,
                         //315.0..=361.0 => Strategy::ZSpecTwistX,
                         //0.0..=45.0 => Strategy::X,
                         //315.0..=361.0 => Strategy::X,
-                        
                         _ => Strategy::X,
-                    }
+                    },
 
                     // This case we need to differentiate also by XZ angle
                     90.0..=180.0 => match Self::xz_normalized_angle(&avg_normal) {
@@ -827,7 +874,12 @@ impl Projector {
 
             // In cylinder projection, quaternions must always point away from the cylinder axis or at
             // most be parallel. Otherwise, the quaternion direction is clearly wrong, discard it.
-            if !Self::quaternion_moves_point_towards_axis(&quaternion, &from, &cylinder_axis, self.radius / 2.0) {
+            if !Self::quaternion_moves_point_towards_axis(
+                &quaternion,
+                &from,
+                &cylinder_axis,
+                self.radius / 2.0,
+            ) {
                 return None;
             }
 
@@ -959,7 +1011,7 @@ impl Projector {
         let moved_point = Point3::from(point.coords + forward * step);
 
         // "flatten" into 2D, movement towards axis = movement towards origin
-        let (x, y) =  axis.flatten(point.x, point.y, point.z);
+        let (x, y) = axis.flatten(point.x, point.y, point.z);
         let (xm, ym) = axis.flatten(moved_point.x, moved_point.y, moved_point.z);
 
         x * x + y * y >= xm * xm + ym * ym
