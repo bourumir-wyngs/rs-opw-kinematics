@@ -10,9 +10,11 @@ use std::ops::Range;
 
 pub struct Projector {
     pub check_points: usize,
-
+    pub check_points_required: usize,
+    
     // Check cylinder radius for finding normals
     pub radius: f32,
+
 }
 
 /// Enum representing the direction from which a ray originates along an axis.
@@ -236,7 +238,7 @@ impl Projector {
         }
 
         // Ensure enough valid points exist
-        if points.len() < 3 {
+        if points.len() < self.check_points_required {
             println!("Not enough valid points for regression.");
             return None;
         }
@@ -302,7 +304,7 @@ impl Projector {
                 });
 
             let valid_points: Vec<ParryPoint<f32>> = intersection_points.collect();
-            if valid_points.len() < 3 {
+            if valid_points.len() < self.check_points_required { // do not count the central point
                 println!("Not enough valid points for regression.");
                 return None;
             }
@@ -407,7 +409,7 @@ impl Projector {
         axis: Axis,
     ) -> Result<Vec<AnnotatedPose>, String> {
         let aabb = mesh.qbvh().root_aabb();
-        let height = aabb.mins.z..aabb.maxs.z;
+        let height = aabb.mins.z + self.radius ..aabb.maxs.z - self.radius;
 
         // Radius on XY plane such that AABB is fully in the circle.
         // We use bigger value of radius (see below)
@@ -434,7 +436,7 @@ impl Projector {
         axis: Axis,
     ) -> Result<Vec<AnnotatedPose>, String> {
         let aabb = mesh.qbvh().root_aabb();
-        let height = aabb.mins.x..aabb.maxs.x;
+        let height = aabb.mins.x + self.radius ..aabb.maxs.x - self.radius;
 
         // Radius on XY plane such that AABB is fully in the circle.
         // We use bigger value of radius (see below)
@@ -460,7 +462,7 @@ impl Projector {
         axis: Axis,
     ) -> Result<Vec<AnnotatedPose>, String> {
         let aabb = mesh.qbvh().root_aabb();
-        let height = aabb.mins.y..aabb.maxs.y;
+        let height = aabb.mins.y + self.radius ..aabb.maxs.y - self.radius;
 
         // Radius on XY plane such that AABB is fully in the circle.
         // We use bigger value of radius (see below)

@@ -4,6 +4,7 @@
 use crate::colors::{ColorId, DefinedColor};
 use crate::computer_vision::detect_circle_mat;
 use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
+use crate::organized_point::OrganizedPoint;
 use anyhow::{anyhow, ensure, Result};
 use nalgebra::{Isometry3, Point3, Transform3};
 use opencv::{core, prelude::*};
@@ -21,7 +22,6 @@ use realsense_rust::{
 };
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
-use crate::organized_point::OrganizedPoint;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
@@ -420,38 +420,44 @@ fn convert_mats_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<f32>>>> 
     Ok(result)
 }
 
-pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
+pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
     let min_samples = 10;
     let n_frames = 100;
     let (serial, mut pipeline) = open_pipeline()?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
     let mut depths = Vec::with_capacity(n_frames);
+    let mut colors = Vec::with_capacity(n_frames);
 
     'scan: loop {
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
-            let depth_frames = frames.frames_of_type::<DepthFrame>();
-            // if let Some(intrinsics) = intrinsics.as_ref() {
-            // There is only one depth and one color stream configured.
 
+            let depth_frames = frames.frames_of_type::<DepthFrame>();
             if let Some(depth_frame) = depth_frames.first() {
                 if intrinsics.is_none() {
                     intrinsics = get_intrinsics_from_depth(depth_frame);
                 }
                 let depth_mat = mat_from_depth16(depth_frame);
                 depths.push(depth_mat);
-            } else {
-                print!("No depth frames available");
-                continue 'scan;
             }
-        } else {
-            print!("No any frames available");
+
+            let color_frames = frames.frames_of_type::<ColorFrame>();
+            if let Some(color_frame) = color_frames.first() {
+                let color_mat = mat_from_color(color_frame);
+                colors.push(color_mat);
+            }
+
+            if depths.len() > n_frames && colors.len() > n_frames {
+                break 'scan;
+            }
         }
-        if depths.len() > n_frames {
-            break 'scan;
-        }
+        print!(
+            "\rObserved {} depth frames, {} color frames                        ",
+            depths.len(),
+            colors.len()
+        );
     }
-    println!("Observed {} frames", depths.len());
+    println!("\n");
 
     let intrinsics = intrinsics.expect("No intrinsics");
     let reference = depths.first().expect("No depth data");
@@ -464,14 +470,14 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
     let intrinsics_ref = &intrinsics;
 
     use rayon::prelude::*;
-    let points: Vec<_> = (0..rows)
+    let organized: Vec<_> = (0..rows)
         .into_par_iter()
         .flat_map_iter(|row| {
             (0..cols).filter_map(move |col| {
                 if nested_ref[row][col].len() >= min_samples {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
-                    Some(point)
+                    Some(OrganizedPoint { point, row, col })
                 } else {
                     None
                 }
@@ -479,10 +485,10 @@ pub fn observe_3d() -> Result<Vec<ParryPoint<f32>>> {
         })
         .collect();
 
-    Ok(points)
+    Ok(organized)    
 }
 
-pub fn observe_3dx() -> Result<Vec<OrganizedPoint>> {
+pub fn observe_3d_depth() -> Result<Vec<OrganizedPoint>> {
     let min_samples = 10;
     let n_frames = 100;
     let (serial, mut pipeline) = open_pipeline()?;
@@ -493,9 +499,6 @@ pub fn observe_3dx() -> Result<Vec<OrganizedPoint>> {
     'scan: loop {
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
             let depth_frames = frames.frames_of_type::<DepthFrame>();
-            // if let Some(intrinsics) = intrinsics.as_ref() {
-            // There is only one depth and one color stream configured.
-
             if let Some(depth_frame) = depth_frames.first() {
                 if intrinsics.is_none() {
                     intrinsics = get_intrinsics_from_depth(depth_frame);
@@ -543,3 +546,4 @@ pub fn observe_3dx() -> Result<Vec<OrganizedPoint>> {
 
     Ok(organized)
 }
+

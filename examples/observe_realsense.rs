@@ -14,7 +14,7 @@ use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
-use rs_opw_kinematics::realsense::observe_3dx;
+use rs_opw_kinematics::realsense::{observe_3d_rgb, observe_3d_depth};
 use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
@@ -146,7 +146,7 @@ pub fn main() -> anyhow::Result<()> {
     // Convert JSON string to a Transform3
     let transform = transform_io::json_to_transform(&json_str);
 
-    let points = observe_3dx()?;
+    let points = observe_3d_rgb()?;
 
     let aabb = Aabb::new(
         Point::new(-0.05, -0.2, 0.035), // Min bounds
@@ -214,6 +214,7 @@ pub fn main() -> anyhow::Result<()> {
 
     let projector = Projector {
         check_points: 64,
+        check_points_required: 60,
         radius: 0.01,
     };
 
@@ -226,7 +227,7 @@ pub fn main() -> anyhow::Result<()> {
             &mesh,
             &path,
             a..b,
-            Axis::X,
+            Axis::Z,
         ) {
             let sender = Sender::new("127.0.0.1", 5555);
             sender.send_pose_message(&filter_valid_poses(&stroke))?;
