@@ -255,6 +255,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "arrsac"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73be62e5831762e913e77db9787cc44682c132ebc81fae4e1b7257cdffcc4702"
+dependencies = [
+ "rand_core",
+ "sample-consensus",
+]
+
+[[package]]
 name = "ash"
 version = "0.37.3+1.3.251"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3833,6 +3843,7 @@ version = "1.8.1"
 dependencies = [
  "anyhow",
  "approx",
+ "arrsac",
  "bevy",
  "bevy_egui",
  "bitflags 2.8.0",
@@ -3854,6 +3865,7 @@ dependencies = [
  "rrt",
  "rs-cxx-ros2-opw-bridge",
  "rs-read-trimesh",
+ "sample-consensus",
  "serde",
  "serde_json",
  "sxd-document",
@@ -3955,6 +3967,12 @@ checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "sample-consensus"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3404fd9b14a035bdff14fc4097e5d7a16435fc4661e80f19ae5204f8bee3c718"
 
 [[package]]
 name = "scoped-tls"

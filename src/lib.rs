@@ -176,6 +176,10 @@ pub mod dbscan_r;
 pub mod mesh_builder;
 
 #[cfg(feature = "vision")]
+#[path = "computer_vision/plane_builder.rs"]
+pub mod plane_builder;
+
+#[cfg(feature = "vision")]
 #[path = "computer_vision/organized_point.rs"]
 pub mod organized_point;
 

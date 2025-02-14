@@ -19,6 +19,7 @@ use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
 use std::thread::sleep;
+use rs_opw_kinematics::plane_builder::build_plane;
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -146,7 +147,7 @@ pub fn main() -> anyhow::Result<()> {
     // Convert JSON string to a Transform3
     let transform = transform_io::json_to_transform(&json_str);
 
-    let points = observe_3d_rgb()?;
+    let points = observe_3d_depth()?;
 
     let aabb = Aabb::new(
         Point::new(-0.05, -0.2, 0.035), // Min bounds
@@ -185,9 +186,9 @@ pub fn main() -> anyhow::Result<()> {
     );
 
     let bond = 0.032 + 2.0 * 0.01;
-    //send_cloud(&linfa, (255, 255, 0), 1.0)?;
+    send_cloud(&linfa, (255, 255, 0), 0.5)?;
     //send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
-    send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
+    //send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
     let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
 
@@ -212,14 +213,24 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
     send_mesh(&mesh, (0, 128, 128), 0.8)?;
 
+    // Extract the plane
+    let plane = build_plane(&mesh, 0.005);
+    let plane_points = plane.into_iter().map(|p|
+        OrganizedPoint::from_point(p)
+    ).collect::<Vec<_>>();
+
+    println!("Plane points: {}", plane_points.len());
+    send_cloud(&plane_points, (0, 0, 255), 1.0)?;
+
+    if false {
     let projector = Projector {
         check_points: 64,
         check_points_required: 60,
-        radius: 0.01,
+        radius: 0.005,
     };
 
     let path = generate_raster_points(20, 20);
-    if true {
+    if false {
         let a = 0_f32.to_radians();
         let b = 180_f32.to_radians();
 
@@ -246,6 +257,7 @@ pub fn main() -> anyhow::Result<()> {
             println!("Projection failed.");
         }
     }
+        }
 
     Ok(())
 }

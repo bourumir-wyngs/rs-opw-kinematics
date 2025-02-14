@@ -17,7 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
-rand = "0.8" # Now is needed for path planner
+rand = { version = "0.8.5", features = ["small_rng"] }
 
 
 geo = "0.29"
@@ -60,6 +60,9 @@ rtt_honorable = { package="rrt", version = "0.7.0", optional = true }
 kdtree = { version = "0.7", optional = true }
 num-traits = { version = "0.2", optional = true }
 tracing = { version = "0.1", optional = true }
+arrsac = { version = "0.10.0", optional = true }
+sample-consensus = { version = "1.0.2", optional = true } # must match arrsac
+
 
 # ROS bridge development only
 rs-cxx-ros2-opw-bridge = { git = "https://github.com/bourumir-wyngs/cxx_bridge", package = "rs-cxx-ros2-opw-bridge" }
@@ -85,7 +88,7 @@ collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["collisions", "kdtree", "num-traits", "tracing"]
 depth_field = ["stroke_planning"]
-vision = ["allow_filesystem", "opencv"]
+vision = ["allow_filesystem", "opencv","arrsac","sample-consensus"]
 
 
 

@@ -1,6 +1,4 @@
 use crate::organized_point::OrganizedPoint;
-use bevy::render::render_resource::encase::private::RuntimeSizedArray;
-use bevy::render::render_resource::ShaderType;
 use parry3d::shape::TriMesh;
 use std::collections::HashMap;
 

@@ -22,6 +22,7 @@ use realsense_rust::{
 };
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
+use num_traits::real::Real;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
@@ -171,6 +172,33 @@ fn scalar_stats(values: &[f32]) -> (f32, f32) {
     // Return the robust metrics if no filtering was done
     (median, robust_std_dev)
 }
+
+fn color_stats(values: &[(f32, f32, f32)]) -> [f32; 3] {
+    if values.is_empty() {
+        return [f32::NAN, f32::NAN, f32::NAN]; // Handle empty input gracefully
+    }
+
+    // Pre-size vectors to avoid reallocations
+    let mut reds = Vec::with_capacity(values.len());
+    let mut greens = Vec::with_capacity(values.len());
+    let mut blues = Vec::with_capacity(values.len());
+
+    // Separate channels into respective vectors
+    for &(r, g, b) in values {
+        reds.push(r);
+        greens.push(g);
+        blues.push(b);
+    }
+
+    // Process each channel independently using scalar_stats
+    let (median_red, _) = scalar_stats(&reds);
+    let (median_green, _) = scalar_stats(&greens);
+    let (median_blue, _) = scalar_stats(&blues);
+
+    // Return the array containing the robust estimations for each channel
+    [median_red, median_green, median_blue]
+}
+
 
 // Calculate stats for the full vector of ParryPoints
 fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f32>) {
@@ -420,7 +448,40 @@ fn convert_mats_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<f32>>>> 
     Ok(result)
 }
 
+fn convert_color_mat_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<(f32, f32, f32)>>>> {
+    // Ensure the input vector of Mats is not empty
+    let reference = mats
+        .first()
+        .ok_or(anyhow!("Input vector of Mats is empty"))?;
+    let rows = reference.rows();
+    let cols = reference.cols();
+
+    // Build the nested vector structure
+    let mut result = Vec::with_capacity(rows as usize);
+
+    for row in 0..rows {
+        let mut row_vec = Vec::with_capacity(cols as usize);
+        for col in 0..cols {
+            let mut sample_values = Vec::with_capacity(mats.len());
+
+            // Collect values from the same location (row, col) in each Mat
+            for color_mat in mats {
+                // Attempt to retrieve the value at (row, col)
+                if let Ok(color) = color_mat.at_2d::<opencv::core::Vec3b>(row, col) {
+                     sample_values.push( (color[0] as f32, color[1] as f32, color[2] as f32) );
+                }
+                // If retrieval fails, simply skip this value
+            }
+            row_vec.push(sample_values); // Add column data to the row
+        }
+        result.push(row_vec); // Add row data to the result
+    }
+
+    Ok(result)
+}
+
 pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
+    todo!("Color detector is disabled");
     let min_samples = 10;
     let n_frames = 100;
     let (serial, mut pipeline) = open_pipeline()?;
@@ -464,9 +525,11 @@ pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
     let rows = reference.rows() as usize;
     let cols = reference.cols() as usize;
     let nested_vectors = convert_mats_to_nested_vector(&depths)?;
+    let nested_colors = convert_color_mat_to_nested_vector(&colors)?;    
 
     // Borrow values immutably
     let nested_ref = &nested_vectors;
+    let nested_colors_ref = &nested_colors;
     let intrinsics_ref = &intrinsics;
 
     use rayon::prelude::*;
@@ -477,7 +540,9 @@ pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
                 if nested_ref[row][col].len() >= min_samples {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
-                    Some(OrganizedPoint { point, row, col })
+                    let colors_at = &nested_colors_ref[row][col];
+                    let color = color_stats(&colors_at);
+                    Some(OrganizedPoint { point, row, col, /*color*/})
                 } else {
                     None
                 }
@@ -536,7 +601,7 @@ pub fn observe_3d_depth() -> Result<Vec<OrganizedPoint>> {
                 if nested_ref[row][col].len() >= min_samples {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
-                    Some(OrganizedPoint { point, row, col })
+                    Some(OrganizedPoint { point, row, col, /*color: [0., 0., 0.,]*/ })
                 } else {
                     None
                 }
