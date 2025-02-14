@@ -187,39 +187,44 @@ fn find_max_filled_rectangle(points_2d: &[(f32, f32)], width: f32, height: f32) 
         return None;
     }
 
-    // Sort points by x-coordinate
+    // Sort points by x-coordinate ahead of time
     let mut sorted_points = points_2d.to_vec();
     sorted_points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
     let mut max_count = 0;
     let mut best_rect = None;
+    let mut y_values = Vec::new();
 
     // Slide the rectangle along the x-axis
     for i in 0..sorted_points.len() {
         let (x_start, _) = sorted_points[i];
         let x_end = x_start + width;
 
-        // Collect points within the current vertical strip
-        let in_strip: Vec<_> = sorted_points.iter()
+        // Collect valid points within the x-axis range
+        let in_strip = sorted_points
+            .iter()
             .filter(|&&(x, _)| x >= x_start && x <= x_end)
             .cloned()
-            .collect();
+            .collect::<Vec<_>>();
 
-        // Sort the strip by y-coordinate
-        let mut in_strip_sorted = in_strip.clone();
-        in_strip_sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        // Precompute y-values of points in the strip and sort once
+        y_values.clear();
+        y_values.extend(in_strip.iter().map(|&(_, y)| y));
+        y_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // Slide the rectangle along the y-axis within the strip
-        for j in 0..in_strip_sorted.len() {
-            let (_, y_start) = in_strip_sorted[j];
+        // Apply a sliding window to find the optimal rectangle in the y-dimension
+        let mut start_idx = 0;
+        for end_idx in 0..y_values.len() {
+            let y_start = y_values[start_idx];
             let y_end = y_start + height;
 
-            // Count points within the current rectangle
-            let count = in_strip_sorted.iter()
-                .filter(|&&(_, y)| y >= y_start && y <= y_end)
-                .count();
+            // Shrink window if points are outside height constraints
+            while y_values[end_idx] > y_end && start_idx < end_idx {
+                start_idx += 1;
+            }
 
-            // Update the best rectangle if this one has more points
+            // Calculate the number of points in the current rectangle
+            let count = end_idx - start_idx + 1;
             if count > max_count {
                 max_count = count;
                 best_rect = Some((
