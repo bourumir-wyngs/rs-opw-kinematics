@@ -1,5 +1,6 @@
 use arrsac::Arrsac;
-use nalgebra::{Point3, Vector3};
+use geo::CoordsIter;
+use nalgebra::{Point3, Unit, Vector3};
 use parry3d::shape::TriMesh;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
@@ -23,7 +24,12 @@ impl Model<Point3<f32>> for Plane {
         let distance = self.normal.dot(&point.coords) + self.d;
 
         // Return the absolute distance, ensuring a non-negative residual value.
-        distance.abs() as f64
+        let r = distance.abs() as f64;
+        if r < 0.005 {
+            r
+        } else {
+            f64::INFINITY // discourage points anywhere more outside the plane
+        }
     }
 }
 
@@ -52,7 +58,7 @@ fn generate_nearby_samples(points: &[Point3<f32>], radius: f32) -> Vec<Point3<f3
 impl Estimator<Point3<f32>> for PlaneEstimator {
     type Model = Plane;
     type ModelIter = Option<Self::Model>;
-    const MIN_SAMPLES: usize = 128;
+    const MIN_SAMPLES: usize = 64;
 
     fn estimate<I: Iterator<Item = Point3<f32>>>(&self, mut data: I) -> Self::ModelIter {
         let points: Vec<_> = data.take(Self::MIN_SAMPLES).collect();
@@ -61,7 +67,7 @@ impl Estimator<Point3<f32>> for PlaneEstimator {
         }
 
         // Select a subset of nearby points to prevent steep plane selection
-        let nearby_points = generate_nearby_samples(&points, 0.05); // 0.05 = radius
+        let nearby_points = generate_nearby_samples(&points, 0.01); 
 
         if nearby_points.len() < 3 {
             return None;
@@ -150,9 +156,130 @@ pub fn build_plane(mesh: &TriMesh, max_distance_till_plane: f32) -> Vec<Point3<f
     let distance_threshold = max_distance_till_plane as f64; // Use a scaling factor
     let filtered_vertices: Vec<_> = points
         .into_iter()
-        .filter(|p| best_plane.residual(p) < 1.5 * distance_threshold)
+        .filter(|p| best_plane.residual(p) < 2.0 * distance_threshold)
         .collect();
 
-    filtered_vertices
+    //filtered_vertices
+    find_best_rectangle_inliers(filtered_vertices, &best_plane, 0.04, 0.08) // w/h swapped
 }
+
+fn project_to_plane_2d(points: &[Point3<f32>], plane: &Plane) -> Vec<(f32, f32)> {
+    use nalgebra::{Vector3, Unit};
+
+    // Compute two basis vectors that span the plane
+    let u = Unit::new_normalize(Vector3::new(1.0, 0.0, -plane.normal.x / plane.normal.z));
+    let v = plane.normal.cross(&u);
+
+    // Convert 3D points to 2D coordinates
+    points
+        .iter()
+        .map(|p| {
+            let local = p.coords; // Convert Point3 to Vector3
+            let x = u.dot(&local);
+            let y = v.dot(&local);
+            (x, y)
+        })
+        .collect()
+}
+
+fn find_max_filled_rectangle(points_2d: &[(f32, f32)], width: f32, height: f32) -> Option<((f32, f32), (f32, f32), (f32, f32), (f32, f32))> {
+    if points_2d.is_empty() {
+        return None;
+    }
+
+    // Sort points by x-coordinate
+    let mut sorted_points = points_2d.to_vec();
+    sorted_points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    let mut max_count = 0;
+    let mut best_rect = None;
+
+    // Slide the rectangle along the x-axis
+    for i in 0..sorted_points.len() {
+        let (x_start, _) = sorted_points[i];
+        let x_end = x_start + width;
+
+        // Collect points within the current vertical strip
+        let in_strip: Vec<_> = sorted_points.iter()
+            .filter(|&&(x, _)| x >= x_start && x <= x_end)
+            .cloned()
+            .collect();
+
+        // Sort the strip by y-coordinate
+        let mut in_strip_sorted = in_strip.clone();
+        in_strip_sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        // Slide the rectangle along the y-axis within the strip
+        for j in 0..in_strip_sorted.len() {
+            let (_, y_start) = in_strip_sorted[j];
+            let y_end = y_start + height;
+
+            // Count points within the current rectangle
+            let count = in_strip_sorted.iter()
+                .filter(|&&(_, y)| y >= y_start && y <= y_end)
+                .count();
+
+            // Update the best rectangle if this one has more points
+            if count > max_count {
+                max_count = count;
+                best_rect = Some((
+                    (x_start, y_start),
+                    (x_end, y_start),
+                    (x_end, y_end),
+                    (x_start, y_end),
+                ));
+            }
+        }
+    }
+
+    best_rect
+}
+
+fn filter_points_in_rectangle(points_2d: &[(f32, f32)], rect: &((f32, f32), (f32, f32), (f32, f32), (f32, f32))) -> Vec<(f32, f32)> {
+    let (p1, p2, p3, p4) = *rect;
+
+    points_2d
+        .iter()
+        .filter(|&&(x, y)| x >= p1.0 && x <= p2.0 && y >= p1.1 && y <= p3.1)
+        .cloned()
+        .collect()
+}
+
+fn transform_to_3d(points_2d: &[(f32, f32)], plane: &Plane) -> Vec<Point3<f32>> {
+    use nalgebra::Vector3;
+
+    // Compute two basis vectors for the plane
+    let u = Unit::new_normalize(Vector3::new(1.0, 0.0, -plane.normal.x / plane.normal.z));
+    let v = Unit::new_normalize(plane.normal.cross(&u));
+
+    points_2d
+        .iter()
+        .map(|&(x, y)| {
+            let pos = (*u.as_ref()) * x + (*v.as_ref()) * y + plane.normal * (-plane.d);
+            Point3::from(pos)
+        })
+        .collect()
+}
+
+pub fn find_best_rectangle_inliers(points: Vec<Point3<f32>>, plane: &Plane, width: f32, height: f32) -> Vec<Point3<f32>> {
+    if points.len() < 3 {
+        return points; // Not enough points for a rectangle
+    }
+
+    // Step 1: Project points onto plane
+    let points_2d = project_to_plane_2d(&points, plane);
+
+    // Step 2: Find best-fitting rectangle
+    if let Some(rect) = find_max_filled_rectangle(&points_2d, width, height) {
+        // Step 3: Extract points inside the rectangle
+        let filtered_2d = filter_points_in_rectangle(&points_2d, &rect);
+
+        // Step 4: Convert points back to 3D
+        return transform_to_3d(&filtered_2d, plane);
+    }
+
+    vec![] // No valid rectangle found
+}
+
+
 
