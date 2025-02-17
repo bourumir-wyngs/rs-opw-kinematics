@@ -203,17 +203,6 @@ pub fn main() -> anyhow::Result<()> {
         0.5,
     )?;
 
-    let now = std::time::Instant::now();
-    let mesh = construct_parry_trimesh(linfa.clone());
-    println!(
-        "Trimesh construction took {:?}, indices {}, vertices {}",
-        now.elapsed(),
-        mesh.indices().len(),
-        mesh.vertices().len()
-    );
-    //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
-    send_mesh(&mesh, (0, 128, 128), 0.8)?;
-
     // Define the rectangle dimensions (width and height) to fit
     let rectangle_width = 0.08;
     let rectangle_height = 0.04;
@@ -232,7 +221,7 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&rectangle_points, (0, 0, 255), 1.0)?;
 
     // build a plane from these points
-    let plane_points = build_plane(&rectangle_points, &linfa, 0.002);
+    let plane_points = build_plane(&rectangle_points, &linfa, 0.003);
     send_cloud(&plane_points, (0, 10, 255), 0.2)?;
     
     // Second iteration - fit rectangle again
@@ -246,14 +235,23 @@ pub fn main() -> anyhow::Result<()> {
     println!("Plane points: {}", plane_points.len());
     //send_cloud(&plane_points, (0, 0, 255), 1.0)?;
     send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
-    
-    // 
 
-    if false {
+    let now = std::time::Instant::now();
+    let mesh = construct_parry_trimesh(rectangle_points_2);
+    println!(
+        "Trimesh construction took {:?}, indices {}, vertices {}",
+        now.elapsed(),
+        mesh.indices().len(),
+        mesh.vertices().len()
+    );
+    //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
+    send_mesh(&mesh, (0, 128, 128), 0.8)?;
+
+    if true {
         let projector = Projector {
             check_points: 64,
             check_points_required: 60,
-            radius: 0.005,
+            radius: 0.0025,
         };
 
         let path = generate_raster_points(20, 20);

@@ -15,7 +15,7 @@ pub struct Plane {
 struct ProjectedPoint {
     x: f32,
     y: f32,
-    id: usize,
+    id: u32,
 }
 
 impl PartialEq for ProjectedPoint {
@@ -80,7 +80,7 @@ fn project_to_plane(points: &Vec<OrganizedPoint>, plane: &Plane) -> Vec<Projecte
             let x = projected_point_3d.dot(&u);
             let y = projected_point_3d.dot(&v);
 
-            ProjectedPoint { x, y, id }
+            ProjectedPoint { x, y, id: id as u32 }
         })
         .collect()
 }
@@ -124,12 +124,12 @@ impl RectangleEstimator {
         let plane = fit_plane_least_squares(points); // Fit a plane from the points
         let projected_points = project_to_plane(points, &plane); // Project points onto the plane
 
-        let mut best_inliers: Vec<usize> = Vec::new();
+        let mut best_inliers: Vec<u32> = Vec::new();
         let mut most_inliers_count = 0;
 
         for _ in 0..iterations {
             // Generate a candidate rectangle and retrieve inliers
-            let inliers = generate_candidate_rectangle(&projected_points, width, height, points);
+            let inliers = generate_candidate_rectangle(&projected_points, width, height);
 
             // Check if this candidate has more inliers
             if inliers.len() > most_inliers_count {
@@ -143,7 +143,7 @@ impl RectangleEstimator {
             // Map filtered IDs back to the original OrganizedPoints
             let filtered_points: Vec<OrganizedPoint> = best_inliers
                 .iter()
-                .map(|&id| points[id].clone()) // Retrieve the original points by ID
+                .map(|&id| points[id as usize].clone()) // Retrieve the original points by ID
                 .collect();
 
             filtered_points
@@ -165,8 +165,7 @@ fn generate_candidate_rectangle(
     projected_points: &Vec<ProjectedPoint>,
     width: f32,
     height: f32,
-    organized_points: &Vec<OrganizedPoint>, // Include the original points
-) -> Vec<usize> {
+) -> Vec<u32> {
     use rand::seq::SliceRandom;
     use nalgebra::{Vector2};
 
@@ -205,7 +204,7 @@ fn generate_candidate_rectangle(
                 };
 
                 // Filter projected points that fit into this rectangle
-                let filtered_ids: Vec<usize> = projected_points
+                let filtered_ids: Vec<u32> = projected_points
                     .iter()
                     .filter(|point| candidate_rectangle.contains(point)) // Check if the point is within the rectangle
                     .map(|point| point.id) // Collect the IDs of the points

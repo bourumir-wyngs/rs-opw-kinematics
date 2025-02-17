@@ -77,7 +77,7 @@ impl Estimator<OrganizedPoint> for PlaneEstimator {
         }
 
         // Select a subset of nearby points to prevent steep plane selection
-        let nearby_points = generate_nearby_samples(&points, 0.05); 
+        let nearby_points = generate_nearby_samples(&points, 0.05);
 
         if nearby_points.len() < 3 {
             return None;
@@ -145,7 +145,7 @@ pub fn build_plane(points_to_fit: &Vec<OrganizedPoint>, filter_target: &Vec<Orga
         d: 0.0,
     };
 
-    for _ in 0..30 {
+    for _ in 0..32 {
         if let Some((plane, inliers)) = arrsac.model_inliers(&PlaneEstimator, points_to_fit.iter().copied()) {
             if inliers.len() > best_inliers.len() {
                 best_inliers = inliers;
@@ -162,7 +162,7 @@ pub fn build_plane(points_to_fit: &Vec<OrganizedPoint>, filter_target: &Vec<Orga
         .iter().cloned()
         .filter(|p| best_plane.residual(&p) < 2.0*distance_threshold)
         .collect();
-        
+
     filtered_vertices
 }
 
