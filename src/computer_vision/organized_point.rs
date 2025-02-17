@@ -1,4 +1,7 @@
+use parry3d::bounding_volume::Aabb;
 use parry3d::math::Point;
+
+use rayon::prelude::*;
 
 /// A mesh for that row/column information (so adjacency information) is preseved
 /// and color information is retains.
@@ -24,3 +27,29 @@ impl OrganizedPoint {
         (self.point.coords - other.point.coords).norm()
     }
 }
+
+pub fn filter_points_in_aabb(points: &[OrganizedPoint], aabb: &Aabb) -> Vec<OrganizedPoint> {
+    points
+        .par_iter()                             
+        .filter(|point| is_point_in_aabb(&point.point, aabb))
+        .cloned()                                 
+        .collect()                                
+}
+pub fn filter_points_not_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
+    points
+        .par_iter()
+        .filter(|&point| !is_point_in_aabb(&point.point, aabb)) // Filter points inside the AABB
+        .cloned() 
+        .collect() 
+}
+
+/// Check if a point is inside an AABB
+fn is_point_in_aabb(point: &Point<f32>, aabb: &Aabb) -> bool {
+    point.x >= aabb.mins.x
+        && point.x <= aabb.maxs.x
+        && point.y >= aabb.mins.y
+        && point.y <= aabb.maxs.y
+        && point.z >= aabb.mins.z
+        && point.z <= aabb.maxs.z
+}
+

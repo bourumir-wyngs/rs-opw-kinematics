@@ -11,7 +11,7 @@ use rs_opw_kinematics::dbscan_r::{cluster_stats, Model};
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
-use rs_opw_kinematics::organized_point::OrganizedPoint;
+use rs_opw_kinematics::organized_point::{filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint};
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::realsense::{observe_3d_depth, observe_3d_rgb};
 use rs_opw_kinematics::rect_builder::RectangleEstimator;
@@ -24,32 +24,7 @@ use rs_opw_kinematics::largest_rectangle::largest_rectangle;
 use rs_opw_kinematics::plane_builder::PlaneBuilder;
 
 /// Function to filter points that belong to a given AABB
-fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
-    points
-        .iter()
-        .filter(|&point| is_point_in_aabb(&point.point, aabb)) // Filter points inside the AABB
-        .cloned() // Clone the points (since we work with references here)
-        .collect() // Collect into a new Vec
-}
 
-fn filter_points_not_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
-    points
-        .iter()
-        .filter(|&point| !is_point_in_aabb(&point.point, aabb)) // Filter points inside the AABB
-        .cloned() // Clone the points (since we work with references here)
-        .collect() // Collect into a new Vec
-}
-
-/// Check if a point is inside an AABB
-
-fn is_point_in_aabb(point: &Point<f32>, aabb: &Aabb) -> bool {
-    point.x >= aabb.mins.x
-        && point.x <= aabb.maxs.x
-        && point.y >= aabb.mins.y
-        && point.y <= aabb.maxs.y
-        && point.z >= aabb.mins.z
-        && point.z <= aabb.maxs.z
-}
 
 fn best_object_dbscan(
     points: &Vec<OrganizedPoint>,
@@ -189,8 +164,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let bond = 0.032 + 2.0 * 0.01;
     send_cloud(&linfa, (255, 255, 0), 0.2)?;
-    //send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
-    //send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
+    send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
+    send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
     let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
 

@@ -13,7 +13,7 @@ use rs_opw_kinematics::transform_io::transform_to_json;
 use std::fs::File;
 use std::io::Write;
 use std::thread::sleep;
-use rs_opw_kinematics::organized_point::OrganizedPoint;
+use rs_opw_kinematics::organized_point::{filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint};
 
 /// Write a vector of points to a PLY file compatible with MeshLab
 fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()> {
@@ -34,35 +34,6 @@ fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()
     }
 
     Ok(())
-}
-
-/// Function to filter points that belong to a given AABB
-fn filter_points_in_aabb(points: &[OrganizedPoint], aabb: &Aabb) -> Vec<OrganizedPoint> {
-    points
-        .iter()
-        .filter(|&point| is_point_in_aabb(point, aabb)) // Filter points inside the AABB
-        .cloned() // Clone the points (since we work with references here)
-        .collect() // Collect into a new Vec
-}
-
-fn filter_points_not_in_aabb(points: &[OrganizedPoint], aabb: &Aabb) -> Vec<OrganizedPoint> {
-    points
-        .iter()
-        .filter(|&point| !is_point_in_aabb(point, aabb)) // Filter points inside the AABB
-        .cloned() // Clone the points (since we work with references here)
-        .collect() // Collect into a new Vec
-}
-
-/// Check if a point is inside an AABB
-
-fn is_point_in_aabb(o_point: &OrganizedPoint, aabb: &Aabb) -> bool {
-    let point = &o_point.point;
-    point.x >= aabb.mins.x
-        && point.x <= aabb.maxs.x
-        && point.y >= aabb.mins.y
-        && point.y <= aabb.maxs.y
-        && point.z >= aabb.mins.z
-        && point.z <= aabb.maxs.z
 }
 
 pub fn main() -> anyhow::Result<()> {
