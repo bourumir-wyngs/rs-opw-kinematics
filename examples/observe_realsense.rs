@@ -20,6 +20,7 @@ use std::fs::File;
 use std::io::Read;
 use std::thread::sleep;
 use rs_opw_kinematics::plane_builder::build_plane;
+use rs_opw_kinematics::rect_builder::RectangleEstimator;
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -186,7 +187,7 @@ pub fn main() -> anyhow::Result<()> {
     );
 
     let bond = 0.032 + 2.0 * 0.01;
-    send_cloud(&linfa, (255, 255, 0), 0.5)?;
+    send_cloud(&linfa, (255, 255, 0), 0.2)?;
     //send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
     //send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
@@ -203,7 +204,7 @@ pub fn main() -> anyhow::Result<()> {
     )?;
 
     let now = std::time::Instant::now();
-    let mesh = construct_parry_trimesh(linfa);
+    let mesh = construct_parry_trimesh(linfa.clone());
     println!(
         "Trimesh construction took {:?}, indices {}, vertices {}",
         now.elapsed(),
@@ -213,15 +214,25 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
     send_mesh(&mesh, (0, 128, 128), 0.8)?;
 
-    // Extract the plane
-    let plane = build_plane(&mesh, 0.005);
-    let plane_points = plane.into_iter().map(|p|
-        OrganizedPoint::from_point(p)
-    ).collect::<Vec<_>>();
 
-    println!("Plane points: {}", plane_points.len());
-    send_cloud(&plane_points, (0, 0, 255), 1.0)?;
+    // Define the rectangle dimensions (width and height) to fit
+    let rectangle_width = 0.08;
+    let rectangle_height = 0.04;
 
+    // Define the number of RANSAC iterations to try (e.g., 1000)
+    let ransac_iterations = 10000;
+
+    // Call the RANSAC rectangle fitting estimator
+    println!("Fitting a rectangle on the provided points...");
+    match RectangleEstimator::ransac_rectangle_fitting(&linfa, ransac_iterations, rectangle_width, rectangle_height) {
+        Some(model) => {
+            send_cloud(&model, (0, 0, 255), 1.0)?;
+        }
+        None => {
+            println!("Failed to fit a rectangle on the provided points.");
+        }
+    }
+    
     if false {
     let projector = Projector {
         check_points: 64,

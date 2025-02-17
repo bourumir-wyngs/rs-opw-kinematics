@@ -180,6 +180,11 @@ pub mod mesh_builder;
 pub mod plane_builder;
 
 #[cfg(feature = "vision")]
+#[path = "computer_vision/rect_builder.rs"]
+pub mod rect_builder;
+
+
+#[cfg(feature = "vision")]
 #[path = "computer_vision/organized_point.rs"]
 pub mod organized_point;
 
