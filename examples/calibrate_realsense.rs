@@ -8,11 +8,12 @@ use parry3d::query::distance;
 use rs_opw_kinematics::annotations::AnnotatedPose;
 use rs_opw_kinematics::colors::{ColorId, DefinedColor};
 use rs_opw_kinematics::find_transform::{base_height, compute_tetrahedron_geometry};
-use rs_opw_kinematics::realsense::{calibrate_realsense, observe_3d};
+use rs_opw_kinematics::realsense::{calibrate_realsense, observe_3d_depth};
 use rs_opw_kinematics::transform_io::transform_to_json;
 use std::fs::File;
 use std::io::Write;
 use std::thread::sleep;
+use rs_opw_kinematics::organized_point::OrganizedPoint;
 
 /// Write a vector of points to a PLY file compatible with MeshLab
 fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()> {
@@ -36,7 +37,7 @@ fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()
 }
 
 /// Function to filter points that belong to a given AABB
-fn filter_points_in_aabb(points: &[Point<f32>], aabb: &Aabb) -> Vec<Point<f32>> {
+fn filter_points_in_aabb(points: &[OrganizedPoint], aabb: &Aabb) -> Vec<OrganizedPoint> {
     points
         .iter()
         .filter(|&point| is_point_in_aabb(point, aabb)) // Filter points inside the AABB
@@ -44,7 +45,7 @@ fn filter_points_in_aabb(points: &[Point<f32>], aabb: &Aabb) -> Vec<Point<f32>> 
         .collect() // Collect into a new Vec
 }
 
-fn filter_points_not_in_aabb(points: &[Point<f32>], aabb: &Aabb) -> Vec<Point<f32>> {
+fn filter_points_not_in_aabb(points: &[OrganizedPoint], aabb: &Aabb) -> Vec<OrganizedPoint> {
     points
         .iter()
         .filter(|&point| !is_point_in_aabb(point, aabb)) // Filter points inside the AABB
@@ -54,7 +55,8 @@ fn filter_points_not_in_aabb(points: &[Point<f32>], aabb: &Aabb) -> Vec<Point<f3
 
 /// Check if a point is inside an AABB
 
-fn is_point_in_aabb(point: &Point<f32>, aabb: &Aabb) -> bool {
+fn is_point_in_aabb(o_point: &OrganizedPoint, aabb: &Aabb) -> bool {
+    let point = &o_point.point;
     point.x >= aabb.mins.x
         && point.x <= aabb.maxs.x
         && point.y >= aabb.mins.y
@@ -71,10 +73,10 @@ pub fn main() -> anyhow::Result<()> {
     let json_data = transform_to_json(&serial, &transform);
 
     // Write the JSON string to the specified file
-    let mut file = File::create("../calibration_ok.json")?;
+    let mut file = File::create("../calibration_ok2.json")?;
     file.write_all(json_data.as_bytes())?;
 
-    let points = observe_3d()?;
+    let points = observe_3d_depth()?;
 
     let aabb = Aabb::new(
         Point::new(-0.1, -1.0, 0.0), // Min bounds
@@ -86,7 +88,7 @@ pub fn main() -> anyhow::Result<()> {
 
     let transformed_points: Vec<Point<f32>> = filtered_points
         .iter()
-        .map(|point| transform.transform_point(&point))
+        .map(|point| transform.transform_point(&point.point))
         .collect();
 
     let red = ests[&ColorId::Red];
@@ -107,15 +109,15 @@ pub fn main() -> anyhow::Result<()> {
 
     //send_cloud(&unfiltered_points, (200, 0, 0), 0.01);
     //send_cloud(&filtered_points, (200, 200, 200), 0.01);
-    send_cloud(&transformed_points, (200, 200, 00), 0.5);
-    send_cloud(&vec![red], (255, 0, 0), 1.0);
-    send_cloud(&vec![green], (0, 128, 0), 1.0);
-    send_cloud(&vec![blue], (0, 0, 255), 1.0);
-    send_cloud(&vec![centroid], (255, 255, 255), 1.0);
+    send_cloud(&transformed_points, (200, 200, 00), 0.5)?;
+    send_cloud(&vec![red], (255, 0, 0), 1.0)?;
+    send_cloud(&vec![green], (0, 128, 0), 1.0)?;
+    send_cloud(&vec![blue], (0, 0, 255), 1.0)?;
+    send_cloud(&vec![centroid], (255, 255, 255), 1.0)?;
     //send_cloud(&vec![t_centroid], (255, 255, 0), 0.5);
 
     let (rred, rgreen, rblue) =  compute_tetrahedron_geometry(bond);
-    send_cloud(&vec![rred, rgreen, rblue], (255, 255, 0), 0.2);
+    send_cloud(&vec![rred, rgreen, rblue], (255, 255, 0), 0.2)?;
 
     send_cloud(
         &vec![
@@ -123,7 +125,7 @@ pub fn main() -> anyhow::Result<()> {
         ],
         (255, 0, 0),
         1.0,
-    );
+    )?;
 
     send_cloud(
         &vec![
@@ -131,7 +133,7 @@ pub fn main() -> anyhow::Result<()> {
         ],
         (0, 200, 0),
         1.0,
-    );
+    )?;
 
     send_cloud(
         &vec![
@@ -139,14 +141,14 @@ pub fn main() -> anyhow::Result<()> {
         ],
         (0, 0, 255),
         1.0,
-    );
+    )?;
     send_cloud(
         &vec![
             t_centroid_c
         ],
         (255, 255, 255),
         1.0,
-    );
+    )?;
 
     Ok(())
 }
@@ -156,6 +158,7 @@ fn send_cloud(points: &Vec<Point<f32>>, color: (i32, i32, i32), transparency: f3
     let points: Vec<(f32, f32, f32)> = points.iter().map(|p| (p.x, p.y, p.z)).collect();
     match sender.send_point_cloud_message(
         &points,
+        &Vec::new(),
         (color.0 as u8, color.1 as u8, color.2 as u8),
         transparency,
     ) {
