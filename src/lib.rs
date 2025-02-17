@@ -188,6 +188,15 @@ pub mod rect_builder;
 #[path = "computer_vision/organized_point.rs"]
 pub mod organized_point;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/plane.rs"]
+pub mod plane;
+
+#[cfg(feature = "vision")]
+#[path = "computer_vision/largest_rectangle.rs"]
+pub mod largest_rectangle;
+
+
 
 
 

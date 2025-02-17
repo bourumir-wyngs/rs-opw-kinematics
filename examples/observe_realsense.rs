@@ -13,7 +13,6 @@ use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_
 use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
-use rs_opw_kinematics::plane_builder::build_plane;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
 use rs_opw_kinematics::realsense::{observe_3d_depth, observe_3d_rgb};
 use rs_opw_kinematics::rect_builder::RectangleEstimator;
@@ -21,6 +20,9 @@ use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
 use std::thread::sleep;
+use bevy::utils::default;
+use rs_opw_kinematics::largest_rectangle::largest_rectangle;
+use rs_opw_kinematics::plane_builder::PlaneBuilder;
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -221,12 +223,21 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&rectangle_points, (0, 0, 255), 1.0)?;
 
     // build a plane from these points
-    let plane_points = build_plane(&rectangle_points, &linfa, 0.003);
-    send_cloud(&plane_points, (0, 10, 255), 0.2)?;
+    let plane_builder = PlaneBuilder {
+        ..default()
+    };
+    
+    let plane = plane_builder.build_plane(&rectangle_points, 0.003).expect("Failed to build plane");
+    let plane_points = plane.filter(&linfa, 0.006);
+    let flattened = plane.flatten(&plane_points);
+    //send_cloud(&flattened, (0, 10, 255), 0.2)?;
+
+    println!("Largest rectangle:");
+    let largest_rect = largest_rectangle(&flattened);
     
     // Second iteration - fit rectangle again
     let rectangle_points_2 = RectangleEstimator::ransac_rectangle_fitting(
-        &plane_points,
+        &flattened,
         ransac_iterations,
         rectangle_width,
         rectangle_height,
@@ -234,17 +245,18 @@ pub fn main() -> anyhow::Result<()> {
 
     println!("Plane points: {}", plane_points.len());
     //send_cloud(&plane_points, (0, 0, 255), 1.0)?;
-    send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
+    //send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
 
-    let now = std::time::Instant::now();
-    let mesh = construct_parry_trimesh(rectangle_points_2);
-    println!(
-        "Trimesh construction took {:?}, indices {}, vertices {}",
-        now.elapsed(),
-        mesh.indices().len(),
-        mesh.vertices().len()
-    );
-    //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
+    let mesh = if largest_rect.len() > rectangle_points_2.len()  {
+        construct_parry_trimesh(largest_rect)
+    } else {
+        construct_parry_trimesh(rectangle_points_2)
+    };
+
+    //let mesh = construct_parry_trimesh(rectangle_points_2);
+    //let mesh = construct_parry_trimesh(largest_rect.clone());
+
+
     send_mesh(&mesh, (0, 128, 128), 0.8)?;
 
     if true {
@@ -283,6 +295,7 @@ pub fn main() -> anyhow::Result<()> {
             }
         }
     }
+    
 
     Ok(())
 }
