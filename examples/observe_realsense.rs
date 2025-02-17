@@ -1,5 +1,4 @@
 use rs_cxx_ros2_opw_bridge::sender::Sender;
-use std::f32::consts::PI;
 
 use anyhow::Result;
 use bevy::render::render_resource::encase::private::RuntimeSizedArray;
