@@ -1,7 +1,5 @@
-use nalgebra::{Matrix3, Point3, Vector2, Vector3};
-use parry3d::shape::TriMesh;
-use rand::prelude::SliceRandom;
 use crate::organized_point::OrganizedPoint;
+use nalgebra::{Matrix3, Vector2, Vector3};
 
 // Represent a plane in 3D space
 #[derive(Clone, Copy, Debug)]
@@ -80,15 +78,19 @@ fn project_to_plane(points: &Vec<OrganizedPoint>, plane: &Plane) -> Vec<Projecte
             let x = projected_point_3d.dot(&u);
             let y = projected_point_3d.dot(&v);
 
-            ProjectedPoint { x, y, id: id as u32 }
+            ProjectedPoint {
+                x,
+                y,
+                id: id as u32,
+            }
         })
         .collect()
 }
 
-
-
 fn fit_plane_least_squares(points: &[OrganizedPoint]) -> Plane {
-    let centroid = points.iter().fold(Vector3::zeros(), |acc, p| acc + p.point.coords)
+    let centroid = points
+        .iter()
+        .fold(Vector3::zeros(), |acc, p| acc + p.point.coords)
         / points.len() as f32;
 
     let mut covariance_matrix = Matrix3::zeros();
@@ -109,8 +111,6 @@ fn fit_plane_least_squares(points: &[OrganizedPoint]) -> Plane {
     }
 }
 
-
-
 // RANSAC Estimator for Rectangle Fitting
 pub struct RectangleEstimator;
 
@@ -125,40 +125,23 @@ impl RectangleEstimator {
         let projected_points = project_to_plane(points, &plane); // Project points onto the plane
 
         let mut best_inliers: Vec<u32> = Vec::new();
-        let mut most_inliers_count = 0;
-
         for _ in 0..iterations {
             // Generate a candidate rectangle and retrieve inliers
             let inliers = generate_candidate_rectangle(&projected_points, width, height);
 
             // Check if this candidate has more inliers
-            if inliers.len() > most_inliers_count {
-                most_inliers_count = inliers.len();
+            if inliers.len() > best_inliers.len() {
                 best_inliers = inliers;
             }
         }
 
-        // Return the best set of inliers found
-        if most_inliers_count > 0 {
-            // Map filtered IDs back to the original OrganizedPoints
-            let filtered_points: Vec<OrganizedPoint> = best_inliers
-                .iter()
-                .map(|&id| points[id as usize].clone()) // Retrieve the original points by ID
-                .collect();
+        let filtered_points: Vec<OrganizedPoint> = best_inliers
+            .iter()
+            .map(|&id| points[id as usize].clone()) // Retrieve the original points by ID
+            .collect();
 
-            filtered_points
-        } else {
-            Vec::new()
-        }
+        filtered_points
     }
-}
-
-/// Computes the centroid of the given 2D points.
-fn centroid_2d(inliers: &[&ProjectedPoint]) -> Vector2<f32> {
-    let sum = inliers.iter().fold(Vector2::new(0.0, 0.0), |acc, point| {
-        acc + Vector2::new(point.x, point.y)
-    });
-    sum / inliers.len() as f32
 }
 
 fn generate_candidate_rectangle(
@@ -166,17 +149,17 @@ fn generate_candidate_rectangle(
     width: f32,
     height: f32,
 ) -> Vec<u32> {
+    use nalgebra::Vector2;
     use rand::seq::SliceRandom;
-    use nalgebra::{Vector2};
 
     let mut rng = rand::thread_rng();
 
     // Add a maximum number of attempts to avoid infinite loops
     let max_attempts = 100;
-    let mut attempts = 0;
 
-    while attempts < max_attempts {
-        let sampled_points: Vec<&ProjectedPoint> = projected_points.choose_multiple(&mut rng, 2).collect();
+    for _attempt in 0..max_attempts {
+        let sampled_points: Vec<&ProjectedPoint> =
+            projected_points.choose_multiple(&mut rng, 2).collect();
 
         if sampled_points.len() == 2 {
             let p1 = sampled_points[0];
@@ -185,7 +168,7 @@ fn generate_candidate_rectangle(
             let dy = p2.y - p1.y;
 
             // Check if the points are within the allowable distance
-            if dx * dx + dy * dy <= width*width + height*height {
+            if dx * dx + dy * dy <= width * width + height * height {
                 // Compute the center between the sampled points
                 let center_x = (p1.x + p2.x) / 2.0;
                 let center_y = (p1.y + p2.y) / 2.0;
@@ -200,7 +183,7 @@ fn generate_candidate_rectangle(
                     width,
                     height,
                     sin: angle.0,
-                    cos: angle.1
+                    cos: angle.1,
                 };
 
                 // Filter projected points that fit into this rectangle
@@ -210,16 +193,11 @@ fn generate_candidate_rectangle(
                     .map(|point| point.id) // Collect the IDs of the points
                     .collect();
 
-                return filtered_ids
+                return filtered_ids;
             }
         }
-
-        // Increment attempt counter if sample was discarded
-        attempts += 1;
     }
 
     // If no suitable rectangle could be generated, return an empty vector
     Vec::new()
 }
-
-
