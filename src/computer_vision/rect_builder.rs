@@ -120,7 +120,7 @@ impl RectangleEstimator {
         iterations: usize,
         width: f32,
         height: f32,
-    ) -> Option<Vec<OrganizedPoint>> {
+    ) -> Vec<OrganizedPoint> {
         let plane = fit_plane_least_squares(points); // Fit a plane from the points
         let projected_points = project_to_plane(points, &plane); // Project points onto the plane
 
@@ -146,9 +146,9 @@ impl RectangleEstimator {
                 .map(|&id| points[id].clone()) // Retrieve the original points by ID
                 .collect();
 
-            return Some(filtered_points);
+            filtered_points
         } else {
-            None
+            Vec::new()
         }
     }
 }

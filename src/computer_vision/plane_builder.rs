@@ -1,10 +1,12 @@
 use arrsac::Arrsac;
+use bevy::prelude::Or;
 use geo::CoordsIter;
 use nalgebra::{Point3, Unit, Vector3};
 use parry3d::shape::TriMesh;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use sample_consensus::{Consensus, Estimator, Model};
+use crate::organized_point::OrganizedPoint;
 
 /// Represents a plane in 3D space defined by its normal vector and distance from the origin.
 struct Plane {
@@ -31,27 +33,19 @@ impl PartialEq for ProjectedPoint {
 impl Eq for ProjectedPoint {}
 
 /// Implements the `Model` trait for `Plane`, enabling it to be used in ARRSAC.
-impl Model<Point3<f32>> for Plane {
+impl Model<OrganizedPoint> for Plane {
     /// The absolute distance of the point from the plane
-    fn residual(&self, point: &Point3<f32>) -> f64 {
+    fn residual(&self, point: &OrganizedPoint) -> f64 {
         // Compute the signed distance from the plane using the plane equation:
         // Distance = |(A*x + B*y + C*z + D)|
-        let distance = self.normal.dot(&point.coords) + self.d;
-
-        // Return the absolute distance, ensuring a non-negative residual value.
-        let r = distance.abs() as f64;
-        return r; // enough?
-        if r < 0.005 {
-            r
-        } else {
-            f64::INFINITY // discourage points anywhere more outside the plane
-        }
+        let distance = self.normal.dot(&point.point.coords) + self.d;
+        distance.abs() as f64
     }
 }
 
 struct PlaneEstimator;
 
-fn generate_nearby_samples(points: &[Point3<f32>], radius: f32) -> Vec<Point3<f32>> {
+fn generate_nearby_samples(points: &[OrganizedPoint], radius: f32) -> Vec<OrganizedPoint> {
     use rand::seq::SliceRandom;
 
     if points.is_empty() {
@@ -62,21 +56,21 @@ fn generate_nearby_samples(points: &[Point3<f32>], radius: f32) -> Vec<Point3<f3
     let center = points.choose(&mut rand::thread_rng()).unwrap();
 
     // Select points within the specified radius
-    let nearby_points: Vec<Point3<f32>> = points
+    let nearby_points: Vec<OrganizedPoint> = points
         .iter()
-        .filter(|p| (*p - center).norm() < radius)
+        .filter(|p| p.distance(center) < radius)
         .cloned()
         .collect();
 
     nearby_points
 }
 
-impl Estimator<Point3<f32>> for PlaneEstimator {
+impl Estimator<OrganizedPoint> for PlaneEstimator {
     type Model = Plane;
     type ModelIter = Option<Self::Model>;
     const MIN_SAMPLES: usize = 3;
 
-    fn estimate<I: Iterator<Item = Point3<f32>>>(&self, mut data: I) -> Self::ModelIter {
+    fn estimate<I: Iterator<Item = OrganizedPoint>>(&self, mut data: I) -> Self::ModelIter {
         let points: Vec<_> = data.take(Self::MIN_SAMPLES).collect();
         if points.len() < Self::MIN_SAMPLES {
             return None;
@@ -93,19 +87,19 @@ impl Estimator<Point3<f32>> for PlaneEstimator {
         let p2 = nearby_points[1];
         let p3 = nearby_points[2];
 
-        let normal = (p2 - p1).cross(&(p3 - p1)).normalize();
-        let d = -normal.dot(&p1.coords);
+        let normal = (p2.point - p1.point).cross(&(p3.point - p1.point)).normalize();
+        let d = -normal.dot(&p1.point.coords);
 
         Some(Plane { normal, d })
     }
 }
 
 
-fn fit_plane_least_squares(points: &[Point3<f32>]) -> Plane {
+fn fit_plane_least_squares(points: &[OrganizedPoint]) -> Plane {
     // Compute the centroid by summing up all coordinates and dividing by the total number of points.
     let centroid_coords = points
         .iter()
-        .map(|p| p.coords) // Extract coords as Vector3<f32>
+        .map(|p| p.point.coords) // Extract coords as Vector3<f32>
         .reduce(|a, b| a + b) // Sum all vectors
         .unwrap()
         / (points.len() as f32); // Divide by the number of points to get the mean coords.
@@ -115,7 +109,7 @@ fn fit_plane_least_squares(points: &[Point3<f32>]) -> Plane {
 
     let mut covariance = nalgebra::Matrix3::<f32>::zeros();
     for &p in points {
-        let diff = p - centroid; // Compute the difference vector
+        let diff = p.point - centroid; // Compute the difference vector
         covariance += diff * diff.transpose(); // Accumulate the outer product of the difference vector
     }
 
@@ -134,21 +128,15 @@ fn fit_plane_least_squares(points: &[Point3<f32>]) -> Plane {
     Plane { normal, d }
 }
 
-pub fn build_plane(mesh: &TriMesh, max_distance_till_plane: f32) -> Vec<Point3<f32>> {
-    let points: Vec<Point3<f32>> = mesh
-        .vertices()
-        .iter()
-        .map(|v| Point3::new(v.x, v.y, v.z))
-        .collect();
-
-    if points.len() < 3 {
-        return points; // Any 3 points fit into one plane
+pub fn build_plane(points_to_fit: &Vec<OrganizedPoint>, filter_target: &Vec<OrganizedPoint>, max_distance_till_plane: f32) -> Vec<OrganizedPoint> {
+    if points_to_fit.len() < 3 {
+        return points_to_fit.clone(); // Any 3 points fit into one plane
     }
 
-    let mut rng = SmallRng::seed_from_u64(42);
+    let rng = SmallRng::seed_from_u64(42);
     let mut arrsac = Arrsac::new(max_distance_till_plane as f64, rng)
-        .initialization_hypotheses(5012)
-        .max_candidate_hypotheses(1280)
+        .initialization_hypotheses(512)
+        .max_candidate_hypotheses(128)
         .block_size(128);
 
     let mut best_inliers = Vec::new();
@@ -158,7 +146,7 @@ pub fn build_plane(mesh: &TriMesh, max_distance_till_plane: f32) -> Vec<Point3<f
     };
 
     for _ in 0..30 {
-        if let Some((plane, inliers)) = arrsac.model_inliers(&PlaneEstimator, points.iter().copied()) {
+        if let Some((plane, inliers)) = arrsac.model_inliers(&PlaneEstimator, points_to_fit.iter().copied()) {
             if inliers.len() > best_inliers.len() {
                 best_inliers = inliers;
                 best_plane = plane;
@@ -166,20 +154,16 @@ pub fn build_plane(mesh: &TriMesh, max_distance_till_plane: f32) -> Vec<Point3<f
         }
     }
 
-    let filtered_vertices: Vec<_> = best_inliers.iter().map(|&i| mesh.vertices()[i]).collect();
+    let filtered_vertices: Vec<_> = best_inliers.iter().map(|&i| points_to_fit[i]).collect();
     let best_plane = fit_plane_least_squares(filtered_vertices.as_slice());
 
-    /*
     let distance_threshold = max_distance_till_plane as f64; // Use a scaling factor
-    let _filtered_vertices: Vec<_> = points
-        .into_iter()
-        .filter(|p| best_plane.residual(p) < 2.0 * distance_threshold)
+    let filtered_vertices: Vec<_> = filter_target
+        .iter().cloned()
+        .filter(|p| best_plane.residual(&p) < 2.0*distance_threshold)
         .collect();
         
-     */
-
     filtered_vertices
-    //find_best_rectangle_inliers(points, &best_plane, 0.05, 0.07) // w/h swapped
 }
 
 fn project_to_plane_2d(points: &[Point3<f32>], plane: &Plane) -> Vec<ProjectedPoint> {

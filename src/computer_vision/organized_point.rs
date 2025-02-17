@@ -2,7 +2,7 @@ use parry3d::math::Point;
 
 /// A mesh for that row/column information (so adjacency information) is preseved
 /// and color information is retains.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OrganizedPoint {
     pub point: Point<f32>,
     pub row: usize,
@@ -18,5 +18,9 @@ impl OrganizedPoint {
             col: usize::MAX,
             //color: [0.0, 0.0, 0.0],
         }
+    }
+    
+    pub fn distance(&self, other: &OrganizedPoint) -> f32 {
+        (self.point.coords - other.point.coords).norm()
     }
 }

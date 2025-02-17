@@ -13,14 +13,14 @@ use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_
 use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::OrganizedPoint;
+use rs_opw_kinematics::plane_builder::build_plane;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
-use rs_opw_kinematics::realsense::{observe_3d_rgb, observe_3d_depth};
+use rs_opw_kinematics::realsense::{observe_3d_depth, observe_3d_rgb};
+use rs_opw_kinematics::rect_builder::RectangleEstimator;
 use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
 use std::thread::sleep;
-use rs_opw_kinematics::plane_builder::build_plane;
-use rs_opw_kinematics::rect_builder::RectangleEstimator;
 
 /// Function to filter points that belong to a given AABB
 fn filter_points_in_aabb(points: &Vec<OrganizedPoint>, aabb: &Aabb) -> Vec<OrganizedPoint> {
@@ -214,7 +214,6 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&mesh.vertices(),  (0, 225, 0), 0.5)?;
     send_mesh(&mesh, (0, 128, 128), 0.8)?;
 
-
     // Define the rectangle dimensions (width and height) to fit
     let rectangle_width = 0.08;
     let rectangle_height = 0.04;
@@ -224,51 +223,68 @@ pub fn main() -> anyhow::Result<()> {
 
     // Call the RANSAC rectangle fitting estimator
     println!("Fitting a rectangle on the provided points...");
-    match RectangleEstimator::ransac_rectangle_fitting(&linfa, ransac_iterations, rectangle_width, rectangle_height) {
-        Some(model) => {
-            send_cloud(&model, (0, 0, 255), 1.0)?;
-        }
-        None => {
-            println!("Failed to fit a rectangle on the provided points.");
-        }
-    }
+    let rectangle_points = RectangleEstimator::ransac_rectangle_fitting(
+        &linfa,
+        ransac_iterations,
+        rectangle_width,
+        rectangle_height,
+    );
+    //send_cloud(&rectangle_points, (0, 0, 255), 1.0)?;
+
+    // build a plane from these points
+    let plane_points = build_plane(&rectangle_points, &linfa, 0.002);
+    send_cloud(&plane_points, (0, 10, 255), 0.2)?;
     
-    if false {
-    let projector = Projector {
-        check_points: 64,
-        check_points_required: 60,
-        radius: 0.005,
-    };
+    // Second iteration - fit rectangle again
+    let rectangle_points_2 = RectangleEstimator::ransac_rectangle_fitting(
+        &plane_points,
+        ransac_iterations,
+        rectangle_width,
+        rectangle_height,
+    );
 
-    let path = generate_raster_points(20, 20);
-    if false {
-        let a = 0_f32.to_radians();
-        let b = 180_f32.to_radians();
+    println!("Plane points: {}", plane_points.len());
+    //send_cloud(&plane_points, (0, 0, 255), 1.0)?;
+    send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
+    
+    // 
 
-        if let Ok(stroke) = projector.project_cylinder_path_centered(
-            &mesh,
-            &path,
-            a..b,
-            Axis::Z,
-        ) {
-            let sender = Sender::new("127.0.0.1", 5555);
-            sender.send_pose_message(&filter_valid_poses(&stroke))?;
+    if false {
+        let projector = Projector {
+            check_points: 64,
+            check_points_required: 60,
+            radius: 0.005,
+        };
+
+        let path = generate_raster_points(20, 20);
+        if false {
+            let a = 0_f32.to_radians();
+            let b = 180_f32.to_radians();
+
+            if let Ok(stroke) =
+                projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)
+            {
+                let sender = Sender::new("127.0.0.1", 5555);
+                sender.send_pose_message(&filter_valid_poses(&stroke))?;
+            } else {
+                println!("Projection failed.");
+            }
         } else {
-            println!("Projection failed.");
-        }
-    } else {
-        // flat projection
-        if let Ok(stroke) =
-            projector.project_flat_path_fitted(&mesh, &path, Axis::X, RayDirection::FromNegative)
-        {
-            println!("Projection succeeded, {} poses.", stroke.len());
-            let sender = Sender::new("127.0.0.1", 5555);
-            sender.send_pose_message(&filter_valid_poses(&stroke))?;
-        } else {
-            println!("Projection failed.");
+            // flat projection
+            if let Ok(stroke) = projector.project_flat_path_fitted(
+                &mesh,
+                &path,
+                Axis::X,
+                RayDirection::FromNegative,
+            ) {
+                println!("Projection succeeded, {} poses.", stroke.len());
+                let sender = Sender::new("127.0.0.1", 5555);
+                sender.send_pose_message(&filter_valid_poses(&stroke))?;
+            } else {
+                println!("Projection failed.");
+            }
         }
     }
-        }
 
     Ok(())
 }
