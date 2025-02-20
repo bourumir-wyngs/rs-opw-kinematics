@@ -19,6 +19,24 @@ pub struct Detection {
     pub y: usize, // Y coordinate of the circle's center
 }
 
+static PRECOMPUTED_CIRCLE: LazyLock<Vec<(isize, isize, u16)>> = LazyLock::new(|| {
+    let mut circle_map: HashMap<(isize, isize), u16> = HashMap::new();
+
+    for angle in (0..360).step_by(2) {
+        let (sin_theta, cos_theta) = (angle as f32).to_radians().sin_cos();
+        for r_int in (MIN_RADIUS..=MAX_RADIUS).step_by(1) {
+            let r = r_int as f32;
+            let circle_x = (r * sin_theta) as isize;
+            let circle_y = (r * cos_theta) as isize;
+
+            let key = (circle_x, circle_y);
+            *circle_map.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    circle_map.into_iter().map(|(key, count)| (key.0, key.1, count)).collect()
+});
+
 fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
     fn local_y(y_main:  isize, y_global:  isize) -> usize {
         (y_global - y_main + MAX_RADIUS as isize) as usize
@@ -28,7 +46,12 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
         (y_local + y_main  - MAX_RADIUS as isize) as usize
     }
 
+    fn precompute_circle() -> &'static Vec<(isize, isize, u16)> {
+        &PRECOMPUTED_CIRCLE
+    }
+
     let (height, width) = (mask.len() as isize, mask[0].len() as isize);
+    let circle = precompute_circle();
     // Create thread-local accumulators to avoid contention
     let votes: HashMap<(i16, i16), u16> = (0..height)
         .into_par_iter() // Parallelize the outer loop
@@ -37,21 +60,16 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
             // Create a local accumulator for each row (width is a vector, for y it can be array)
             let mut local = vec![[0u16; 2 * MAX_RADIUS + 1]; width as usize];
 
-            for x in 0..width as usize {
-                let v = mask[y as usize][x];
+            for x in 0..width {
+                let v = mask[y as usize][x as usize];
                 // Values > IS_MATHING_MIN_THR are counted, with the difference above making the score
                 if v > IS_MATHING_MIN_THR {
                     // Highly likely part of a circle. 
-                    let x_float = x as f32;
-                    for angle in (0..360).step_by(2) {
-                        let (sin_theta, cos_theta) = (angle as f32).to_radians().sin_cos();
-                        for r_int in (MIN_RADIUS..=MAX_RADIUS).step_by(1) {
-                            let r = r_int as f32;
-                            let circle_x = (x_float + r * sin_theta) as isize;
-                            let circle_y = (y_float + r * cos_theta) as isize;
-                            if (0..width).contains(&circle_x) && (0..height).contains(&circle_y) {
-                                local[circle_x as usize][local_y(y, circle_y)] += (v - IS_MATHING_MIN_THR); // width first
-                            }
+                    for c in circle.iter() {
+                        let circle_x = x + c.0;
+                        let circle_y = y + c.1;
+                        if (0..width).contains(&circle_x) && (0..height).contains(&circle_y) {
+                            local[circle_x as usize][local_y(y, circle_y)] += c.2 * (v - IS_MATHING_MIN_THR); // width first
                         }
                     }
                 }
@@ -110,23 +128,31 @@ fn hough_circle_detection(mask: &Vec<Vec<u16>>, color: ColorId) -> Result<Detect
     })
 }
 
+use rayon::prelude::*;
+
 pub fn detect_circle_iter2(
     mask: &mut Vec<Vec<u16>>,
     detection: &Detection,
 ) -> Result<Detection, String> {
     let height = mask.len() as i32;
     let width = mask[0].len() as i32;
-    for y in 0..height {
+    let detection_x = detection.x as i32;
+    let detection_y = detection.y as i32;
+    let max_distance_squared = (2 * MAX_RADIUS * MAX_RADIUS) as i32;
+
+    // Make `mask` mutable within each thread safely using `par_iter_mut`
+    mask.par_iter_mut().enumerate().for_each(|(y, row)| {
+        let y = y as i32; // Convert to `i32` for comparisons
         for x in 0..width {
-            let cx = x - detection.x as i32;
-            let cy = y - detection.y as i32;
-            if cx * cx + cy * cy >= (2 * MAX_RADIUS * MAX_RADIUS) as i32 {
+            let cx = x - detection_x;
+            let cy = y - detection_y;
+            if cx * cx + cy * cy >= max_distance_squared {
                 if x >= 0 && y >= 0 && x < width && y < height {
-                    mask[y as usize][x as usize] = 0; // Reset to none pixels far from the expected center
+                    row[x as usize] = 0; // Reset to none pixels far from the expected center
                 }
             }
         }
-    }
+    });
 
     hough_circle_detection(mask, detection.color)
 }
@@ -142,26 +168,25 @@ fn detect_pixels_mat(mat: &core::Mat, color: &DefinedColor) -> Vec<Vec<u16>> {
     let width = mat.cols();
     let height = mat.rows();
 
-    // Ensure the matrix is continuous
-    assert!(
-        mat.is_continuous(),
-        "Mat must be continuous for processing."
-    );
+    // A mutable mask collection, initialized with zeroes
     let mut mask = vec![vec![0u16; width as usize]; height as usize];
 
-    for y in 0..height {
-        for x in 0..width {
-            let pixel = mat.at_2d::<core::Vec3b>(y, x).expect("Failed to get pixel");
-            mask[y as usize][x as usize] = color.color_score(pixel[2], pixel[1], pixel[0]);
+    // Parallelize the row processing
+    mask.par_iter_mut().enumerate().for_each(|(y, row)| {
+        for (x, pixel_val) in row.iter_mut().enumerate() {
+            let pixel = mat
+                .at_2d::<core::Vec3b>(y as i32, x as i32)
+                .expect("Failed to get pixel");
+            *pixel_val = color.color_score(pixel[2], pixel[1], pixel[0]);
         }
-    }
-    //print_mask_to_ascii(&mask, "mask.txt").expect("Failed to print mask to ASCII");
+    });
+
     mask
 }
 
-
 use std::fs::File;
 use std::io::{self, Write};
+use std::sync::LazyLock;
 
 pub (crate) fn print_mask_to_ascii(mask: &Vec<Vec<u16>>, output_file: &str) -> io::Result<()> {
     // Step 1: Find the min and max values in the mask

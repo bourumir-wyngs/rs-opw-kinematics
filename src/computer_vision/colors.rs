@@ -35,39 +35,11 @@ pub enum DefinedColor {
     Yellow { id: ColorId },
 }
 
-/*
 impl DefinedColor {
     pub(crate) fn color_score(&self, r: u8, g: u8, b: u8) -> u16 {
-        match self {
-            DefinedColor::Red { .. } => {
-                if r > b && r > g {
-                    IS_MATHING_MIN_THR                    
-                } else {
-                    0
-                }
-            }
-            DefinedColor::Green { .. } => {
-                if g > b && g > r {
-                    IS_MATHING_MIN_THR                    
-                } else {
-                    0
-                }
-            }
-            DefinedColor::LightBlue { .. } => {
-                if b > r && b > g + 20 { // Light blue has strong green background
-                    IS_MATHING_MIN_THR
-                } else {
-                    0
-                }
-            }
+        if r == 0 && g == 0 && b == 0 {
+            return 0; // parts are black as they are masked
         }
-    }
-}
-*/
-
-
-impl DefinedColor {
-    pub(crate) fn color_score(&self, r: u8, g: u8, b: u8) -> u16 {
         match self {
             DefinedColor::Red { .. } => {
                 estimate_color_score(ColorId::Red,(r, g, b))
