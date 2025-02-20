@@ -39,9 +39,9 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
 
             for x in 0..width as usize {
                 let v = mask[y as usize][x];
-                // Values > IS_MATHING_MIN_THR are counted, with difference above making the score
+                // Values > IS_MATHING_MIN_THR are counted, with the difference above making the score
                 if v > IS_MATHING_MIN_THR {
-                    // Highly likely part of a circle
+                    // Highly likely part of a circle. 
                     let x_float = x as f32;
                     for angle in (0..360).step_by(2) {
                         let (sin_theta, cos_theta) = (angle as f32).to_radians().sin_cos();

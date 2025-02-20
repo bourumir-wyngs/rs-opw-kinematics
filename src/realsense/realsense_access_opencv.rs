@@ -354,11 +354,12 @@ pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, 
     let red_obs = ests[&ColorId::Red];
     let green_obs = ests[&ColorId::Green];
     let blue_obs = ests[&ColorId::Blue];
+    let yellow_obs = ests[&ColorId::Yellow];
 
     // Estimates for points path planner and RViz use
     let bond = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
-    let (red_ref, green_ref, blue_ref) = compute_tetrahedron_geometry(bond);
-    let transform = find_transform(red_ref, green_ref, blue_ref, red_obs, green_obs, blue_obs);
+    let (red_ref, green_ref, blue_ref, yellow_ref) = compute_tetrahedron_geometry(bond);
+    let transform = find_transform(red_ref, green_ref, blue_ref, yellow_ref, red_obs, green_obs, blue_obs, yellow_obs);
 
     println!("Transform: {:?}", transform);
 
@@ -461,7 +462,7 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>, serial: &String) -> Result<boo
     println!("Edges: rg {:.4}, gb {:.4} , br {:.4}, gy {:.4}, by {:.4}, ry {:.4}", 
              rg, gb, br, gy, by, ry);
     
-    let sides = [rg, gb, br];
+    let sides = [rg, gb, br, gy, by, ry];
     let mean = sides.iter().copied().map(|x| x as f64).sum::<f64>() / sides.len() as f64;
     let max_difference = sides
         .iter()
@@ -476,12 +477,15 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>, serial: &String) -> Result<boo
     let result = max_difference <= tolerance;
     if !result {
         return Err(anyhow!(
-            "{}: Red, green and blue balls do not make equilateral triangle:\n   \
-            R-G {}, G-B {}, B-R {}, max difference {} tolerance {}",
+            "{}: Sides do not make equilateral triangle:\n   \
+            R-G {}, G-B {}, B-R {}, G-Y {}, B-Y {}, R-Y {}. Max difference {} tolerance {}",
             serial,
             rg,
             gb,
             br,
+            gy,
+            by, 
+            ry,
             max_difference,
             tolerance
         ));

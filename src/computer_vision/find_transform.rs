@@ -3,7 +3,7 @@ use nalgebra::{
 };
 use num_traits::real::Real;
 use parry3d::math::Point as ParryPoint;
-
+use parry3d::query::distance;
 
 /// Tetrahedron is standing on the bottom vertex. The top 3 vertices form a plane parallel to XY
 /// (while Z = const = 0). They make equilateral triangle. Green vertex belongs to Y
@@ -11,12 +11,14 @@ use parry3d::math::Point as ParryPoint;
 /// "Blue" has the smaller X coordinate than "Green".
 pub fn compute_tetrahedron_geometry(
     bond_length: f32,
-) -> (ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>) {
-    let base_height = 0.0; // The algorithm works with centroid of top apexexs as origin
-    let sqrt_1_2 = (1.0_f32 / 2.0).sqrt(); // Used for base triangle geometry
-    let base_radius_xy = bond_length * sqrt_1_2; // Distance from centroid to any base vertex in XY plane
+) -> (ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>, ParryPoint<f32>) {
+    // Base lies on the XY plane (yellow bubble goes down into negative coordinates)
+    let base_height = 0.0; 
 
-    // Define base vertices
+    // Distance from centroid to any base vertex in XY
+    let base_radius_xy = bond_length * (1.0_f32 / 2.0).sqrt(); 
+
+    // Define base (top) vertices
     let green = ParryPoint::new(
         0.0,
         base_radius_xy, // First vertex along the X-axis
@@ -25,11 +27,23 @@ pub fn compute_tetrahedron_geometry(
 
     let rb_y_offset = -base_radius_xy / 2.0;
     let rb_x_offset = (0.75_f32).sqrt() * base_radius_xy;
-    
     let blue = ParryPoint::new(-rb_x_offset, rb_y_offset, base_height);
     let red = ParryPoint::new(rb_x_offset, rb_y_offset, base_height);
 
-    (red, green, blue)
+    // Compute centroid of red, green, blue
+    let centroid_x = (red.x + green.x + blue.x) / 3.0;
+    let centroid_y = (red.y + green.y + blue.y) / 3.0;
+    
+    let dx = red.x - green.x;
+    let dy = red.y - green.y;
+    let edge = (dx * dx + dy * dy).sqrt();
+
+    // Height from centroid of top triangle to bottom vertex (yellow vertex)
+    let yellow_z =  -(edge * 6.0_f32.sqrt()) / 3.0;
+    // Compute yellow vertex
+    let yellow = ParryPoint::new(centroid_x, centroid_y, yellow_z);
+
+    (red, green, blue, yellow)
 }
 
 pub fn base_height(bond_length: f32) -> f32 {
@@ -52,15 +66,17 @@ pub fn base_height(bond_length: f32) -> f32 {
 /// Returns:
 /// transform that includes translation and rotation, and may also include scaling.
 pub fn find_transform(
-    red_ref: ParryPoint<f32>,   // Reference Red point
-    green_ref: ParryPoint<f32>, // Reference Green point
-    blue_ref: ParryPoint<f32>,  // Reference Blue point
-    red_obs: ParryPoint<f32>,   // Observed Red point
-    green_obs: ParryPoint<f32>, // Observed Green point
-    blue_obs: ParryPoint<f32>,  // Observed Blue point
+    red_ref: ParryPoint<f32>,   
+    green_ref: ParryPoint<f32>, 
+    blue_ref: ParryPoint<f32>,  
+    yellow_ref: ParryPoint<f32>,
+    red_obs: ParryPoint<f32>,   
+    green_obs: ParryPoint<f32>, 
+    blue_obs: ParryPoint<f32>,  
+    yellow_obs: ParryPoint<f32>
 ) -> Transform3<f32> {
     let (scaling, translation, rotation) =
-        compute_transform_components(red_obs, green_obs, blue_obs, red_ref, green_ref, blue_ref);
+        compute_transform_components(red_obs, green_obs, blue_obs, yellow_obs, red_ref, green_ref, blue_ref, yellow_ref);
     create_transform(scaling, rotation, translation)
 }
 
@@ -117,12 +133,14 @@ fn _compute_transform_components(
 /// - `translation` (Translation3<f32>): Translation vector aligning triangle centroids.
 /// - `rotation` (Rotation3<f32>): Rotation matrix aligning the observed triangle to the reference.
 fn compute_transform_components(
-    red_ref: ParryPoint<f32>,   // Reference Red point
-    green_ref: ParryPoint<f32>, // Reference Green point
-    blue_ref: ParryPoint<f32>,  // Reference Blue point
-    red_obs: ParryPoint<f32>,   // Observed Red point
-    green_obs: ParryPoint<f32>, // Observed Green point
-    blue_obs: ParryPoint<f32>,  // Observed Blue point
+    red_ref: ParryPoint<f32>,  
+    green_ref: ParryPoint<f32>,
+    blue_ref: ParryPoint<f32>, 
+    yellow_ref: ParryPoint<f32>,
+    red_obs: ParryPoint<f32>,  
+    green_obs: ParryPoint<f32>,
+    blue_obs: ParryPoint<f32>, 
+    yellow_obs: ParryPoint<f32>
 ) -> (f32, Translation3<f32>, Rotation3<f32>) {
     // STEP 1: Compute centroids
     let centroid_ref = Point3::new(
@@ -245,26 +263,46 @@ mod tests {
         let bond_length = 1.0;
 
         // Call the function
-        let (red, green, blue) = compute_tetrahedron_geometry(bond_length);
+        let (red, green, blue, yellow) = compute_tetrahedron_geometry(bond_length);
 
-        // Check that all points have the same z-coordinate
+        // Check that all base vertices have the same z-coordinate
         assert_abs_diff_eq!(red.z, green.z, epsilon = 1e-6);
         assert_abs_diff_eq!(green.z, blue.z, epsilon = 1e-6);
         assert_abs_diff_eq!(blue.z, red.z, epsilon = 1e-6);
-        
-        // Check this is consistent with our base_height function
-        // assert_abs_diff_eq!(red.z, base_height(bond_length), epsilon = 1e-6);        
+
+        // Check that the z-coordinate for the base corresponds with 0.0
         assert_abs_diff_eq!(red.z, 0.0, epsilon = 1e-6);
 
-        // Calculate distances between each pair
+        // Function to calculate distance between two points
+        fn distance(a: &ParryPoint<f32>, b: &ParryPoint<f32>) -> f32 {
+            ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+        }
+
+        // Calculate pairwise distances between red, green, and blue points
         let red_green_dist = distance(&red, &green);
         let red_blue_dist = distance(&red, &blue);
         let blue_green_dist = distance(&blue, &green);
 
-        // Check that the distances form an equilateral triangle
+        // Check that the base triangle forms an equilateral triangle
         assert_abs_diff_eq!(red_green_dist, blue_green_dist, epsilon = 1e-6);
         assert_abs_diff_eq!(red_blue_dist, blue_green_dist, epsilon = 1e-6);
         assert_abs_diff_eq!(red_blue_dist, red_green_dist, epsilon = 1e-6);
+
+        // Extract the side length (all edges of the tetrahedron must be equal)
+        let side = red_green_dist;
+
+        // Calculate distances from the yellow point to red, green, and blue points
+        let yellow_red_dist = distance(&yellow, &red);
+        let yellow_green_dist = distance(&yellow, &green);
+        let yellow_blue_dist = distance(&yellow, &blue);
+
+        // Check that the distances from yellow to all base vertices are equal to the tetrahedron's side length
+        assert_abs_diff_eq!(yellow_red_dist, side, epsilon = 1e-6);
+        assert_abs_diff_eq!(yellow_green_dist, side, epsilon = 1e-6);
+        assert_abs_diff_eq!(yellow_blue_dist, side, epsilon = 1e-6);
+
+        // Verify yellow ball is below others
+        assert!(red.z > yellow.z);
     }
 
     #[test]

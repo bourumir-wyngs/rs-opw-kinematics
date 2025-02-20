@@ -111,6 +111,7 @@ mod tests {
     static PROJECTOR: Projector = Projector {
         check_points: 24, // Defined number of normals to check
         radius: 0.02,     // Radius, defined as PROJECTOR_RADIUS
+        check_points_required: 20
     };
 
     /// Project rectanglar mesh rolled into cylinder, on the surface of sphere.
