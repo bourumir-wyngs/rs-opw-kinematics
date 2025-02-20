@@ -22,6 +22,7 @@ use crate::organized_point::OrganizedPoint;
 use parry3d::math::Point;
 use std::collections::HashMap;
 use Classification::{Core, Edge, Noise};
+use crate::projector::Axis;
 
 /// Classification according to the DBSCAN algorithm
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -41,8 +42,35 @@ pub enum Classification {
 /// * `min_points` - minimum number of datapoints to make a cluster
 /// * `input` - datapoints
 pub fn cluster(eps: f32, min_points: usize, input: &Vec<OrganizedPoint>) -> Vec<Classification> {
-    Model::new(eps, min_points).run(input)
+    ClusteringModel::new(eps, min_points).find_clusters(input)
 }
+
+/// Rund DBSSCAN clustering and selects the object closest to the Y axis (most direct
+/// in the sight of the camera)
+pub fn closest_centered_object(
+    points: &Vec<OrganizedPoint>,
+    r: f32,
+    min_points: usize,
+    center_on_axis: Axis
+) -> Vec<OrganizedPoint> {
+    let clusters = ClusteringModel::new(r, min_points).find_clusters(points);
+    let mut stats = cluster_stats(&clusters, points);
+
+    // Take the object closest to the Y axis.
+    stats.sort_by(|a, b| {
+        center_on_axis.take(&a.center)
+            .abs()
+            .partial_cmp(&b.center.y.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(stats) = stats.first() {
+        stats.points(&clusters, points)
+    } else {
+        Vec::new()
+    }
+}
+
 
 pub struct ClusterStats {
     pub id: u8,
@@ -102,7 +130,7 @@ impl ClusterStats {
 }
 
 /// DBSCAN parameters
-pub struct Model {
+pub struct ClusteringModel {
     /// Epsilon value - maximum distance between points in a cluster
     pub eps_squared: f32,
     /// Minimum number of points in a cluster
@@ -112,14 +140,14 @@ pub struct Model {
     v: Vec<bool>,
 }
 
-impl Model {
+impl ClusteringModel {
     /// Create a new `Model` with a set of parameters
     ///
     /// # Arguments
     /// * `eps` - maximum distance between datapoints within a cluster
     /// * `min_points` - minimum number of datapoints to make a cluster
-    pub fn new(eps: f32, min_points: usize) -> Model {
-        Model {
+    pub fn new(eps: f32, min_points: usize) -> ClusteringModel {
+        ClusteringModel {
             eps_squared: eps * eps,
             min_points: min_points,
             c: Vec::new(),
@@ -186,7 +214,7 @@ impl Model {
     /// # Arguments
     /// * `population` - a matrix of datapoints, organized by rows
     ///
-    pub fn run(mut self, population: &Vec<OrganizedPoint>) -> Vec<Classification> {
+    pub fn find_clusters(mut self, population: &Vec<OrganizedPoint>) -> Vec<Classification> {
         self.c = vec![Noise; population.len()];
         self.v = vec![false; population.len()];
 

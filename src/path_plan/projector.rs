@@ -92,6 +92,7 @@ impl Axis {
         }
     }
 
+    /// Recturn Vector3:x(), y() or z()
     pub fn vector(&self) -> Vector3<f32> {
         match self {
             Axis::X => Vector3::x(),
@@ -100,11 +101,22 @@ impl Axis {
         }
     }
 
+    /// Return 2D value of the other two coordinates, the coordinate denoted by 
+    /// the axis discarded
     pub fn flatten(&self, x: f32, y: f32, z: f32) -> (f32, f32) {
         match self {
             Axis::X => (y, z),
             Axis::Y => (x, z),
             Axis::Z => (x, y),
+        }
+    }
+    
+    /// Take the coordinate from the point matching this axis.
+    pub fn take(&self, point: &ParryPoint<f32>) -> f32 {
+        match self {
+            Axis::X => point.x,
+            Axis::Y => point.y,
+            Axis::Z => point.z,
         }
     }
 }

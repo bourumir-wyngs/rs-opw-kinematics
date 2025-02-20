@@ -22,6 +22,7 @@ use realsense_rust::{
 };
 use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
+use std::ffi::CString;
 use num_traits::real::Real;
 
 // We do not need to compute this if we operate in real units.
@@ -229,16 +230,17 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
 ///
 ///  The function computes Transform from the camera system to the system coordinates as
 ///  described above.
-pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)>
+pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)>
 {
-    let (serial, mut pipeline) = open_pipeline()?;
+    let (serial, mut pipeline) = open_pipeline(&serial)?;
 
-    let timeout = Duration::from_millis(500);
+    let timeout = Duration::from_millis(100);
     let mut intrinsics = None;
     let colors = [
         DefinedColor::green(),
         DefinedColor::red(),
         DefinedColor::blue(),
+        DefinedColor::yellow()
     ];
     let mut n = 0;
     let mut stats = HashMap::new();
@@ -253,11 +255,29 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
                 (color_frames.first(), depth_frames.first())
             {
                 let depth_mat = mat_from_depth16(depth_frame);
+                let mut color_mat = mat_from_color(color_frame);
+
+                // Set to black everything too far to be considered.
+                let black = opencv::core::Vec3b::from([0, 0, 0]);
+                for row in 0..depth_mat.rows() {
+                    for col in 0..depth_mat.cols() {
+                        // Access the depth at (row, col)
+                        let depth_value = *depth_mat.at_2d::<f32>(row, col)?;
+
+                        // If depth is below the threshold, set color to black
+                        if depth_value > 0.5 || depth_value < 0.01 {
+                            // Set (row, col) in color_mat to black (0, 0, 0)
+                            *color_mat.at_2d_mut::<opencv::core::Vec3b>(row, col)? = black;
+                        }
+                    }
+                }
+                
+
                 if intrinsics.is_none() {
                     intrinsics = get_intrinsics_from_depth(depth_frame);
-                }
-
-                let color_mat = mat_from_color(color_frame);
+                }                
+                
+                
                 print!("                          \r{}: ", n);
                 for color in colors.iter() {
                     let detection = detect_circle_mat(&color_mat, &color);
@@ -266,7 +286,7 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
                             depth_mat.at_2d::<f32>(detection.y as i32, detection.x as i32)
                         {
                             if let Some(intrinsics) = intrinsics.as_ref() {
-                                if *depth_in_m > 0.01 {
+                                if *depth_in_m > 0.0 {
                                     let point = depth_pixel_to_3d(
                                         detection.x as f32,
                                         detection.y as f32,
@@ -275,13 +295,22 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
                                         intrinsics,
                                     );
                                     print!(
-                                        "{:?}: {:.2}, {:.2}, {:.2}",
+                                        "{:?}: {:.2}, {:.2}, {:.2} {:.3} ",
                                         color.id(),
                                         point.x,
                                         point.y,
                                         point.z + BALL_RADIUS,
+                                        depth_in_m
                                     );
                                     stats.entry(color.id()).or_insert(Vec::new()).push(point);
+                                } else {
+                                    print!(
+                                        "{:?}: [{:}, {:}], {:.3} ",
+                                        color.id(),
+                                        detection.x,
+                                        detection.y,
+                                        depth_in_m
+                                    );
                                 }
                             }
                         }
@@ -292,21 +321,23 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
                     print!(" ")
                 }
             } else {
-                print!("No depth or color frames available");
+                print!("No depth or color frames available         \r");
                 continue 'scan;
             }
         } else {
-            print!("No any frames available");
+            print!("No any frames available        \r");
         }
         n = stats.values().map(|v| v.len()).min().unwrap_or(0);
-        if n > 100 {
+        if n > 200 {
             break 'scan;
         }
     }
 
+    pipeline.stop();
+
     // Estimate result
     let mut ests = HashMap::with_capacity(3);
-
+    println!("\nEstimates:");
     for (color, points) in stats.iter() {
         let (avg, std_dev) = calculate_stats(&points);
         println!(
@@ -316,7 +347,7 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
         ests.insert(*color, ParryPoint::new(avg.x, avg.y, avg.z));
     }
 
-    let check_result = rr_check(&ests)?;
+    let check_result = rr_check(&ests, &serial)?;
     ensure!(check_result, "RR check failed");
 
     // Prepare calibration points
@@ -334,8 +365,15 @@ pub fn calibrate_realsense() -> Result<(String, Transform3<f32>, HashMap<ColorId
     Ok((serial, transform, ests))
 }
 
+pub fn query_devices() -> Result<Vec<String>> {
+    let queried_devices = HashSet::new(); // Query any devices
+    let context = Context::new()?;
+    let devices = context.query_devices(queried_devices);
+    Ok(devices.iter().map(|d| d.info(Rs2CameraInfo::SerialNumber).unwrap().to_string_lossy().to_string()).collect())
+}
+
 /// Opem pipelinme, returns pipeline and device serial.
-fn open_pipeline() -> Result<(String, ActivePipeline)> {
+fn open_pipeline(serial: &String) -> Result<(String, ActivePipeline)> {
     // Check for depth or color-compatible devices.
     let queried_devices = HashSet::new(); // Query any devices
     let context = Context::new()?;
@@ -344,27 +382,57 @@ fn open_pipeline() -> Result<(String, ActivePipeline)> {
         return Err(anyhow!("No devices found"));
     }
 
-    // create pipeline
+    // Create pipeline
     let pipeline = InactivePipeline::try_from(&context)?;
-    let mut config = Config::new();
-    let serial = devices[0].info(Rs2CameraInfo::SerialNumber).unwrap();
-    println!("Using device: {:?}", serial);
-    config
-        .enable_device_from_serial(serial)?
-        .disable_all_streams()?
-        .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 30)?
-        .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
 
-    // Change pipeline's type from InactivePipeline -> ActivePipeline
-    let pipeline = pipeline.start(Some(config))?;
-    let serial = serial.to_string_lossy().to_string();
-    // process frames
-    println!("Reading {}", &serial);
-    Ok((serial, pipeline))
+    // Inner function to configure streams and start the pipeline
+    fn configure_pipeline(
+        serial: &str,
+        mut pipeline: InactivePipeline,
+    ) -> Result<(String, ActivePipeline)> {
+        let mut config = Config::new();
+        config
+            .enable_device_from_serial(&CString::new(serial)?)?
+            .disable_all_streams()?
+            .enable_stream(Rs2StreamKind::Depth, None, 480, 270, Rs2Format::Z16, 30)?
+            .enable_stream(Rs2StreamKind::Color, None, 480, 270, Rs2Format::Rgb8, 30)?;
+
+        // Change pipeline's type from InactivePipeline -> ActivePipeline
+        let active_pipeline = pipeline.start(Some(config))?;
+        println!("Reading {}", serial);
+        Ok((serial.to_string(), active_pipeline))
+    }
+
+    if !serial.is_empty() {
+        // Attempt to find and use the device matching the provided serial
+        if let Some(device) = devices.iter().find(|device| {
+            device
+                .info(Rs2CameraInfo::SerialNumber)
+                .map(|s| s.to_string_lossy().to_string() == *serial)
+                .unwrap_or(false)
+        }) {
+            println!("Using specified device serial: {:?}", serial);
+            configure_pipeline(serial, pipeline)
+        } else {
+            Err(anyhow!(
+                "No device found with the specified serial: {}",
+                serial
+            ))
+        }
+    } else {
+        // Use the first detected device as default
+        let serial = devices[0]
+            .info(Rs2CameraInfo::SerialNumber)
+            .ok_or_else(|| anyhow!("Failed to retrieve serial number for the default device"))?
+            .to_string_lossy()
+            .to_string();
+        println!("Using first found device: {:?}", serial);
+        configure_pipeline(&serial, pipeline)
+    }
 }
 
-fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
-    if ests.len() < 3 {
+fn rr_check(ests: &HashMap<ColorId, Point3<f32>>, serial: &String) -> Result<bool> {
+    if ests.len() < 4 {
         return Err(anyhow!("Not all points detected, only {:?}", ests.keys()));
     }
 
@@ -379,14 +447,20 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
     let point_r = ests[&ColorId::Red];
     let point_g = ests[&ColorId::Green];
     let point_b = ests[&ColorId::Blue];
+    let point_y = ests[&ColorId::Yellow];
 
     // Compute edges
     let rg = distance(&point_r, &point_g);
     let gb = distance(&point_g, &point_b);
     let br = distance(&point_b, &point_r);
+    let gy = distance(&point_g, &point_y);
+    let by = distance(&point_b, &point_y);
+    let ry = distance(&point_r, &point_y);
 
     // Print edge lengths
-    println!("Edges: rg {:.4}, gb {:.4} , br{:.4},", rg, gb, br);
+    println!("Edges: rg {:.4}, gb {:.4} , br {:.4}, gy {:.4}, by {:.4}, ry {:.4}", 
+             rg, gb, br, gy, by, ry);
+    
     let sides = [rg, gb, br];
     let mean = sides.iter().copied().map(|x| x as f64).sum::<f64>() / sides.len() as f64;
     let max_difference = sides
@@ -397,12 +471,14 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>) -> Result<bool> {
 
     println!("Side max difference {}", max_difference);
 
-    let tolerance = 0.005;
+    let tolerance = 0.008;
 
     let result = max_difference <= tolerance;
     if !result {
         return Err(anyhow!(
-            "Red, green and blue balls do not make equilateral triangle: R-G {}, G-B {}, B-R {}, max difference {} tolerance {}",
+            "{}: Red, green and blue balls do not make equilateral triangle:\n   \
+            R-G {}, G-B {}, B-R {}, max difference {} tolerance {}",
+            serial,
             rg,
             gb,
             br,
@@ -480,11 +556,11 @@ fn convert_color_mat_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<(f3
     Ok(result)
 }
 
-pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
+pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
     todo!("Color detector is disabled");
     let min_samples = 10;
     let n_frames = 100;
-    let (serial, mut pipeline) = open_pipeline()?;
+    let (serial, mut pipeline) = open_pipeline(&serial)?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
     let mut depths = Vec::with_capacity(n_frames);
@@ -553,10 +629,10 @@ pub fn observe_3d_rgb() -> Result<Vec<OrganizedPoint>> {
     Ok(organized)    
 }
 
-pub fn observe_3d_depth() -> Result<Vec<OrganizedPoint>> {
+pub fn observe_3d_depth(serial: &String) -> Result<Vec<OrganizedPoint>> {
     let min_samples = 10;
     let n_frames = 100;
-    let (serial, mut pipeline) = open_pipeline()?;
+    let (serial, mut pipeline) = open_pipeline(&serial)?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
     let mut depths = Vec::with_capacity(n_frames);

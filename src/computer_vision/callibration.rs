@@ -9,7 +9,7 @@ const MAX_RADIUS: usize = 60;
 
 pub const BASIC_MULTIPLIER: usize = 100;
 pub const MIN_BRIGHTNESS: usize = 80;
-pub const IS_MATHING_MIN_THR: u16 = (BASIC_MULTIPLIER as u16 * 300) /(100+300+100); // 200;
+pub const IS_MATHING_MIN_THR: u16 = 10;
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 /// Represents a detected circle in an image.
@@ -38,7 +38,9 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
             let mut local = vec![[0u16; 2 * MAX_RADIUS + 1]; width as usize];
 
             for x in 0..width as usize {
-                if mask[y as usize][x] > IS_MATHING_MIN_THR {
+                let v = mask[y as usize][x];
+                // Values > IS_MATHING_MIN_THR are counted, with difference above making the score
+                if v > IS_MATHING_MIN_THR {
                     // Highly likely part of a circle
                     let x_float = x as f32;
                     for angle in (0..360).step_by(2) {
@@ -48,7 +50,7 @@ fn process_mask(mask: &Vec<Vec<u16>>) -> HashMap<(i16, i16), u16> {
                             let circle_x = (x_float + r * sin_theta) as isize;
                             let circle_y = (y_float + r * cos_theta) as isize;
                             if (0..width).contains(&circle_x) && (0..height).contains(&circle_y) {
-                                local[circle_x as usize][local_y(y, circle_y)] += 1; // width first
+                                local[circle_x as usize][local_y(y, circle_y)] += (v - IS_MATHING_MIN_THR); // width first
                             }
                         }
                     }

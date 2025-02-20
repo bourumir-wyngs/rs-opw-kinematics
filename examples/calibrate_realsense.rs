@@ -1,19 +1,17 @@
-use rs_cxx_ros2_opw_bridge::sender::Sender;
-
-use anyhow::{anyhow, ensure, Result};
+use anyhow::Result;
 use nalgebra::Point3;
 use parry3d::bounding_volume::Aabb;
 use parry3d::math::Point;
-use parry3d::query::distance;
-use rs_opw_kinematics::annotations::AnnotatedPose;
-use rs_opw_kinematics::colors::{ColorId, DefinedColor};
+use rs_opw_kinematics::colors::ColorId;
 use rs_opw_kinematics::find_transform::{base_height, compute_tetrahedron_geometry};
-use rs_opw_kinematics::realsense::{calibrate_realsense, observe_3d_depth};
+use rs_opw_kinematics::organized_point::{
+    filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint,
+};
+use rs_opw_kinematics::realsense::{calibrate_realsense, observe_3d_depth, query_devices};
+use rs_opw_kinematics::ros_bridge::RosSender;
 use rs_opw_kinematics::transform_io::transform_to_json;
 use std::fs::File;
 use std::io::Write;
-use std::thread::sleep;
-use rs_opw_kinematics::organized_point::{filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint};
 
 /// Write a vector of points to a PLY file compatible with MeshLab
 fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()> {
@@ -37,17 +35,32 @@ fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()
 }
 
 pub fn main() -> anyhow::Result<()> {
-    let (serial, transform, ests) = calibrate_realsense()?;
+    let devices = query_devices()?;
+    println!("{:?}", devices);
+    for serial in devices {
+        println!("**** Calibrating {} ****", serial);
+        match callibrate(&serial) {
+            Ok(_) => println!("********** Calibration of {} SUCCESSFUL **********", serial),
+            Err(e) => println!("********** Calibration of {} FAILED: {} **********", serial, e),
+        }
+        //return Ok(());
+    }    
+    Ok(())
+}
+
+fn callibrate(serial: &String) -> Result<()> {
+    let sender = RosSender::default();
+    let (serial, transform, ests) = calibrate_realsense(&serial)?;
     println!("{:?}", transform);
 
     // Save to file
     let json_data = transform_to_json(&serial, &transform);
 
     // Write the JSON string to the specified file
-    let mut file = File::create("../calibration_ok2.json")?;
+    let mut file = File::create(format!("calibrations/{}.json", serial))?;
     file.write_all(json_data.as_bytes())?;
 
-    let points = observe_3d_depth()?;
+    let points = observe_3d_depth(&serial)?;
 
     let aabb = Aabb::new(
         Point::new(-0.1, -1.0, 0.0), // Min bounds
@@ -78,68 +91,26 @@ pub fn main() -> anyhow::Result<()> {
     let base_height = base_height(bond);
     let t_centroid = Point3::new(t_centroid_c.x, t_centroid_c.y, t_centroid_c.z - base_height);
 
-    //send_cloud(&unfiltered_points, (200, 0, 0), 0.01);
-    //send_cloud(&filtered_points, (200, 200, 200), 0.01);
-    send_cloud(&transformed_points, (200, 200, 00), 0.5)?;
-    send_cloud(&vec![red], (255, 0, 0), 1.0)?;
-    send_cloud(&vec![green], (0, 128, 0), 1.0)?;
-    send_cloud(&vec![blue], (0, 0, 255), 1.0)?;
-    send_cloud(&vec![centroid], (255, 255, 255), 1.0)?;
-    //send_cloud(&vec![t_centroid], (255, 255, 0), 0.5);
+    if false {
+        //sender.points(&unfiltered_points, (200, 0, 0), 0.01);
+        //sender.points(&filtered_points, (200, 200, 200), 0.01);
+        sender.points(&transformed_points, (200, 200, 00), 0.5)?;
+        sender.points(&vec![red], (255, 0, 0), 1.0)?;
+        sender.points(&vec![green], (0, 128, 0), 1.0)?;
+        sender.points(&vec![blue], (0, 0, 255), 1.0)?;
+        sender.points(&vec![centroid], (255, 255, 255), 1.0)?;
+        //sender.points(&vec![t_centroid], (255, 255, 0), 0.5);
 
-    let (rred, rgreen, rblue) =  compute_tetrahedron_geometry(bond);
-    send_cloud(&vec![rred, rgreen, rblue], (255, 255, 0), 0.2)?;
+        let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
+        sender.points(&vec![rred, rgreen, rblue], (255, 255, 0), 0.2)?;
 
-    send_cloud(
-        &vec![
-            transform.transform_point(&red),
-        ],
-        (255, 0, 0),
-        1.0,
-    )?;
+        sender.points(&vec![transform.transform_point(&red)], (255, 0, 0), 1.0)?;
 
-    send_cloud(
-        &vec![
-            transform.transform_point(&green),
-        ],
-        (0, 200, 0),
-        1.0,
-    )?;
+        sender.points(&vec![transform.transform_point(&green)], (0, 200, 0), 1.0)?;
 
-    send_cloud(
-        &vec![
-            transform.transform_point(&blue),
-        ],
-        (0, 0, 255),
-        1.0,
-    )?;
-    send_cloud(
-        &vec![
-            t_centroid_c
-        ],
-        (255, 255, 255),
-        1.0,
-    )?;
-
-    Ok(())
-}
-
-fn send_cloud(points: &Vec<Point<f32>>, color: (i32, i32, i32), transparency: f32) -> Result<()> {
-    let sender = Sender::new("127.0.0.1", 5555);
-    let points: Vec<(f32, f32, f32)> = points.iter().map(|p| (p.x, p.y, p.z)).collect();
-    match sender.send_point_cloud_message(
-        &points,
-        &Vec::new(),
-        (color.0 as u8, color.1 as u8, color.2 as u8),
-        transparency,
-    ) {
-        Ok(_) => {
-            println!("Pose message sent successfully.");
-        }
-        Err(err) => {
-            eprintln!("Failed to send pose message: {}", err);
-        }
+        sender.points(&vec![transform.transform_point(&blue)], (0, 0, 255), 1.0)?;
+        sender.points(&vec![t_centroid_c], (255, 255, 255), 1.0)?;
     }
-    sleep(std::time::Duration::from_millis(200));
+
     Ok(())
 }

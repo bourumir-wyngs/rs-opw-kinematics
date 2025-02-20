@@ -196,6 +196,14 @@ pub mod plane;
 #[path = "computer_vision/largest_rectangle.rs"]
 pub mod largest_rectangle;
 
+#[cfg(feature = "vision")]
+#[path = "computer_vision/color_classifier.rs"]
+pub mod color_classifier;
+
+
+
+pub mod ros_bridge;
+
 
 
 

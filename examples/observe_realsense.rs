@@ -1,122 +1,44 @@
 use rs_cxx_ros2_opw_bridge::sender::Sender;
+use std::fmt::format;
 
-use anyhow::Result;
-use bevy::render::render_resource::encase::private::RuntimeSizedArray;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+use nalgebra::Isometry3;
 use parry3d::bounding_volume::Aabb;
 use parry3d::math::Point;
 use parry3d::shape::TriMesh;
 use rs_opw_kinematics::annotations::AnnotatedPose;
-use rs_opw_kinematics::dbscan_r::{cluster_stats, Model};
+use rs_opw_kinematics::dbscan_r::closest_centered_object;
 use rs_opw_kinematics::engraving::{generate_raster_points, project_flat_to_rect_on_mesh};
 use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
+use rs_opw_kinematics::largest_rectangle::largest_rectangle;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
-use rs_opw_kinematics::organized_point::{filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint};
+use rs_opw_kinematics::organized_point::{
+    filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint,
+};
+use rs_opw_kinematics::plane_builder::PlaneBuilder;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
-use rs_opw_kinematics::realsense::{observe_3d_depth, observe_3d_rgb};
+use rs_opw_kinematics::realsense::{observe_3d_depth, observe_3d_rgb, query_devices};
 use rs_opw_kinematics::rect_builder::RectangleEstimator;
+use rs_opw_kinematics::ros_bridge::RosSender;
 use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
-use std::thread::sleep;
-use bevy::utils::default;
-use rs_opw_kinematics::largest_rectangle::largest_rectangle;
-use rs_opw_kinematics::plane_builder::PlaneBuilder;
-
-/// Function to filter points that belong to a given AABB
-
-
-fn best_object_dbscan(
-    points: &Vec<OrganizedPoint>,
-    r: f32,
-    min_points: usize,
-) -> Vec<OrganizedPoint> {
-    let now = std::time::Instant::now();
-    let model = Model::new(r, min_points);
-    let output = model.run(points);
-    let output_len = output.len();
-    let c;
-    let mut stats = cluster_stats(&output, points);
-
-    // Take the object closest to the X axis.
-    stats.sort_by(|a, b| {
-        a.center
-            .y
-            .abs()
-            .partial_cmp(&b.center.y.abs())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    if let Some(stats) = stats.first() {
-        c = stats.points(&output, points);
-    } else {
-        c = Vec::new();
-    }
-
-    println!(
-        "dbscan {:?} cluster size {} -> {}",
-        now.elapsed(),
-        output_len,
-        points.len()
-    );
-    c
-}
-
-fn send_cloud(
-    points: &Vec<OrganizedPoint>,
-    color: (i32, i32, i32),
-    transparency: f32,
-) -> Result<()> {
-    let sender = Sender::new("127.0.0.1", 5555);
-    let points: Vec<(f32, f32, f32)> = points
-        .iter()
-        .map(|p| (p.point.x, p.point.y, p.point.z))
-        .collect();
-    match sender.send_point_cloud_message(
-        &points,
-        &vec![],
-        (color.0 as u8, color.1 as u8, color.2 as u8),
-        transparency,
-    ) {
-        Ok(_) => {
-            println!("Pose message sent successfully.");
-        }
-        Err(err) => {
-            eprintln!("Failed to send pose message: {}", err);
-        }
-    }
-    sleep(std::time::Duration::from_millis(200));
-    Ok(())
-}
-
-fn send_mesh(mesh: &TriMesh, color: (i32, i32, i32), transparency: f32) -> Result<()> {
-    let sender = Sender::new("127.0.0.1", 5555);
-    let points: Vec<(f32, f32, f32)> = mesh.vertices().iter().map(|p| (p.x, p.y, p.z)).collect();
-    let triangles = mesh
-        .indices()
-        .iter()
-        .map(|t| (t[0] as u32, t[1] as u32, t[2] as u32))
-        .collect();
-
-    match sender.send_point_cloud_message(
-        &points,
-        &triangles,
-        (color.0 as u8, color.1 as u8, color.2 as u8),
-        transparency,
-    ) {
-        Ok(_) => {
-            println!("Pose message sent successfully.");
-        }
-        Err(err) => {
-            eprintln!("Failed to send pose message: {}", err);
-        }
-    }
-    sleep(std::time::Duration::from_millis(200));
-    Ok(())
-}
 
 pub fn main() -> anyhow::Result<()> {
-    let file_path = "calibration_ok.json";
+    let devices = query_devices()?;
+    println!("{:?}", devices);
+    for serial in devices {
+        println!("**** Reading from {} ****", serial);
+        match observe(&serial) {
+            Ok(_) => println!("Reading from {} successful", serial),
+            Err(e) => println!("Reading from {} failed: {}", serial, e),
+        }
+    }
+    Ok(())
+}
+
+pub fn observe(serial: &String) -> anyhow::Result<()> {
+    let sender = RosSender::default();
+    let file_path = format!("calibrations/{}.json", serial);
     let mut file = File::open(file_path)?;
     let mut json_str = String::new();
     file.read_to_string(&mut json_str)?;
@@ -124,15 +46,15 @@ pub fn main() -> anyhow::Result<()> {
     // Convert JSON string to a Transform3
     let transform = transform_io::json_to_transform(&json_str);
 
-    let points = observe_3d_depth()?;
+    let points = observe_3d_depth(&serial)?;
 
     let aabb = Aabb::new(
-        Point::new(-0.05, -0.2, 0.035), // Min bounds
-        Point::new(0.3, 0.25, 1.0),     // Max bounds
+        Point::new(-0.1, -0.1, 0.0), // Min bounds
+        Point::new(0.1, 0.1, 0.3),     // Max bounds
     );
 
-    let aabb = Aabb::new(
-        Point::new(-1., -1., 0.035), // Min bounds
+    let _aabb = Aabb::new(
+        Point::new(-1., -1., 0.0), // Min bounds
         Point::new(1., 1., 1.0),     // Max bounds
     );
 
@@ -152,7 +74,7 @@ pub fn main() -> anyhow::Result<()> {
 
     let filtered_points = filter_points_in_aabb(&transformed_points, &aabb);
     let unfiltered_points = filter_points_not_in_aabb(&transformed_points, &aabb);
-    let linfa = best_object_dbscan(&filtered_points, 0.03, 20);
+    let linfa = closest_centered_object(&filtered_points, 0.03, 20, Axis::Y);
 
     println!(
         "Observed {}, filtered {}, unfiltered {}, linfa {} points",
@@ -163,13 +85,13 @@ pub fn main() -> anyhow::Result<()> {
     );
 
     let bond = 0.032 + 2.0 * 0.01;
-    send_cloud(&linfa, (255, 255, 0), 0.2)?;
-    send_cloud(&filtered_points, (200, 200, 200), 0.5)?;
-    send_cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
+    sender.cloud(&linfa, (255, 255, 0), 0.2)?;
+    sender.cloud(&filtered_points, (200, 200, 200), 0.5)?;
+    sender.cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
     let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
 
-    send_cloud(
+    sender.cloud(
         &vec![
             OrganizedPoint::from_point(rred),
             OrganizedPoint::from_point(rgreen),
@@ -198,17 +120,19 @@ pub fn main() -> anyhow::Result<()> {
 
     // build a plane from these points
     let plane_builder = PlaneBuilder {
-        ..default()
+        ..PlaneBuilder::default()
     };
-    
-    let plane = plane_builder.build_plane(&rectangle_points, 0.003).expect("Failed to build plane");
+
+    let plane = plane_builder
+        .build_plane(&rectangle_points, 0.003)
+        .expect("Failed to build plane");
     let plane_points = plane.filter(&linfa, 0.006);
     let flattened = plane.flatten(&plane_points);
     //send_cloud(&flattened, (0, 10, 255), 0.2)?;
 
     println!("Largest rectangle:");
     let largest_rect = largest_rectangle(&flattened);
-    
+
     // Second iteration - fit rectangle again
     let rectangle_points_2 = RectangleEstimator::ransac_rectangle_fitting(
         &flattened,
@@ -221,55 +145,57 @@ pub fn main() -> anyhow::Result<()> {
     //send_cloud(&plane_points, (0, 0, 255), 1.0)?;
     //send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
 
-    let mesh = if largest_rect.len() > rectangle_points_2.len()  {
-        construct_parry_trimesh(largest_rect)
-    } else {
-        construct_parry_trimesh(rectangle_points_2)
-    };
-
-    //let mesh = construct_parry_trimesh(rectangle_points_2);
-    //let mesh = construct_parry_trimesh(largest_rect.clone());
-
-
-    send_mesh(&mesh, (0, 128, 128), 0.8)?;
-
-    if true {
-        let projector = Projector {
-            check_points: 64,
-            check_points_required: 60,
-            radius: 0.0025,
+    let mesh;
+    let rect_available = largest_rect.len() > 3;
+    if rect_available {
+        mesh = if largest_rect.len() > rectangle_points_2.len() {
+            construct_parry_trimesh(largest_rect)
+        } else {
+            construct_parry_trimesh(rectangle_points_2)
         };
 
-        let path = generate_raster_points(20, 20);
-        if false {
-            let a = 0_f32.to_radians();
-            let b = 180_f32.to_radians();
+        //let mesh = construct_parry_trimesh(rectangle_points_2);
+        //let mesh = construct_parry_trimesh(largest_rect.clone());
 
-            if let Ok(stroke) =
-                projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)
-            {
-                let sender = Sender::new("127.0.0.1", 5555);
-                sender.send_pose_message(&filter_valid_poses(&stroke))?;
+        sender.mesh(&mesh, (0, 128, 128), 0.8)?;
+
+        if false {
+            let projector = Projector {
+                check_points: 64,
+                check_points_required: 60,
+                radius: 0.0025,
+            };
+
+            let path = generate_raster_points(20, 20);
+            if false {
+                let a = 0_f32.to_radians();
+                let b = 180_f32.to_radians();
+
+                if let Ok(stroke) =
+                    projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)
+                {
+                    let sender = Sender::new("127.0.0.1", 5555);
+                    sender.send_pose_message(&filter_valid_poses(&stroke))?;
+                } else {
+                    println!("Projection failed.");
+                }
             } else {
-                println!("Projection failed.");
-            }
-        } else {
-            // flat projection
-            if let Ok(stroke) = projector.project_flat_path_fitted(
-                &mesh,
-                &path,
-                Axis::X,
-                RayDirection::FromNegative,
-            ) {
-                println!("Projection succeeded, {} poses.", stroke.len());
-                let sender = Sender::new("127.0.0.1", 5555);
-                sender.send_pose_message(&filter_valid_poses(&stroke))?;
-            } else {
-                println!("Projection failed.");
+                // flat projection
+                if let Ok(stroke) = projector.project_flat_path_fitted(
+                    &mesh,
+                    &path,
+                    Axis::X,
+                    RayDirection::FromNegative,
+                ) {
+                    println!("Projection succeeded, {} poses.", stroke.len());
+                    let sender = Sender::new("127.0.0.1", 5555);
+                    sender.send_pose_message(&filter_valid_poses(&stroke))?;
+                } else {
+                    println!("Projection failed.");
+                }
             }
         }
     }
-    
 
     Ok(())
 }
