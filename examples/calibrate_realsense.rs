@@ -78,8 +78,9 @@ fn callibrate(serial: &String) -> Result<()> {
     let red = ests[&ColorId::Red];
     let green = ests[&ColorId::Green];
     let blue = ests[&ColorId::Blue];
+    let yellow = ests[&ColorId::Yellow];
 
-    let centroid = Point3::new(
+    let upper_centroid = Point3::new(
         (red.x + green.x + blue.x) / 3.0,
         (red.y + green.y + blue.y) / 3.0,
         (red.z + green.z + blue.z) / 3.0,
@@ -87,7 +88,7 @@ fn callibrate(serial: &String) -> Result<()> {
 
     // This is at the height of the color bubble plane
     let bond = 0.032 + 2.0 * 0.01;
-    let t_centroid_c = transform.transform_point(&centroid.into());
+    let t_centroid_c = transform.transform_point(&upper_centroid.into());
     let base_height = base_height(bond);
     let t_centroid = Point3::new(t_centroid_c.x, t_centroid_c.y, t_centroid_c.z - base_height);
 
@@ -98,17 +99,19 @@ fn callibrate(serial: &String) -> Result<()> {
         sender.points(&vec![red], (255, 0, 0), 1.0)?;
         sender.points(&vec![green], (0, 128, 0), 1.0)?;
         sender.points(&vec![blue], (0, 0, 255), 1.0)?;
-        sender.points(&vec![centroid], (255, 255, 255), 1.0)?;
+        sender.points(&vec![upper_centroid], (255, 255, 255), 1.0)?;
         //sender.points(&vec![t_centroid], (255, 255, 0), 0.5);
 
-        let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
-        sender.points(&vec![rred, rgreen, rblue], (255, 255, 0), 0.2)?;
+        let (rred, rgreen, rblue, ryellow) = compute_tetrahedron_geometry(bond);
+        sender.points(&vec![rred, rgreen, rblue, ryellow], (255, 255, 0), 0.2)?;
 
         sender.points(&vec![transform.transform_point(&red)], (255, 0, 0), 1.0)?;
-
         sender.points(&vec![transform.transform_point(&green)], (0, 200, 0), 1.0)?;
-
         sender.points(&vec![transform.transform_point(&blue)], (0, 0, 255), 1.0)?;
+        sender.points(&vec![transform.transform_point(&yellow)], (255, 255, 0), 1.0)?;
+        
+        
+        
         sender.points(&vec![t_centroid_c], (255, 255, 255), 1.0)?;
     }
 
