@@ -1,9 +1,10 @@
+use anyhow::anyhow;
 use nalgebra::{
-    Isometry3, Matrix4, Point3, Rotation3, Transform3, Translation3, UnitQuaternion, Vector3,
+    Isometry3, Matrix4, Matrix3x4, Point3, Rotation3, Transform3, Translation3, UnitQuaternion, Vector3,
 };
 use num_traits::real::Real;
 use parry3d::math::Point as ParryPoint;
-use parry3d::query::distance;
+use anyhow::{Error, Result};
 
 /// Tetrahedron is standing on the bottom vertex. The top 3 vertices form a plane parallel to XY
 /// (while Z = const = 0). They make equilateral triangle. Green vertex belongs to Y
@@ -74,10 +75,15 @@ pub fn find_transform(
     green_obs: ParryPoint<f32>, 
     blue_obs: ParryPoint<f32>,  
     yellow_obs: ParryPoint<f32>
-) -> Transform3<f32> {
-    let (scaling, translation, rotation) =
-        compute_transform_components(red_obs, green_obs, blue_obs, yellow_obs, red_ref, green_ref, blue_ref, yellow_ref);
-    create_transform(scaling, rotation, translation)
+) -> Result<Transform3<f32>> {
+    // Propagate the result of compute_transform_components (cascading error messages)
+    let (scaling, translation, rotation) = compute_transform_components(
+        red_obs, green_obs, blue_obs, yellow_obs,
+        red_ref, green_ref, blue_ref, yellow_ref,
+    )?;
+
+    // If successful, construct and return the transformation
+    Ok(create_transform(scaling, rotation, translation))
 }
 
 fn create_transform(
@@ -133,117 +139,84 @@ fn _compute_transform_components(
 /// - `translation` (Translation3<f32>): Translation vector aligning triangle centroids.
 /// - `rotation` (Rotation3<f32>): Rotation matrix aligning the observed triangle to the reference.
 fn compute_transform_components(
-    red_ref: ParryPoint<f32>,  
-    green_ref: ParryPoint<f32>,
-    blue_ref: ParryPoint<f32>, 
-    yellow_ref: ParryPoint<f32>,
-    red_obs: ParryPoint<f32>,  
-    green_obs: ParryPoint<f32>,
-    blue_obs: ParryPoint<f32>, 
-    yellow_obs: ParryPoint<f32>
-) -> (f32, Translation3<f32>, Rotation3<f32>) {
-    // STEP 1: Compute centroids
-    let centroid_ref = Point3::new(
-        (red_ref.x + green_ref.x + blue_ref.x) / 3.0,
-        (red_ref.y + green_ref.y + blue_ref.y) / 3.0,
-        (red_ref.z + green_ref.z + blue_ref.z) / 3.0,
-    );
+    red_ref: Point3<f32>,
+    green_ref: Point3<f32>,
+    blue_ref: Point3<f32>,
+    yellow_ref: Point3<f32>,
+    red_obs: Point3<f32>,
+    green_obs: Point3<f32>,
+    blue_obs: Point3<f32>,
+    yellow_obs: Point3<f32>
+) -> Result<(f32, Translation3<f32>, Rotation3<f32>)> {
+    // Compute centroids using all four points
+    let centroid_ref_coords = (red_ref.coords + green_ref.coords + blue_ref.coords + yellow_ref.coords) / 4.0;
+    let centroid_ref = Point3::from(centroid_ref_coords);
 
-    let centroid_obs = Point3::new(
-        (red_obs.x + green_obs.x + blue_obs.x) / 3.0,
-        (red_obs.y + green_obs.y + blue_obs.y) / 3.0,
-        (red_obs.z + green_obs.z + blue_obs.z) / 3.0,
-    );
-    
-    println!("Centroid of the reference triangle: {:?}", centroid_ref);
+    let centroid_obs_coords = (red_obs.coords + green_obs.coords + blue_obs.coords + yellow_obs.coords) / 4.0;
+    let centroid_obs = Point3::from(centroid_obs_coords);
 
-    // STEP 2: Compute translation aligning centroids
-    let translation_vector = Vector3::new(
-        centroid_obs.x - centroid_ref.x,
-        centroid_obs.y - centroid_ref.y,
-        centroid_obs.z - centroid_ref.z,
-    );
+    // Compute translation
+    let translation_vector = centroid_obs.coords - centroid_ref.coords;
     let translation = Translation3::from(translation_vector);
 
-    // STEP 3: Normalize all points (translate so the centroid is at the origin)
-    let red_ref_norm = Vector3::new(
-        red_ref.x - centroid_ref.x,
-        red_ref.y - centroid_ref.y,
-        red_ref.z - centroid_ref.z,
-    );
-    let green_ref_norm = Vector3::new(
-        green_ref.x - centroid_ref.x,
-        green_ref.y - centroid_ref.y,
-        green_ref.z - centroid_ref.z,
-    );
-    let blue_ref_norm = Vector3::new(
-        blue_ref.x - centroid_ref.x,
-        blue_ref.y - centroid_ref.y,
-        blue_ref.z - centroid_ref.z,
-    );
+    // Normalize all points (translate to centroid)
+    let red_ref_norm = red_ref.coords - centroid_ref.coords;
+    let green_ref_norm = green_ref.coords - centroid_ref.coords;
+    let blue_ref_norm = blue_ref.coords - centroid_ref.coords;
+    let yellow_ref_norm = yellow_ref.coords - centroid_ref.coords;
 
-    let red_obs_norm = Vector3::new(
-        red_obs.x - centroid_obs.x,
-        red_obs.y - centroid_obs.y,
-        red_obs.z - centroid_obs.z,
-    );
-    let green_obs_norm = Vector3::new(
-        green_obs.x - centroid_obs.x,
-        green_obs.y - centroid_obs.y,
-        green_obs.z - centroid_obs.z,
-    );
-    let blue_obs_norm = Vector3::new(
-        blue_obs.x - centroid_obs.x,
-        blue_obs.y - centroid_obs.y,
-        blue_obs.z - centroid_obs.z,
-    );
+    let red_obs_norm = red_obs.coords - centroid_obs.coords;
+    let green_obs_norm = green_obs.coords - centroid_obs.coords;
+    let blue_obs_norm = blue_obs.coords - centroid_obs.coords;
+    let yellow_obs_norm = yellow_obs.coords - centroid_obs.coords;
 
-    // STEP 4: Compute scaling using redundancy (average edge length ratio)
-    let ref_edge_lengths = [
-        (red_ref_norm - green_ref_norm).norm(),
-        (green_ref_norm - blue_ref_norm).norm(),
-        (blue_ref_norm - red_ref_norm).norm(),
-    ];
+    // Create 3×4 matrices for SVD
+    let ref_matrix = Matrix3x4::from_columns(&[red_ref_norm, green_ref_norm, blue_ref_norm, yellow_ref_norm]);
+    let obs_matrix = Matrix3x4::from_columns(&[red_obs_norm, green_obs_norm, blue_obs_norm, yellow_obs_norm]);
 
-    let obs_edge_lengths = [
-        (red_obs_norm - green_obs_norm).norm(),
-        (green_obs_norm - blue_obs_norm).norm(),
-        (blue_obs_norm - red_obs_norm).norm(),
-    ];
-
-    let avg_ref_edge = ref_edge_lengths.iter().copied().sum::<f32>() / 3.0;
-    let avg_obs_edge = obs_edge_lengths.iter().copied().sum::<f32>() / 3.0;
-
-    let scaling = avg_obs_edge / avg_ref_edge;
-
-    // STEP 5: Compute rotation using centroid-aligned points (Procrustes with redundancy)
-    use nalgebra::Matrix3;
-
-    // Create matrix representations from decomposed points
-    let ref_matrix = Matrix3::from_columns(&[red_ref_norm, green_ref_norm, blue_ref_norm]);
-    let obs_matrix = Matrix3::from_columns(&[red_obs_norm, green_obs_norm, blue_obs_norm]);
-
-    // Rotation: SVD-based approach
+    // Compute SVD
     let svd = (obs_matrix * ref_matrix.transpose()).svd(true, true);
-    let u = svd.u.unwrap(); // Left singular vectors
-    let v_t = svd.v_t.unwrap(); // Right singular vectors
-    let rotation_matrix = u * v_t;
+    if let (Some(u), Some(v_t)) = (svd.u, svd.v_t) {
+        // Compute rotation
+        let mut rotation_matrix = u * v_t;
 
-    // Ensure it's a proper orthogonal rotation (determinant = 1, no reflection)
-    let det = rotation_matrix.determinant();
-    println!("Determinant of the rotation matrix: {}", det);
-    // Determinant must stay negative to have assumed orientation
-    let rotation_matrix = if (u * v_t).determinant() > 0.0 {
-        let mut u_fixed = u.clone();
-        u_fixed.column_mut(2).neg_mut(); // Flip the sign of the last column
-        u_fixed * v_t
+        // Ensure a proper rotation (no reflection)
+        if rotation_matrix.determinant() < 0.0 {
+            let mut u_fixed = u.clone();
+            u_fixed.column_mut(2).neg_mut(); // Flip the last column
+            rotation_matrix = u_fixed * v_t;
+        }
+
+        let rotation = Rotation3::from_matrix_unchecked(rotation_matrix);
+
+        // Compute scaling factor using all 6 edges
+        let ref_edge_lengths = [
+            (red_ref_norm - green_ref_norm).norm(),
+            (green_ref_norm - blue_ref_norm).norm(),
+            (blue_ref_norm - red_ref_norm).norm(),
+            (yellow_ref_norm - red_ref_norm).norm(),
+            (yellow_ref_norm - green_ref_norm).norm(),
+            (yellow_ref_norm - blue_ref_norm).norm(),
+        ];
+
+        let obs_edge_lengths = [
+            (red_obs_norm - green_obs_norm).norm(),
+            (green_obs_norm - blue_obs_norm).norm(),
+            (blue_obs_norm - red_obs_norm).norm(),
+            (yellow_obs_norm - red_obs_norm).norm(),
+            (yellow_obs_norm - green_obs_norm).norm(),
+            (yellow_obs_norm - blue_obs_norm).norm(),
+        ];
+
+        let avg_ref_edge = ref_edge_lengths.iter().copied().sum::<f32>() / 6.0;
+        let avg_obs_edge = obs_edge_lengths.iter().copied().sum::<f32>() / 6.0;
+
+        let scaling = avg_obs_edge / avg_ref_edge;
+
+        Ok((scaling, translation, rotation))
     } else {
-        u * v_t
-    };
-    let rotation = Rotation3::from_matrix_unchecked(rotation_matrix);
-    //let rotation = UnitQuaternion::identity().to_rotation_matrix();
-
-    (scaling, translation, rotation)
+        Err(anyhow!("Failed to compute calibration matrix by SVD."))
+    }
 }
 
 #[cfg(test)]

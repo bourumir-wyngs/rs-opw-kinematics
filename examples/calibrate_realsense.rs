@@ -36,15 +36,36 @@ fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()
 
 pub fn main() -> anyhow::Result<()> {
     let devices = query_devices()?;
+    let max_attempts = 4;
     println!("{:?}", devices);
     for serial in devices {
         println!("**** Calibrating {} ****", serial);
-        match callibrate(&serial) {
-            Ok(_) => println!("********** Calibration of {} SUCCESSFUL **********", serial),
-            Err(e) => println!("********** Calibration of {} FAILED: {} **********", serial, e),
+        let mut attempt = 1;
+        loop {
+            match callibrate(&serial) {
+                Ok(_) => {
+                    println!("********** Calibration of {} SUCCESSFUL **********", serial);
+                    break;
+                }
+                Err(e) => {
+                    println!(
+                        "********** Calibration of {} FAILED: {} **********",
+                        serial, e
+                    );
+                    attempt = attempt + 1;
+                    if attempt > max_attempts {
+                        println!("********** FAILED all {} attempts **********", max_attempts);
+                        return Err(anyhow::anyhow!("Calibration of {} failed", serial));
+                    } else {
+                        println!(
+                            "********** Retrying {} attempt {} out of {} **********",
+                            serial, attempt, max_attempts
+                        );
+                    }
+                }
+            }
         }
-        //return Ok(());
-    }    
+    }
     Ok(())
 }
 
@@ -108,10 +129,12 @@ fn callibrate(serial: &String) -> Result<()> {
         sender.points(&vec![transform.transform_point(&red)], (255, 0, 0), 1.0)?;
         sender.points(&vec![transform.transform_point(&green)], (0, 200, 0), 1.0)?;
         sender.points(&vec![transform.transform_point(&blue)], (0, 0, 255), 1.0)?;
-        sender.points(&vec![transform.transform_point(&yellow)], (255, 255, 0), 1.0)?;
-        
-        
-        
+        sender.points(
+            &vec![transform.transform_point(&yellow)],
+            (255, 255, 0),
+            1.0,
+        )?;
+
         sender.points(&vec![t_centroid_c], (255, 255, 255), 1.0)?;
     }
 

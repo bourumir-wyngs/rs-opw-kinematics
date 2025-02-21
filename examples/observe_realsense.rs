@@ -89,13 +89,14 @@ pub fn observe(serial: &String) -> anyhow::Result<()> {
     sender.cloud(&filtered_points, (200, 200, 200), 0.5)?;
     sender.cloud(&unfiltered_points, (200, 0, 0), 0.2)?;
 
-    let (rred, rgreen, rblue) = compute_tetrahedron_geometry(bond);
+    let (rred, rgreen, rblue, ryellow) = compute_tetrahedron_geometry(bond);
 
     sender.cloud(
         &vec![
             OrganizedPoint::from_point(rred),
             OrganizedPoint::from_point(rgreen),
             OrganizedPoint::from_point(rblue),
+            OrganizedPoint::from_point(ryellow),
         ],
         (0, 255, 0),
         0.5,

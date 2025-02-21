@@ -363,7 +363,7 @@ pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, 
 
     println!("Transform: {:?}", transform);
 
-    Ok((serial, transform, ests))
+    Ok((serial, transform?, ests))
 }
 
 pub fn query_devices() -> Result<Vec<String>> {
