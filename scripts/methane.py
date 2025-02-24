@@ -1,3 +1,19 @@
+
+# Create Methane on stand
+
+meters = 1000.0
+
+BALL_RADIUS= 0.01 * meters
+PLAIN_BOND = 0.032 * meters
+bond_diameter=0.004  * meters
+disk_radius=0.05 * meters
+disk_thickness=0.002  * meters
+
+hydrogen_radius = BALL_RADIUS
+carbon_radius = hydrogen_radius * 2/3
+bond_length = PLAIN_BOND + 2 * BALL_RADIUS  # Bond length from carbon to hydrogen
+
+
 import bpy
 import mathutils
 import math
@@ -37,18 +53,12 @@ def create_disk(radius, thickness, position, normal, name="Disk"):
     obj.rotation_quaternion = normal.to_track_quat('Z', 'Y')
     return obj
 
-def create_methane_with_stand(molecule_radius=1.0, bond_diameter=0.2, disk_radius=2.0, disk_thickness=0.2):
-    """
-    Creates a Methane (CH4) molecule with correct tetrahedral symmetry and a stand.
-    """
-    carbon_radius = molecule_radius * 0.5
-    hydrogen_radius = molecule_radius
+def create_methane_with_stand():
 
     # Create Carbon atom
     create_sphere(carbon_radius, (0, 0, 0), name="Carbon")
 
-    # Correct tetrahedral hydrogen positions
-    bond_length = molecule_radius * 2.5  # Bond length from carbon to hydrogen
+
     sqrt_3 = math.sqrt(3)
 
     hydrogen_positions = [
@@ -114,5 +124,5 @@ def export_methane_stl(filepath="methane_with_stand.stl"):
     print(f"Exported Methane model with stand to {filepath}")
 
 # Create and export the model
-create_methane_with_stand(molecule_radius=1.0, bond_diameter=0.2, disk_radius=2.0, disk_thickness=0.2)
+create_methane_with_stand()
 export_methane_stl("methane_with_stand.stl")  # Change path as needed
