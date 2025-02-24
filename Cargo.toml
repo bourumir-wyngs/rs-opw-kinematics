@@ -13,7 +13,7 @@ repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 readme = "README.md"
 
 [badges]
-maintenance = { status = "actively-developed" } 
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
@@ -54,7 +54,7 @@ bevy_egui = { version = "0.24", optional = true }
 # Needed for stroke planning
 bitflags = "2.6.0"
 
-rtt_honorable = { package="rrt", version = "0.7.0", optional = true }
+rtt_honorable = { package = "rrt", version = "0.7.0", optional = true }
 # Copyright 2017 Takashi Ogura Apache 2 license. This is _now integrated in the code (src/path_plan/rrt_to.rs)
 # as we needed changes there.  Dependencies for this code:
 kdtree = { version = "0.7", optional = true }
@@ -70,26 +70,24 @@ once_cell = "1.20.2"
 
 # Optional (computer vision)
 realsense-rust = "1.2.3"
-opencv = {version = "0.94.2", optional = true, default-features = true}
+opencv = { version = "0.94.2", optional = true, default-features = true }
 anyhow = "1.0.94"
 
 # dbscan integrated into source code tree with many changes made.
 # Original code is available from Michael Lazear, Ethan Rooke under MIT.
 # https://github.com/lazear/dbscan
-dbscan_honorable = { package="dbscan", version = "0.3", optional = true }
-ndarray = "0.16.1"
-marching-cubes = "0.1.2"
-csv = "1.3.1"
+dbscan_honorable = { package = "dbscan", version = "0.3", optional = true }
+csv = { version = "1.3.1", optional = true }
 
 
 [features]
-default = ["allow_filesystem", "collisions", "stroke_planning", "depth_field", "visualization","vision"]
+default = ["allow_filesystem", "collisions", "stroke_planning", "depth_field", "visualization", "vision"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["collisions", "kdtree", "num-traits", "tracing"]
 depth_field = ["stroke_planning"]
-vision = ["allow_filesystem", "opencv","arrsac","sample-consensus"]
+vision = ["allow_filesystem", "opencv", "arrsac", "sample-consensus", "csv"]
 
 
 

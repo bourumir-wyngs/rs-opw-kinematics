@@ -634,8 +634,8 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
 }
 
 pub fn observe_3d_depth(serial: &String) -> Result<Vec<OrganizedPoint>> {
-    let min_samples = 10;
-    let n_frames = 100;
+    let min_samples = 4;
+    let n_frames = 6;
     let (serial, mut pipeline) = open_pipeline(&serial)?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;

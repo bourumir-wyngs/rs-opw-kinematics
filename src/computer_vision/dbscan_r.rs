@@ -19,10 +19,11 @@
 //! Thanks to the rusty_machine implementation for inspiration
 
 use crate::organized_point::OrganizedPoint;
+use crate::projector::Axis;
 use parry3d::math::Point;
+use parry3d::query::distance;
 use std::collections::HashMap;
 use Classification::{Core, Edge, Noise};
-use crate::projector::Axis;
 
 /// Classification according to the DBSCAN algorithm
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -51,14 +52,15 @@ pub fn closest_centered_object(
     points: &Vec<OrganizedPoint>,
     r: f32,
     min_points: usize,
-    center_on_axis: Axis
+    center_on_axis: Axis,
 ) -> Vec<OrganizedPoint> {
     let clusters = ClusteringModel::new(r, min_points).find_clusters(points);
     let mut stats = cluster_stats(&clusters, points);
 
     // Take the object closest to the Y axis.
     stats.sort_by(|a, b| {
-        center_on_axis.take(&a.center)
+        center_on_axis
+            .take(&a.center)
             .abs()
             .partial_cmp(&b.center.y.abs())
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -71,6 +73,36 @@ pub fn closest_centered_object(
     }
 }
 
+/// Return the objects with average position closest to the specified point.
+pub fn closest_object(
+    points: &Vec<OrganizedPoint>,
+    r: f32,
+    min_points: usize,
+    closest_from: &Point<f32>,
+) -> Vec<OrganizedPoint> {
+    let point_distance = |a: &Point<f32>, b: &Point<f32>| {
+        let x = a.x - b.x;
+        let y = a.y - b.y;
+        let z = a.z - b.z;
+        x * x + y * y + z * z
+    };
+
+    let clusters = ClusteringModel::new(r, min_points).find_clusters(points);
+    let mut stats = cluster_stats(&clusters, points);
+
+    // Take the object closest to the provided origin point
+    stats.sort_by(|a, b| {
+        let r1 = point_distance(&a.center, &closest_from);
+        let r2 = point_distance(&b.center, &closest_from);
+        r1.partial_cmp(&r2).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(stats) = stats.first() {
+        stats.points(&clusters, points)
+    } else {
+        Vec::new()
+    }
+}
 
 pub struct ClusterStats {
     pub id: u8,

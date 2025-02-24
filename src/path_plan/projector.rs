@@ -8,6 +8,8 @@ use parry3d::shape::TriMesh;
 use std::f32::consts::PI;
 use std::ops::Range;
 
+use anyhow::{anyhow, ensure, Result};
+
 pub struct Projector {
     pub check_points: usize,
     pub check_points_required: usize,
@@ -342,14 +344,14 @@ impl Projector {
         height: Range<f32>,
         angle: Range<f32>,
         axis: Axis,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         use std::f32::consts::PI;
         // Validate inputs using range methods.
         if height.start >= height.end {
-            return Err("Invalid height range specified.".to_string());
+            return Err(anyhow!("Invalid height range specified."));
         }
         if angle.start < 0.0 || angle.end > 2.0 * PI {
-            return Err("Angle values must be in the range [0, 2π].".to_string());
+            return Err(anyhow!("Angle values must be in the range [0, 2π]."));
         }
 
         // Compute angle range directly using range-inclusive methods.
@@ -405,7 +407,7 @@ impl Projector {
         path: &Vec<AnnotatedPathStep>,
         angle: Range<f32>,
         axis: Axis,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         match axis {
             Axis::X => self.project_cylinder_path_centered_x(mesh, path, angle, axis),
             Axis::Y => self.project_cylinder_path_centered_y(mesh, path, angle, axis),
@@ -419,7 +421,7 @@ impl Projector {
         path: &Vec<AnnotatedPathStep>,
         angle: Range<f32>,
         axis: Axis,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         let aabb = mesh.qbvh().root_aabb();
         let height = aabb.mins.z + self.radius ..aabb.maxs.z - self.radius;
 
@@ -446,7 +448,7 @@ impl Projector {
         path: &Vec<AnnotatedPathStep>,
         angle: Range<f32>,
         axis: Axis,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         let aabb = mesh.qbvh().root_aabb();
         let height = aabb.mins.x + self.radius ..aabb.maxs.x - self.radius;
 
@@ -472,7 +474,7 @@ impl Projector {
         path: &Vec<AnnotatedPathStep>,
         angle: Range<f32>,
         axis: Axis,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         let aabb = mesh.qbvh().root_aabb();
         let height = aabb.mins.y + self.radius ..aabb.maxs.y - self.radius;
 
@@ -501,7 +503,7 @@ impl Projector {
         radius: f32,
         mesh: &TriMesh,
         center: &Isometry3<f32>,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         let mut mesh = mesh.clone();
         let uncenter = center.inverse().cast();
         mesh.transform_vertices(&center);
@@ -564,7 +566,7 @@ impl Projector {
         path: &Vec<AnnotatedPathStep>,
         axis: Axis,
         ray_direction: RayDirection,
-    ) -> Result<Vec<AnnotatedPose>, String> {
+    ) -> Result<Vec<AnnotatedPose>> {
         fn or_one(w: f32) -> f32 {
             if w == 0.0 {
                 1.0

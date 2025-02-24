@@ -1,11 +1,12 @@
 use crate::organized_point::OrganizedPoint;
 use nalgebra::{Matrix3, Point3, Vector3};
 use sample_consensus::Model;
+use crate::projector::Axis;
 
 // Represent a plane in 3D space
 #[derive(Clone, Copy, Debug)]
 pub struct Plane {
-    /// Nornam vector
+    /// Normal vector
     pub normal: Vector3<f32>,
     /// Distance from origin
     pub d: f32,
@@ -124,4 +125,29 @@ impl Plane {
             })
             .collect()
     }
+
+    pub fn most_perpendicular_axis(&self) -> Axis {
+        // Basis vectors for X, Y, and Z axes
+        let axis_x = Vector3::new(1.0, 0.0, 0.0);
+        let axis_y = Vector3::new(0.0, 1.0, 0.0);
+        let axis_z = Vector3::new(0.0, 0.0, 1.0);
+
+        // Compute the absolute values of dot products with each axis
+        let dot_x = self.normal.dot(&axis_x).abs();
+        let dot_y = self.normal.dot(&axis_y).abs();
+        let dot_z = self.normal.dot(&axis_z).abs();
+
+        // The axis with the smallest dot product is the most perpendicular.
+        let axis = if dot_x >= dot_y && dot_x >= dot_z {
+            Axis::X
+        } else if dot_y >= dot_x && dot_y >= dot_z {
+            Axis::Y
+        } else {
+            Axis::Z
+        };
+
+        println!("Most perpendicular axis: {:?}", axis);
+        axis
+    }
+    
 }
