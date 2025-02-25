@@ -8,6 +8,7 @@ pub enum ColorId {
     Green,
     Blue,
     Yellow,
+    Magenta,
     Other,
 }
 
@@ -20,6 +21,7 @@ impl fmt::Display for ColorId {
             ColorId::Green => write!(f, "Green"),
             ColorId::Blue => write!(f, "Blue"),
             ColorId::Yellow => write!(f, "Yellow"),
+            ColorId::Magenta => write!(f, "Magenta"),
             ColorId::Other => write!(f, "Other"),
         }
     }
@@ -33,6 +35,7 @@ pub enum DefinedColor {
     Green { id: ColorId },
     LightBlue { id: ColorId },
     Yellow { id: ColorId },
+    Magenta { id: ColorId },
 }
 
 impl DefinedColor {
@@ -53,6 +56,9 @@ impl DefinedColor {
             DefinedColor::Yellow { .. } => {
                 estimate_color_score(ColorId::Yellow, (r, g, b))                
             }
+            DefinedColor::Magenta { .. } => {
+                estimate_color_score(ColorId::Magenta, (r, g, b))
+            }            
         }
     }
 }
@@ -78,6 +84,10 @@ impl DefinedColor {
         DefinedColor::Yellow { id: ColorId::Yellow }
     }
 
+    pub fn magenta() -> Self {
+        DefinedColor::Magenta { id: ColorId::Magenta }
+    }    
+
     /// Retrieve the unique `ColorId` associated with the `DefinedColor`.
     pub fn id(&self) -> ColorId {
         match self {
@@ -85,6 +95,7 @@ impl DefinedColor {
             | DefinedColor::Green { id, .. }
             | DefinedColor::LightBlue { id, .. } 
             | DefinedColor::Yellow { id, .. }
+            | DefinedColor::Magenta { id, .. }
             => id.clone(),
         }
     }

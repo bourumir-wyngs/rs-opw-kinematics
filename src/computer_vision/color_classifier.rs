@@ -14,6 +14,7 @@ static COLOR_CLASSIFIER: Lazy<ColorClassifier> = Lazy::new(|| {
         "scripts/colors_green.csv",
         "scripts/colors_blue.csv",
         "scripts/colors_yellow.csv",
+        "scripts/colors_magenta.csv",
         "scripts/colors_metal.csv",
         "scripts/colors_other.csv",
         "scripts/colors_black.csv",
@@ -58,7 +59,8 @@ impl ColorClassifier {
                 "r" => ColorId::Red,
                 "g" => ColorId::Green,
                 "b" => ColorId::Blue,
-                "m" => ColorId::Blue, // Magenta is currenly synonym of blue
+                //"m" => ColorId::Magenta, 
+                "m" => ColorId::Blue, // magenta currently not in use, samples available look quite blue
                 "y" => ColorId::Yellow,
                 "x" => ColorId::Other,
                 _ => panic!("Invalid channel: {}", channel),

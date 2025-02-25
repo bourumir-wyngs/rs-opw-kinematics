@@ -2,11 +2,11 @@
 //! Mat and shows the frame's contents in an OpenCV Window
 
 use crate::colors::{ColorId, DefinedColor};
-use crate::computer_vision::detect_circle_mat;
+use crate::computer_vision::{detect_circle_mat, IS_MATHING_MIN_THR};
 use crate::find_transform::{compute_tetrahedron_geometry, find_transform};
 use crate::organized_point::OrganizedPoint;
 use anyhow::{anyhow, ensure, Result};
-use nalgebra::{Isometry3, Point3, Transform3};
+use nalgebra::{Isometry3, Point3, Transform3, Translation3};
 use opencv::{core, prelude::*};
 use parry3d::math::{Point as ParryPoint, Point};
 use realsense_rust::base::Rs2Intrinsics;
@@ -24,12 +24,19 @@ use std::collections::HashMap;
 use std::{collections::HashSet, convert::TryFrom, time::Duration};
 use std::ffi::CString;
 use num_traits::real::Real;
+use crate::plane_builder::PlaneBuilder;
+use crate::ros_bridge::RosSender;
 
 // We do not need to compute this if we operate in real units.
 const BALL_RADIUS: f32 = 0.01;
 
 // Plain bond length surface to surface.
 const PLAIN_BOND: f32 = 0.032;
+
+const BOND_LENGTH: f32 = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
+
+// Floor level with the calibration target in use.
+const FLOOR_LEVEL: f32 = BOND_LENGTH * 1.5;
 
 /// Converts a RealSense ColorFrame with BGR8 color to an
 /// OpenCV mat also with BGR8 color
@@ -40,7 +47,7 @@ fn mat_from_color(color_frame: &ColorFrame) -> core::Mat {
             color_frame.width() as i32,
             core::CV_8UC3,
         )
-        .unwrap()
+            .unwrap()
     };
 
     for (i, rs) in color_frame.iter().enumerate() {
@@ -64,7 +71,7 @@ fn mat_from_depth16(depth_frame: &DepthFrame) -> core::Mat {
             depth_frame.width() as i32,
             core::CV_32F,
         )
-        .unwrap()
+            .unwrap()
     };
 
     let depth_unit = depth_frame.depth_units().unwrap();
@@ -232,6 +239,8 @@ fn calculate_stats(points: &[ParryPoint<f32>]) -> (ParryPoint<f32>, ParryPoint<f
 ///  described above.
 pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, HashMap<ColorId, ParryPoint<f32>>)>
 {
+    let sender = RosSender::default();
+    
     let (serial, mut pipeline) = open_pipeline(&serial)?;
 
     let timeout = Duration::from_millis(100);
@@ -240,7 +249,7 @@ pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, 
         DefinedColor::green(),
         DefinedColor::red(),
         DefinedColor::blue(),
-        DefinedColor::yellow()
+        DefinedColor::yellow(),
     ];
     let mut n = 0;
     let mut stats = HashMap::new();
@@ -271,13 +280,13 @@ pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, 
                         }
                     }
                 }
-                
+
 
                 if intrinsics.is_none() {
                     intrinsics = get_intrinsics_from_depth(depth_frame);
-                }                
-                
-                
+                }
+
+
                 print!("                          \r{}: ", n);
                 for color in colors.iter() {
                     let detection = detect_circle_mat(&color_mat, &color);
@@ -357,13 +366,14 @@ pub fn calibrate_realsense(serial: &String) -> Result<(String, Transform3<f32>, 
     let yellow_obs = ests[&ColorId::Yellow];
 
     // Estimates for points path planner and RViz use
-    let bond = PLAIN_BOND + 2.0 * BALL_RADIUS; // 32 mm bond surface to survace, balls
-    let (red_ref, green_ref, blue_ref, yellow_ref) = compute_tetrahedron_geometry(bond);
-    let transform = find_transform(red_ref, green_ref, blue_ref, yellow_ref, red_obs, green_obs, blue_obs, yellow_obs);
+    let (red_ref, green_ref, blue_ref, yellow_ref) = compute_tetrahedron_geometry(BOND_LENGTH);
+    let transform = find_transform(red_ref, green_ref, blue_ref, yellow_ref, red_obs, green_obs, blue_obs, yellow_obs)?;
 
-    println!("Transform: {:?}", transform);
+    // Adjust zero to be the stand
+    let translation = Translation3::new(0.0, 0.0, FLOOR_LEVEL);
+    let transform = translation * transform;    
 
-    Ok((serial, transform?, ests))
+    Ok((serial, transform, ests))
 }
 
 pub fn query_devices() -> Result<Vec<String>> {
@@ -459,9 +469,9 @@ fn rr_check(ests: &HashMap<ColorId, Point3<f32>>, serial: &String) -> Result<boo
     let ry = distance(&point_r, &point_y);
 
     // Print edge lengths
-    println!("Edges: rg {:.4}, gb {:.4} , br {:.4}, gy {:.4}, by {:.4}, ry {:.4}", 
+    println!("Edges: rg {:.4}, gb {:.4} , br {:.4}, gy {:.4}, by {:.4}, ry {:.4}",
              rg, gb, br, gy, by, ry);
-    
+
     let sides = [rg, gb, br, gy, by, ry];
     let mean = sides.iter().copied().map(|x| x as f64).sum::<f64>() / sides.len() as f64;
     let max_difference = sides
@@ -548,7 +558,7 @@ fn convert_color_mat_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<(f3
             for color_mat in mats {
                 // Attempt to retrieve the value at (row, col)
                 if let Ok(color) = color_mat.at_2d::<opencv::core::Vec3b>(row, col) {
-                     sample_values.push( (color[0] as f32, color[1] as f32, color[2] as f32) );
+                    sample_values.push((color[0] as f32, color[1] as f32, color[2] as f32));
                 }
                 // If retrieval fails, simply skip this value
             }
@@ -571,7 +581,6 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
 
     'scan: loop {
         if let Ok(frames) = pipeline.wait(Some(timeout)) {
-
             let depth_frames = frames.frames_of_type::<DepthFrame>();
             if let Some(depth_frame) = depth_frames.first() {
                 if intrinsics.is_none() {
@@ -604,7 +613,7 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
     let rows = reference.rows() as usize;
     let cols = reference.cols() as usize;
     let nested_vectors = convert_mats_to_nested_vector(&depths)?;
-    let nested_colors = convert_color_mat_to_nested_vector(&colors)?;    
+    let nested_colors = convert_color_mat_to_nested_vector(&colors)?;
 
     // Borrow values immutably
     let nested_ref = &nested_vectors;
@@ -620,12 +629,12 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
                     let colors_at = &nested_colors_ref[row][col];
-                    let color = color_stats(&colors_at);                    
+                    let color = color_stats(&colors_at);
                     Some(OrganizedPoint {
                         point,
                         row,
                         col,
-                        color: [color[0] as u8, color[1] as u8, color[2] as u8]
+                        color: [color[0] as u8, color[1] as u8, color[2] as u8],
                     })
                 } else {
                     None
@@ -634,7 +643,7 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
         })
         .collect();
 
-    Ok(organized)    
+    Ok(organized)
 }
 
 pub fn observe_3d_depth(serial: &String) -> Result<Vec<OrganizedPoint>> {

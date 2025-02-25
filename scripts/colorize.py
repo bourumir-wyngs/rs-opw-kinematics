@@ -70,14 +70,16 @@ def plot_color_distribution(image_path, code, output_csv_path="colors.csv"):
 
 
 # Call the function and generate the CSV and plots
-plot_color_distribution("/home/audrius/opw/shots/color_red.png", "r", output_csv_path="colors_red.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_green.png", "g", output_csv_path="colors_green.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_blue.png", "b", output_csv_path="colors_blue.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_magenta.png", "m", output_csv_path="colors_magenta.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_yellow.png", "y", output_csv_path="colors_yellow.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_metal.png", "x", output_csv_path="colors_metal.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_other.png", "x", output_csv_path="colors_other.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_black.png", "x", output_csv_path="colors_black.csv")
-plot_color_distribution("/home/audrius/opw/shots/color_copper.png", "x", output_csv_path="colors_copper.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_red.png", "r", output_csv_path="colors_red.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_green.png", "g", output_csv_path="colors_green.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_blue.png", "b", output_csv_path="colors_blue.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_yellow.png", "y", output_csv_path="colors_yellow.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_metal.png", "x", output_csv_path="colors_metal.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_other.png", "x", output_csv_path="colors_other.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_black.png", "x", output_csv_path="colors_black.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_copper.png", "x", output_csv_path="colors_copper.csv")
+plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_magenta.png", "m", output_csv_path="colors_magenta.csv")
+#plot_color_distribution("/home/audrius/opw/rs-opw-kinematics-private/color_samples/color_magenta_s.png", "m", output_csv_path="colors_magenta_s.csv")
+
 
 input("Press Enter to continue...")

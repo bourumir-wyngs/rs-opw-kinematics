@@ -91,12 +91,12 @@ fn callibrate(serial: &String) -> Result<()> {
     let points = observe_3d_depth(&serial)?;
 
     let aabb = Aabb::new(
-        Point::new(-0.1, -1.0, 0.0), // Min bounds
-        Point::new(0.1, 0.1, 0.35),  // Max bounds
+        Point::new(-0.5, -0.5, 0.005), // Min bounds
+        Point::new(0.5, 0.5, 0.4),  // Max bounds
     );
 
     let filtered_points = filter_points_in_aabb(&points, &aabb);
-    let unfiltered_points = filter_points_not_in_aabb(&points, &aabb);
+    //let unfiltered_points = filter_points_not_in_aabb(&points, &aabb);
 
     let transformed_points: Vec<Point<f32>> = filtered_points
         .iter()
@@ -120,7 +120,7 @@ fn callibrate(serial: &String) -> Result<()> {
     let base_height = base_height(bond);
     let t_centroid = Point3::new(t_centroid_c.x, t_centroid_c.y, t_centroid_c.z - base_height);
 
-    if false {
+    if true {
         //sender.points(&unfiltered_points, (200, 0, 0), 0.01);
         //sender.points(&filtered_points, (200, 200, 200), 0.01);
         sender.points(&transformed_points, (200, 200, 00), 0.5)?;

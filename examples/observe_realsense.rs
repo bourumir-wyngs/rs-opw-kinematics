@@ -131,14 +131,15 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
     let transform = transform_io::json_to_transform(&json_str);
 
     let points: Vec<OrganizedPoint> = observe_3d_rgb(&serial)?;
-    let color_filtered: Vec<OrganizedPoint> = points.iter().cloned().filter(|p| 
+    
+    let color_filtered: Vec<&OrganizedPoint> = points.iter().filter(|p| 
         p.color[0] > 64 && p.color[1] > 64 && p.color[2] > 64    
     ).collect();
     //sender.cloud(&color_filtered, (0, 0, 255), 0.2)?;
 
     let aabb = Aabb::new(
-        Point::new(-0.1, -0.1, -0.07), // Min bounds
-        Point::new(0.1, 0.1, 0.3),   // Max bounds
+        Point::new(-0.3, -0.3, 0.02), // Min bounds
+        Point::new(0.3, 0.3, 0.3),   // Max bounds
     );
 
     let _aabb = Aabb::new(
@@ -152,7 +153,7 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
         .iter()
         .map(|point| OrganizedPoint {
             point: transform.transform_point(&point.point),
-            .. *point
+            .. **point
         })
         .collect();
 
