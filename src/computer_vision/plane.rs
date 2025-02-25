@@ -1,4 +1,5 @@
 use crate::organized_point::OrganizedPoint;
+use anyhow::Result;
 use nalgebra::{Matrix3, Point3, Vector3};
 use sample_consensus::Model;
 use crate::projector::Axis;
@@ -33,7 +34,7 @@ impl PartialEq for ProjectedPoint {
 impl Eq for ProjectedPoint {}
 
 impl Plane {
-    pub fn fit(points: &[OrganizedPoint]) -> Option<Plane> {
+    pub fn fit(points: &[OrganizedPoint]) -> Result<Plane> {
         let centroid = points
             .iter()
             .fold(Vector3::zeros(), |acc, p| acc + p.point.coords)
@@ -48,12 +49,12 @@ impl Plane {
         let svd = covariance_matrix.svd(true, true);
         if let Some(v_t) = svd.v_t {
             let normal = v_t.row(2).transpose();
-            Some(Plane {
+            Ok(Plane {
                 normal: normal.normalize(),
                 d: -normal.dot(&centroid),
             })
         } else {
-            None
+            Err(anyhow::anyhow!("SVD failed"))
         }
     }
 

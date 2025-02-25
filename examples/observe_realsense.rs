@@ -58,8 +58,7 @@ pub fn main() -> anyhow::Result<()> {
     let ransac_iterations = 10000;
 
     let plane = plane_builder
-        .build_plane(&cloud, 0.003)
-        .expect("Failed to build plane");
+        .build_plane(&cloud, 0.003)?;
     let plane_points = plane.filter(&cloud, 0.006);
     let flattened = plane.flatten(&plane_points);
     //send_cloud(&flattened, (0, 10, 255), 0.2)?;
@@ -131,10 +130,14 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
     // Convert JSON string to a Transform3
     let transform = transform_io::json_to_transform(&json_str);
 
-    let points = observe_3d_depth(&serial)?;
+    let points: Vec<OrganizedPoint> = observe_3d_rgb(&serial)?;
+    let color_filtered: Vec<OrganizedPoint> = points.iter().cloned().filter(|p| 
+        p.color[0] > 64 && p.color[1] > 64 && p.color[2] > 64    
+    ).collect();
+    //sender.cloud(&color_filtered, (0, 0, 255), 0.2)?;
 
     let aabb = Aabb::new(
-        Point::new(-0.1, -0.1, 0.0), // Min bounds
+        Point::new(-0.1, -0.1, -0.07), // Min bounds
         Point::new(0.1, 0.1, 0.3),   // Max bounds
     );
 
@@ -145,12 +148,11 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
 
     println!("Observed {} points", points.len());
 
-    let transformed_points: Vec<OrganizedPoint> = points
+    let transformed_points: Vec<OrganizedPoint> = color_filtered
         .iter()
         .map(|point| OrganizedPoint {
             point: transform.transform_point(&point.point),
-            row: point.row,
-            col: point.col,
+            .. *point
         })
         .collect();
 
@@ -168,6 +170,7 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
         unfiltered_points.len(),
         linfa.len()
     );
+    sender.cloud(&unfiltered_points, (255, 0, 0), 0.2)?;
 
     Ok(linfa)
 }

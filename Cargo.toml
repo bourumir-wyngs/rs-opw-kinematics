@@ -2,7 +2,7 @@
 name = "rs-opw-kinematics"
 version = "1.8.1"
 autoexamples = true
-edition = "2021"
+edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
 keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]

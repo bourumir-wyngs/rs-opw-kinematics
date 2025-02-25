@@ -41,7 +41,7 @@ impl RectangleEstimator {
         width: f32,
         height: f32,
     ) -> Vec<OrganizedPoint> {
-        if let Some(plane) = Plane::fit(points) {
+        if let Ok(plane) = Plane::fit(points) {
             let projected_points = plane.project(points); // Project points onto the plane
 
             let mut best_inliers: Vec<u32> = Vec::new();

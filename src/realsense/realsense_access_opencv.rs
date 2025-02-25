@@ -561,9 +561,8 @@ fn convert_color_mat_to_nested_vector(mats: &Vec<Mat>) -> Result<Vec<Vec<Vec<(f3
 }
 
 pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
-    todo!("Color detector is disabled");
     let min_samples = 10;
-    let n_frames = 100;
+    let n_frames = 12;
     let (serial, mut pipeline) = open_pipeline(&serial)?;
     let timeout = Duration::from_millis(500);
     let mut intrinsics = None;
@@ -621,8 +620,13 @@ pub fn observe_3d_rgb(serial: &String) -> Result<Vec<OrganizedPoint>> {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
                     let colors_at = &nested_colors_ref[row][col];
-                    let color = color_stats(&colors_at);
-                    Some(OrganizedPoint { point, row, col, /*color*/})
+                    let color = color_stats(&colors_at);                    
+                    Some(OrganizedPoint {
+                        point,
+                        row,
+                        col,
+                        color: [color[0] as u8, color[1] as u8, color[2] as u8]
+                    })
                 } else {
                     None
                 }
@@ -681,7 +685,7 @@ pub fn observe_3d_depth(serial: &String) -> Result<Vec<OrganizedPoint>> {
                 if nested_ref[row][col].len() >= min_samples {
                     let depth = scalar_stats(&nested_ref[row][col]).0;
                     let point = depth_pixel_to_3d(col as f32, row as f32, depth, intrinsics_ref);
-                    Some(OrganizedPoint { point, row, col, /*color: [0., 0., 0.,]*/ })
+                    Some(OrganizedPoint { point, row, col, color: [0, 0, 0] })
                 } else {
                     None
                 }

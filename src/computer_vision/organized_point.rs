@@ -10,7 +10,7 @@ pub struct OrganizedPoint {
     pub point: Point<f32>,
     pub row: usize,
     pub col: usize,
-    //pub color: [f32; 3],
+    pub color: [u8; 3],
 }
 
 impl OrganizedPoint {
@@ -19,7 +19,7 @@ impl OrganizedPoint {
             point: point_data,
             row: usize::MAX,
             col: usize::MAX,
-            //color: [0.0, 0.0, 0.0],
+            color: [0, 0, 0],
         }
     }
     

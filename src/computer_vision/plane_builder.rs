@@ -1,7 +1,7 @@
+use anyhow::{anyhow, Result};
 use arrsac::Arrsac;
-use sample_consensus::{Consensus, Estimator, Model};
-use nalgebra::{Point3, Vector3};
 use rand::thread_rng;
+use sample_consensus::{Consensus, Estimator, Model};
 
 use crate::organized_point::OrganizedPoint;
 use crate::plane::Plane;
@@ -104,14 +104,16 @@ impl Estimator<OrganizedPoint> for PlaneEstimator {
 }
 
 impl PlaneBuilder {
-
     pub fn build_plane(
         &self,
         points_to_fit: &Vec<OrganizedPoint>,
         max_distance_till_plane: f32,
-    ) -> Option<Plane> {
+    ) -> Result<Plane> {
         if points_to_fit.len() < 3 {
-            return None;
+            return Err(anyhow!(
+                "Not enough points to fit a plane. Need at least 3 points, got {}.",
+                points_to_fit.len()
+            ));
         }
 
         use rayon::prelude::*;
@@ -132,6 +134,10 @@ impl PlaneBuilder {
             })
             .max_by_key(|inliers| inliers.len()) // Find the set of inliers with the maximum length
             .unwrap_or_default(); // If no inliers are found, return an empty set
+        
+        if best_inliers.is_empty() {
+            return Err(anyhow!("No inliers found after {} iterations.", self.build_iterations));
+        }
 
         let filtered_vertices: Vec<_> = best_inliers.iter().map(|&i| points_to_fit[i]).collect();
         Plane::fit(&filtered_vertices)

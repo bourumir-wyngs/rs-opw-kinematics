@@ -37,7 +37,8 @@ fn write_point_cloud_to_ply(points: &[Point<f32>], file_path: &str) -> Result<()
 pub fn main() -> anyhow::Result<()> {
     let devices = query_devices()?;
     let max_attempts = 4;
-    println!("{:?}", devices);
+    let mut calibrated = 0;
+    let total = devices.len();
     for serial in devices {
         println!("**** Calibrating {} ****", serial);
         let mut attempt = 1;
@@ -45,6 +46,7 @@ pub fn main() -> anyhow::Result<()> {
             match callibrate(&serial) {
                 Ok(_) => {
                     println!("********** Calibration of {} SUCCESSFUL **********", serial);
+                    calibrated = calibrated + 1;
                     break;
                 }
                 Err(e) => {
@@ -65,6 +67,11 @@ pub fn main() -> anyhow::Result<()> {
                 }
             }
         }
+    }
+    if calibrated == total {
+        println!("********** Calibration of all {} devices successful **********", total);
+    } else {
+        println!("********** NOT ALL DEVICES OK: {}  out of {} **********", calibrated, total);
     }
     Ok(())
 }
