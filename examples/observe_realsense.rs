@@ -139,7 +139,7 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
 
     let aabb = Aabb::new(
         Point::new(-0.3, -0.3, 0.02), // Min bounds
-        Point::new(0.3, 0.3, 0.3),   // Max bounds
+        Point::new(0.3, 0.3, 0.5),   // Max bounds
     );
 
     let _aabb = Aabb::new(
