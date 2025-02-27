@@ -30,9 +30,9 @@ pub fn main() -> anyhow::Result<()> {
     let devices = query_devices()?;
     println!("{:?}", devices);
     let mut cloud = Vec::with_capacity(1000 * devices.len());
-    for serial in devices {
+    for (camera, serial) in devices.iter().enumerate() {
         println!("**** Reading from {} ****", serial);
-        match observe(&serial) {
+        match observe(&serial, camera as u8) {
             Ok(camera_points) => {
                 println!("Reading from {} successful", serial);
                 cloud.extend(camera_points);
@@ -82,36 +82,40 @@ pub fn main() -> anyhow::Result<()> {
     let rect_available = largest_rect.len() > 3;
     if rect_available {
         mesh = if largest_rect.len() > rectangle_points_2.len() {
-            construct_parry_trimesh(largest_rect)
+            construct_parry_trimesh(largest_rect, devices.len() as u8)
         } else {
-            construct_parry_trimesh(rectangle_points_2)
+            construct_parry_trimesh(rectangle_points_2, devices.len() as u8)
         };
 
-        //let mesh = construct_parry_trimesh(rectangle_points_2);
-        //let mesh = construct_parry_trimesh(largest_rect.clone());
+        if let Some(mesh) = mesh {
+            //let mesh = construct_parry_trimesh(rectangle_points_2);
+            //let mesh = construct_parry_trimesh(largest_rect.clone());
 
-        sender.mesh(&mesh, (0, 128, 128), 0.8)?;
+            sender.mesh(&mesh, (0, 128, 128), 0.8)?;
 
-        if true {
-            let projector = Projector {
-                check_points: 64,
-                check_points_required: 60,
-                radius: 0.0035,
-            };
+            if true {
+                let projector = Projector {
+                    check_points: 64,
+                    check_points_required: 60,
+                    radius: 0.0035,
+                };
 
-            let path = generate_raster_points(20, 20);
+                let path = generate_raster_points(20, 20);
 
-            let a = 0_f32.to_radians();
-            let b = 358_f32.to_radians();
+                let a = 0_f32.to_radians();
+                let b = 358_f32.to_radians();
 
-            //let stroke = projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)?;
-            let stroke = projector.project_flat_path_fitted(
-                &mesh,
-                &path,
-                plane.most_perpendicular_axis(),
-                RayDirection::FromPositive)?;
-            let sender = Sender::new("127.0.0.1", 5555);
-            sender.send_pose_message(&filter_valid_poses(&stroke))?;
+                //let stroke = projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)?;
+                let stroke = projector.project_flat_path_fitted(
+                    &mesh,
+                    &path,
+                    plane.most_perpendicular_axis(),
+                    RayDirection::FromPositive)?;
+                let sender = Sender::new("127.0.0.1", 5555);
+                sender.send_pose_message(&filter_valid_poses(&stroke))?;
+            }
+        } else {
+            println!("No mesh generated");
         }
 
         Ok(())
@@ -120,7 +124,7 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
+pub fn observe(serial: &String, camera: u8) -> anyhow::Result<Vec<OrganizedPoint>> {
     let sender = RosSender::default();
     let file_path = format!("calibrations/{}.json", serial);
     let mut file = File::open(file_path)?;
@@ -130,7 +134,7 @@ pub fn observe(serial: &String) -> anyhow::Result<Vec<OrganizedPoint>> {
     // Convert JSON string to a Transform3
     let transform = transform_io::json_to_transform(&json_str);
 
-    let points: Vec<OrganizedPoint> = observe_3d_rgb(&serial)?;
+    let points: Vec<OrganizedPoint> = observe_3d_rgb(&serial, camera)?;
     
     let color_filtered: Vec<&OrganizedPoint> = points.iter().filter(|p| 
         p.color[0] > 64 && p.color[1] > 64 && p.color[2] > 64    

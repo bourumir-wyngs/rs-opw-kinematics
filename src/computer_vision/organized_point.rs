@@ -11,6 +11,7 @@ pub struct OrganizedPoint {
     pub row: usize,
     pub col: usize,
     pub color: [u8; 3],
+    pub camera: u8
 }
 
 impl OrganizedPoint {
@@ -20,6 +21,7 @@ impl OrganizedPoint {
             row: usize::MAX,
             col: usize::MAX,
             color: [0, 0, 0],
+            camera: 0xFF
         }
     }
     

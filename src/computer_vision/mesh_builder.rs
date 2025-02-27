@@ -53,20 +53,69 @@ pub fn construct_parry_trimesh_sequential(points: Vec<OrganizedPoint>) -> TriMes
         }
     }
 
-    // Step 3: Construct the TriMesh
     TriMesh::new(vertices, indices)
 }
 
-pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
+pub const SINGLE_CAMERA: u8 = 0xff;
+
+/// Construct for cameras 0..camera_count
+pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>, camera_count: u8) -> Option<TriMesh> {
+    let meshes = (0..camera_count)
+        .filter_map(|camera| construct_parry_trimesh_for(&points, camera))
+        .collect::<Vec<_>>();
+    
+    let first = meshes.first().expect("No meshes");
+    
+
+    let mut mesh = None;
+    for camera in 0..camera_count {
+        if let Some(new_mesh) = construct_parry_trimesh_for(&points, camera) {
+            println!(
+                "Appending mesh for camera {}, {} vertices",
+                camera,
+                new_mesh.vertices().len()
+            ); 
+            if mesh.is_none() {
+                mesh = Some(new_mesh);
+            } else {
+                mesh.as_mut().unwrap().append(&new_mesh);
+            }
+        } else {
+            println!("No mesh for camera {}", camera);
+        }
+    }
+    mesh
+}
+
+/// Used when working with single camera.
+
+/// Construct for a specific camera (SINGLE_CAMERA constant can be passed). If points are from
+/// different cameras, mesh will not be built correctly.
+pub fn construct_parry_trimesh_for(
+    all_points: &Vec<OrganizedPoint>,
+    camera: u8,
+) -> Option<TriMesh> {
     use rayon::prelude::*;
+
+    // Filter only points relevant to the given camera.
+    let points = all_points
+        .iter()
+        .filter(|p| p.camera == camera || camera == SINGLE_CAMERA)
+        .collect::<Vec<_>>();
 
     // Step 1: Build the grid and vertices (sequential)
     let mut grid = HashMap::with_capacity(points.len());
     let mut vertices = Vec::with_capacity(points.len());
 
     for (index, point) in points.iter().enumerate() {
-        grid.insert((point.row as i32, point.col as i32), index as u32);
-        vertices.push(point.point);
+        if camera == SINGLE_CAMERA || point.camera == camera {
+            grid.insert((point.row as i32, point.col as i32), index as u32);
+            vertices.push(point.point);
+        }
+    }
+
+    if vertices.is_empty() {
+        return None;
     }
 
     let thread_triangle_vectors: Vec<Vec<[u32; 3]>> = points
@@ -81,7 +130,7 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
             // Current point
             let v = index as u32; // Current point is the `index`
 
-            // This will not work for the bottom edge row but there are one less gaps between 
+            // This will not work for the bottom edge row but there are one less gaps between
             // points than points, so all triangles will be generated.
             if let Some(&v_uf) = grid.get(&(row + 1, col + 1)) {
                 if let Some(&v_u) = grid.get(&(row + 1, col)) {
@@ -92,7 +141,7 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
                     local_triangles.push([v_f, v, v_uf]);
                 }
             } else {
-                // If v_uf not available, one triangle still can be made trough v_u and v_f. 
+                // If v_uf not available, one triangle still can be made trough v_u and v_f.
                 // Otherwise will not be any
                 if let (Some(&v_u), Some(&v_f)) =
                     (grid.get(&(row + 1, col)), grid.get(&(row, col + 1)))
@@ -105,5 +154,5 @@ pub fn construct_parry_trimesh(points: Vec<OrganizedPoint>) -> TriMesh {
         .collect();
 
     let indices: Vec<[u32; 3]> = thread_triangle_vectors.into_iter().flatten().collect();
-    TriMesh::new(vertices, indices)
+    Some(TriMesh::new(vertices, indices))
 }
