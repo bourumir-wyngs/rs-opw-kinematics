@@ -13,7 +13,7 @@ use rs_opw_kinematics::find_transform::compute_tetrahedron_geometry;
 use rs_opw_kinematics::largest_rectangle::largest_rectangle;
 use rs_opw_kinematics::mesh_builder::construct_parry_trimesh;
 use rs_opw_kinematics::organized_point::{
-    filter_points_in_aabb, filter_points_not_in_aabb, OrganizedPoint,
+    OrganizedPoint, filter_points_in_aabb, filter_points_not_in_aabb,
 };
 use rs_opw_kinematics::plane_builder::PlaneBuilder;
 use rs_opw_kinematics::projector::{Axis, Projector, RayDirection};
@@ -24,7 +24,8 @@ use rs_opw_kinematics::transform_io;
 use std::fs::File;
 use std::io::Read;
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{Result, anyhow, ensure};
+use parry3d::shape::ConvexPolyhedron;
 
 pub fn main() -> anyhow::Result<()> {
     let devices = query_devices()?;
@@ -57,17 +58,12 @@ pub fn main() -> anyhow::Result<()> {
     // Define the number of RANSAC iterations to try (e.g., 1000)
     let ransac_iterations = 10000;
 
-    let plane = plane_builder
-        .build_plane(&cloud, 0.003)?;
+    let plane = plane_builder.build_plane(&cloud, 0.003)?;
     let plane_points = plane.filter(&cloud, 0.006);
     let flattened = plane.flatten(&plane_points);
-    //send_cloud(&flattened, (0, 10, 255), 0.2)?;
-
-    println!("Largest rectangle:");
-    let largest_rect = largest_rectangle(&flattened);
 
     // Second iteration - fit rectangle again
-    let rectangle_points_2 = RectangleEstimator::ransac_rectangle_fitting(
+    let final_rectangle = RectangleEstimator::ransac_rectangle_fitting(
         &flattened,
         ransac_iterations,
         rectangle_width,
@@ -75,53 +71,51 @@ pub fn main() -> anyhow::Result<()> {
     );
 
     println!("Plane points: {}", plane_points.len());
-    //send_cloud(&plane_points, (0, 0, 255), 1.0)?;
-    //send_cloud(&rectangle_points_2, (0, 0, 255), 1.0)?;
 
-    let mesh;
-    let rect_available = largest_rect.len() > 3;
-    if rect_available {
-        mesh = if largest_rect.len() > rectangle_points_2.len() {
-            construct_parry_trimesh(largest_rect, devices.len() as u8)
-        } else {
-            construct_parry_trimesh(rectangle_points_2, devices.len() as u8)
-        };
+    let vertices = final_rectangle
+        .iter()
+        .map(|p| p.point)
+        .collect::<Vec<Point<f32>>>();
 
-        if let Some(mesh) = mesh {
-            //let mesh = construct_parry_trimesh(rectangle_points_2);
-            //let mesh = construct_parry_trimesh(largest_rect.clone());
-
-            sender.mesh(&mesh, (0, 128, 128), 0.8)?;
-
-            if true {
-                let projector = Projector {
-                    check_points: 64,
-                    check_points_required: 60,
-                    radius: 0.0035,
-                };
-
-                let path = generate_raster_points(20, 20);
-
-                let a = 0_f32.to_radians();
-                let b = 358_f32.to_radians();
-
-                //let stroke = projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)?;
-                let stroke = projector.project_flat_path_fitted(
-                    &mesh,
-                    &path,
-                    plane.most_perpendicular_axis(),
-                    RayDirection::FromPositive)?;
-                let sender = Sender::new("127.0.0.1", 5555);
-                sender.send_pose_message(&filter_valid_poses(&stroke))?;
-            }
-        } else {
-            println!("No mesh generated");
+    if let Some(hull) = ConvexPolyhedron::from_convex_hull(&vertices) {
+        let mut hull = hull.to_trimesh();
+        for triangle in hull.1.iter_mut() {
+            triangle.swap(1, 2); // Swap the second and third indices
         }
 
-        Ok(())
+        // Flip normals
+        let mesh = TriMesh::new(hull.0, hull.1);
+        
+
+        sender.mesh(&mesh, (0, 128, 128), 0.8)?;
+
+        if true {
+            let projector = Projector {
+                check_points: 64,
+                check_points_required: 60,
+                radius: 0.0035,
+            };
+
+            let path = generate_raster_points(20, 20);
+
+            let a = 0_f32.to_radians();
+            let b = 358_f32.to_radians();
+
+            //let stroke = projector.project_cylinder_path_centered(&mesh, &path, a..b, Axis::Z)?;
+            let stroke = projector.project_flat_path_fitted(
+                &mesh,
+                &path,
+                plane.most_perpendicular_axis(),
+                RayDirection::FromPositive,
+            )?;
+            let sender = Sender::new("127.0.0.1", 5555);
+            sender.send_pose_message(&filter_valid_poses(&stroke))?;
+        }
     } else {
         Err(anyhow::anyhow!("No meshes found"))?
     }
+
+    Ok(())
 }
 
 pub fn observe(serial: &String, camera: u8) -> anyhow::Result<Vec<OrganizedPoint>> {
@@ -135,15 +129,16 @@ pub fn observe(serial: &String, camera: u8) -> anyhow::Result<Vec<OrganizedPoint
     let transform = transform_io::json_to_transform(&json_str);
 
     let points: Vec<OrganizedPoint> = observe_3d_rgb(&serial, camera)?;
-    
-    let color_filtered: Vec<&OrganizedPoint> = points.iter().filter(|p| 
-        p.color[0] > 64 && p.color[1] > 64 && p.color[2] > 64    
-    ).collect();
+
+    let color_filtered: Vec<&OrganizedPoint> = points
+        .iter()
+        .filter(|p| p.color[0] > 64 && p.color[1] > 64 && p.color[2] > 64)
+        .collect();
     //sender.cloud(&color_filtered, (0, 0, 255), 0.2)?;
 
     let aabb = Aabb::new(
         Point::new(-0.3, -0.3, 0.02), // Min bounds
-        Point::new(0.3, 0.3, 0.5),   // Max bounds
+        Point::new(0.3, 0.3, 0.5),    // Max bounds
     );
 
     let _aabb = Aabb::new(
@@ -157,7 +152,7 @@ pub fn observe(serial: &String, camera: u8) -> anyhow::Result<Vec<OrganizedPoint
         .iter()
         .map(|point| OrganizedPoint {
             point: transform.transform_point(&point.point),
-            .. **point
+            ..**point
         })
         .collect();
 
