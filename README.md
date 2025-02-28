@@ -44,6 +44,43 @@ data for the test suite. This documentation also incorporates the robot diagram 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
 
+# Quick example
+
+Cargo.toml:
+
+```toml
+[dependencies]
+rs-opw-kinematics = ">=1.8.4, <2.0.0"
+```
+
+Simple "hello world" demonstrating singularity evasion would look more or less like this:
+
+```Rust
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
+use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
+
+fn main() {
+    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks.
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
+    println!("\nInitial joints with singularity J5 = 0: ");
+    dump_joints(&joints);
+
+    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
+    // Some previous pose for picking the best solution when infinite number of these exist.
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; 
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    dump_solutions(&solutions);
+}
+```
+
+The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
+enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
+integrating collision checking and both joint-based and Cartesian path planning with collision avoidance. 
+See example [complete_visible_robot](examples/constraints.rs).
+
 ## Parameters
 
 This library uses seven kinematic parameters (_a1, a2, b, c1, c2, c3_, and _c4_). This solver assumes that the arm is
@@ -502,42 +539,6 @@ highlighted.
 When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
 robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
 real-world robotic movement.
-
-# Example
-
-Cargo.toml:
-
-```toml
-[dependencies]
-rs-opw-kinematics = ">=1.8.2, <2.0.0"
-```
-
-Simple "hello world" demonstrating singularity evasion would look more or less like this:
-
-```Rust
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
-use rs_opw_kinematics::kinematics_impl::OPWKinematics;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
-
-fn main() {
-    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks.
-    let robot = OPWKinematics::new(Parameters::irb2400_10());
-    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
-    println!("\nInitial joints with singularity J5 = 0: ");
-    dump_joints(&joints);
-
-    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
-    // Some previous pose for picking the best solution when infinite number of these exist.
-    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; 
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
-    dump_solutions(&solutions);
-}
-```
-
-Starting from version 1.8.2, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
-enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
-and integrating collision checking. See example _complete_visible_robot_.
 
 
 # Configuring the solver for your robot
