@@ -224,7 +224,7 @@ Safety distances can be configured separately for robot-to-robot and robot-to-en
 Shorter distances can be specified for joints that naturally operate in proximity.
 
 The code below demonstrates how to create this structure, complete with tool,
-base and constraints (see also[example](examples/complete_visible_robot.rs).:
+base and constraints (see also [example](examples/complete_visible_robot.rs).:
 
 ```Rust
 use std::ops::RangeInclusive;
