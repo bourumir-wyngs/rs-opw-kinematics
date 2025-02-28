@@ -44,6 +44,43 @@ data for the test suite. This documentation also incorporates the robot diagram 
 The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
 robots tested.
 
+# Quick example
+
+Cargo.toml:
+
+```toml
+[dependencies]
+rs-opw-kinematics = ">=1.8.4, <2.0.0"
+```
+
+Simple "hello world" demonstrating singularity evasion would look more or less like this:
+
+```Rust
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
+use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
+
+fn main() {
+    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks.
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
+    println!("\nInitial joints with singularity J5 = 0: ");
+    dump_joints(&joints);
+
+    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
+    // Some previous pose for picking the best solution when infinite number of these exist.
+    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; 
+    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    dump_solutions(&solutions);
+}
+```
+
+The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
+enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
+integrating collision checking and both joint-based and Cartesian path planning with collision avoidance. 
+See example [complete_visible_robot](examples/constraints.rs).
+
 ## Parameters
 
 This library uses seven kinematic parameters (_a1, a2, b, c1, c2, c3_, and _c4_). This solver assumes that the arm is
@@ -224,7 +261,7 @@ Safety distances can be configured separately for robot-to-robot and robot-to-en
 Shorter distances can be specified for joints that naturally operate in proximity.
 
 The code below demonstrates how to create this structure, complete with tool,
-base and constraints (see also[example](examples/complete_visible_robot.rs).:
+base and constraints (see also [example](examples/complete_visible_robot.rs).:
 
 ```Rust
 use std::ops::RangeInclusive;
@@ -234,7 +271,7 @@ use rs_opw_kinematics::collisions::{BaseBody, CollisionBody, RobotBody};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::{utils, visualization};
-use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
+use rs_read_trimesh::load_trimesh; // loads .stl, .ply, .obj and .dae. Supports scaling. 
 
 
 /// Create the sample robot we will visualize. This function creates
@@ -242,106 +279,99 @@ use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_p
 /// It loads the joint meshes from .stl files bundles in the test folder
 /// where they are shared under the rights of Apache license (ROS Industrial project).
 /// Four environment objects and tool are also created.
-pub fn create_rx160_robot() -> KinematicsWithShape {
-    // Environment object to collide with.
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
+pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
 
-    let robot = KinematicsWithShape::with_safety(
-        // OPW parameters for Staubli RX 160
-        Parameters {
-            a1: 0.15,
-            a2: 0.0,
-            b: 0.0,
-            c1: 0.55,
-            c2: 0.825,
-            c3: 0.625,
-            c4: 0.11,
-            ..Parameters::new()
-        },
+  // Environment object to collide with.
+  let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
 
-        Constraints::from_degrees(
-          [
-            -225.0..=225.0, -225.0..=225.0, -225.0..=225.0,
-            -225.0..=225.0, -225.0..=225.0, -360.0..=360.0,
-          ],
-          BY_PREV, // Prioritize previous joint position
-        ),
-
-        // Joint meshes
-        [
-            // If your mesh is offset in .stl file, use Trimesh::transform_vertices,
-            // you may also need Trimesh::scale on some extreme cases.
-            // If your joints or tool consist of multiple meshes, combine these
-            // with Trimesh::append
-
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl")
-        ],
-
-        // Base link mesh
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
-
-        // Base transform, this is where the robot is standing
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
-            UnitQuaternion::identity(),
-        ),
-
-        // Tool mesh. Load it from .ply file for feature demonstration (different format)
-        load_trimesh_from_ply("src/tests/data/flag.ply"),
-        
-        // Tool transform, tip (not base) of the tool. The point past this
-        // transform is known as tool center point (TCP).
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.8).into(),
-            UnitQuaternion::identity(),
-        ),
-
-        // Objects around the robot, with global transforms for them.
-        vec![
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(-1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., -1., 0.) }
-        ],
-        SafetyDistances {
-          to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
-          to_robot_default: 0.05, // No closer than 5 cm to itself.
-          special_distances: SafetyDistances::distances(&[
-            // Due construction of this robot, these joints are very close so
-            // special rules are needed for them.
-            ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
-            ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
-            ((J2, J4), NEVER_COLLIDES),
-            ((J3, J4), NEVER_COLLIDES),
-            ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
-            ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
-          ]),
-          mode: CheckMode::AllCollsions, // we need to report all for visualization
-          // mode: CheckMode::NoCheck, // this is very fast but no collision check
-        },
-    );
-
-  // Let's play a bit with this robot now:
- 
-  let pose = Isometry3::from_parts(
-    Translation3::new(0.0, 0.0, 1.5), // position 1.5 meter high above a center of the world
-    UnitQuaternion::identity()); // with robot tool pointing right upwards
-
-  // Collision aware inverse kinematics (colliding solutions discarded)  
-  let solutions = robot.inverse(&pose);
-  dump_solutions(&solutions); // Print solutions in degrees
-  
-  // Collision check against given joint positions
-  if robot.collides(&[173_f64.to_radians(), 0., -94_f64.to_radians(), 0., 0., 0.]) {
-    println!("Collision detected");
-  }  
-  
-  robot
+  Ok(KinematicsWithShape::with_safety(
+    // OPW parameters for Staubli RX 160
+    Parameters {
+      a1: 0.15,
+      a2: 0.0,
+      b: 0.0,
+      c1: 0.55,
+      c2: 0.825,
+      c3: 0.625,
+      c4: 0.11,
+      ..Parameters::new()
+    },
+    // Define constraints directly in degrees, converting internally to radians.
+    Constraints::from_degrees(
+      [
+        -225.0..=225.0,
+        -225.0..=225.0,
+        -225.0..=225.0,
+        -225.0..=225.0,
+        -225.0..=225.0,
+        -360.0..=360.0,
+      ],
+      BY_PREV, // Prioritize previous joint position
+    ),
+    // Joint meshes
+    [
+      // If your meshes, if offset in .stl file, use Trimesh::transform_vertices,
+      // you may also need Trimesh::scale in some extreme cases.
+      // If your joints or tool consist of multiple meshes, combine these
+      // with Trimesh::append
+      load_trimesh("src/tests/data/staubli/rx160/link_1.stl",1.0)?,
+      load_trimesh("src/tests/data/staubli/rx160/link_2.stl",1.0)?,
+      load_trimesh("src/tests/data/staubli/rx160/link_3.stl",1.0)?,
+      load_trimesh("src/tests/data/staubli/rx160/link_4.stl",1.0)?,
+      load_trimesh("src/tests/data/staubli/rx160/link_5.stl",1.0)?,
+      load_trimesh("src/tests/data/staubli/rx160/link_6.stl",1.0)?,
+    ],
+    // Base link mesh
+    load_trimesh("src/tests/data/staubli/rx160/base_link.stl",1.0)?,
+    // Base transform, this is where the robot is standing
+    Isometry3::from_parts(
+      Translation3::new(0.4, 0.7, 0.0).into(),
+      UnitQuaternion::identity(),
+    ),
+    // Tool mesh. Load it from .ply file for feature demonstration
+    load_trimesh("src/tests/data/flag.ply",1.0)?,
+    // Tool transform, tip (not base) of the tool. The point past this
+    // transform is known as tool center point (TCP).
+    Isometry3::from_parts(
+      Translation3::new(0.0, 0.0, 0.5).into(),
+      UnitQuaternion::identity(),
+    ),
+    // Objects around the robot, with global transforms for them.
+    vec![
+      CollisionBody {
+        mesh: monolith.clone(),
+        pose: Isometry3::translation(1., 0., 0.),
+      },
+      CollisionBody {
+        mesh: monolith.clone(),
+        pose: Isometry3::translation(-1., 0., 0.),
+      },
+      CollisionBody {
+        mesh: monolith.clone(),
+        pose: Isometry3::translation(0., 1., 0.),
+      },
+      CollisionBody {
+        mesh: monolith.clone(),
+        pose: Isometry3::translation(0., -1., 0.),
+      },
+    ],
+    SafetyDistances {
+      to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
+      to_robot_default: 0.05, // No closer than 5 cm to itself.
+      special_distances: SafetyDistances::distances(&[
+        // Due construction of this robot, these joints are very close, so
+        // special rules are needed for them.
+        ((J2, J_BASE), NEVER_COLLIDES), // base and J2 cannot collide
+        ((J3, J_BASE), NEVER_COLLIDES), // base and J3 cannot collide
+        ((J2, J4), NEVER_COLLIDES),
+        ((J3, J4), NEVER_COLLIDES),
+        ((J4, J_TOOL), 0.02_f32), // reduce distance requirement to 2 cm.
+        ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
+      ]),
+      mode: CheckMode::AllCollsions, // we need to report all for visualization
+      // mode: CheckMode::NoCheck, // this is very fast but no collision check
+    },
+  ))
 }
 ```
 
@@ -509,42 +539,6 @@ highlighted.
 When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
 robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
 real-world robotic movement.
-
-# Example
-
-Cargo.toml:
-
-```toml
-[dependencies]
-rs-opw-kinematics = ">=1.8.2, <2.0.0"
-```
-
-Simple "hello world" demonstrating singularity evasion would look more or less like this:
-
-```Rust
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
-use rs_opw_kinematics::kinematics_impl::OPWKinematics;
-use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
-use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
-
-fn main() {
-    // Create a robot with built-in parameter set. It is a simple Kinematics with no collision checks.
-    let robot = OPWKinematics::new(Parameters::irb2400_10());
-    let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6], given in radians here
-    println!("\nInitial joints with singularity J5 = 0: ");
-    dump_joints(&joints);
-
-    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
-    // Some previous pose for picking the best solution when infinite number of these exist.
-    let when_continuing_from: [f64; 6] = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5]; 
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
-    dump_solutions(&solutions);
-}
-```
-
-Starting from version 1.8.2, rs-opw-kinematics has evolved beyond being just a set of "useful building blocks." It now
-enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
-and integrating collision checking. See example _complete_visible_robot_.
 
 
 # Configuring the solver for your robot

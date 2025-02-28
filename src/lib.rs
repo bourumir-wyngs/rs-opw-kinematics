@@ -109,10 +109,6 @@ pub mod rrt;
 #[path = "path_plan/rrt_to.rs"]
 mod rrt_to;
 
-#[cfg(feature = "stroke_planning")]
-#[path = "path_plan/altered_pose.rs"]
-mod altered_pose;
-
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;

@@ -4,14 +4,14 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils;
-use crate::utils::{assert_pose_eq, dump_joints, transition_costs};
+use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use nalgebra::Translation3;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::altered_pose::alter_poses;
+use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
@@ -231,7 +231,7 @@ impl Cartesian<'_> {
             .par_iter()
             .find_map_any(|strategy| {
                 match self.probe_strategy(
-                    from, strategy, &poses, &stop
+                    strategy, &poses, &stop
                 ) {
                     Ok(outcome) => {
                         println!("Strategy worked out: {:?}", strategy);
@@ -257,99 +257,72 @@ impl Cartesian<'_> {
     /// Probe the given strategy
     fn probe_strategy(
         &self,
-        start: &Joints,
-        strategy: &Joints,
+        work_path_start: &Joints,
         poses: &Vec<AnnotatedPose>,
-        stop: &Arc<AtomicBool>,
+        stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        let onboarding = self.rrt.plan_rrt(start, strategy, self.robot, stop)?;
-        if stop.load(Ordering::Relaxed) {
-            // Do not attempt Cartesian planning if we already cancelled.
-            return Err("Stopped".into());
-        }
+        println!("Cartesian planning started, computing strategy {work_path_start:?}");
 
-        let mut trace = Vec::with_capacity(onboarding.len() + poses.len() + 10);
-
-        // Do not take the last value as it is same as 'strategy'
-        for joints in onboarding.iter().take(onboarding.len() - 1) {
-            trace.push(AnnotatedJoints {
-                joints: *joints,
-                flags: PathFlags::ONBOARDING,
-            });
-        }
-
+        let started = Instant::now();
+        let mut trace = Vec::with_capacity(100 + poses.len() + 10);
         // Push the strategy point, from here the move must be already CARTESIAN
         trace.push(AnnotatedJoints {
-            joints: *strategy,
-            flags: PathFlags::TRACE | PathFlags::CARTESIAN
-        });
+            joints: *work_path_start,
+            flags: PathFlags::LAND, 
+        }.clone());
 
-        // "Complete" trace with all intermediate poses. Onboarding is not included
-        // as rrt planner checks that path itself.
-        let mut check_trace = Vec::with_capacity(poses.len());
         let mut step = 1;
 
         let mut pairs_iterator = poses.windows(2);
 
         while let Some([from, to]) = pairs_iterator.next() {
-            let prev = trace.last().expect("Should have start and strategy points");
-            assert_pose_eq(&from.pose, &self.robot.forward(&prev.joints), 1E-5, 1E-5);
+            let prev = trace
+                .last()
+                .expect("Should have start and strategy points")
+                .clone();
 
-            match self.step_adaptive_linear_transition(&prev.joints, from, to, 0) {
-                Ok(next) => {
-                    // This trace contains all intermediate poses (collision check)
-                    check_trace.push(next);
-
-                    if self.include_linear_interpolation
-                        || !to.flags.contains(PathFlags::LIN_INTERP)
-                    {
-                        let flags = if to.flags.contains(PathFlags::PARK) {
-                            // At the end of the stroke, we do not assume CARTESIAN
-                            PathFlags::TRACE | to.flags
+            let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
+            match transition {
+                Ok(extension) => {
+                    for (p, step) in extension.iter().enumerate() {
+                        let flags = if p < extension.len() - 1 {
+                            (to.flags | PathFlags::LIN_INTERP)
+                                & !(PathFlags::TRACE | PathFlags::PARK)
                         } else {
-                            PathFlags::TRACE | PathFlags::CARTESIAN | to.flags
+                            to.flags
                         };
-
                         trace.push(AnnotatedJoints {
-                            joints: next,
-                            flags: flags
+                            joints: step.clone(),
+                            flags: flags,
                         });
                     }
                 }
+
                 Err(failed_transition) => {
                     let mut success = false;
-                    // Try with a slightly altered pose.
-                    for altered_to in alter_poses(to, self.check_step_rad) {
-                        match self.step_adaptive_linear_transition(
-                            &prev.joints,
-                            from,
-                            &altered_to,
-                            0,
-                        ) {
-                            Ok(next) => {
-                                println!(
-                                    "    Transition with altered pose {:?} successful",
-                                    altered_to
-                                );
-                                check_trace.push(next);
+                    // Try with altered pose
+                    println!(
+                        "Closing step {:?} with RRT", step
+                    );
+                    let solutions = self.robot.inverse_continuing(&to.pose, &prev.joints);
+                    for next in solutions {
+                        let path = self.rrt.plan_rrt(&prev.joints, &next, self.robot, stop);
+                        if let Ok(path) = path {
+                            println!("  ... closed with RRT {} steps", path.len());
+                            for step in path {
                                 trace.push(AnnotatedJoints {
-                                    joints: next,
-                                    flags: altered_to.flags,
+                                    joints: step,
+                                    flags: to.flags & !PathFlags::LIN_INTERP,
                                 });
-                                success = true;
-                                break;
                             }
-                            Err(_) => { // Try next
-                            }
+                            success = true;
+                            break;
                         }
                     }
 
                     if !success {
                         self.log_failed_transition(&failed_transition, step);
-                        return Err(format!(
-                            "Failed to transition at step {} with all alterations tried",
-                            step
-                        ));
+                        return Err(format!("Failed to transition at step {}", step));
                     }
                 }
             }
@@ -358,42 +331,36 @@ impl Cartesian<'_> {
             }
         }
 
-        let collides = check_trace
-            .par_iter()
-            .any(|joints| self.robot.collides(joints));
-        if collides {
-            return Err("Collision detected".into());
+        if self.debug {
+            println!(
+                "Cartesian planning till collision check took {:?}",
+                started.elapsed()
+            );
         }
-        // If all good, cancel other tasks still running
-        stop.store(true, Ordering::Relaxed);
+        if stop.load(Ordering::Relaxed) {
+            return Err("Stopped".into());
+        }
+
         Ok(trace)
     }
 
-    // Transition cartesian way from 'from' into 'to' while assuming 'from'
-    // Returns the resolved end pose.
-    // Transition cartesian way from 'from' into 'to' while assuming 'from'
-    // Returns the resolved end pose.
+    /// Transition cartesian way from 'from' into 'to' while assuming 'from'
+    /// Returns all path, not including "starting", that should not be empty
+    /// as it succeeded. Returns description of the transition on failure.
     fn step_adaptive_linear_transition(
         &self,
         starting: &Joints,
         from: &AnnotatedPose, // FK of "starting"
         to: &AnnotatedPose,
         depth: usize,
-    ) -> Result<Joints, Transition> {
-        if self.debug {
-            assert_pose_eq(
-                &self.robot.kinematics.forward(starting),
-                &from.pose,
-                1E-5,
-                1E-5,
-            );
-        }
-
+    ) -> Result<Vec<Joints>, Transition> {
         pub const DIV_RATIO: f64 = 0.5;
 
         // Not checked for collisions yet
-        let solutions = self.robot.kinematics.inverse_continuing(&to.pose, &starting);
-        let mut cheapest_cost = std::f64::MAX;        
+        let solutions = self
+            .robot
+            .kinematics
+            .inverse_continuing(&to.pose, &starting);
 
         // Solutions are already sorted best first
         for next in &solutions {
@@ -401,9 +368,8 @@ impl Cartesian<'_> {
             // They only check agains continuity of the robot movement (no unexpected jerks)
             let cost = transition_costs(starting, next, &self.transition_coefficients);
             if cost <= self.max_transition_cost {
-                return Ok(next.clone()); // Track minimal cost observed
+                return Ok(vec![next.clone()]); // Track minimal cost observed
             }
-            cheapest_cost = cheapest_cost.min(cost);            
         }
 
         // Transitioning not successful.
@@ -413,44 +379,27 @@ impl Cartesian<'_> {
             // Try to bridge till them middle first, and then from the middle
             // This will result in a shorter distance between from and to.
             let midpose = from.interpolate(to, DIV_RATIO);
-            let middle_joints =
+            let first_track =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
+            let mid_step = first_track.last().unwrap().clone();
 
             // If both bridgings were successful, return the final position that resulted from
             // bridging from middle joints to the final pose on this step
-            let end_step =
-                self.step_adaptive_linear_transition(&middle_joints, &midpose, to, depth + 1)?;
+            let second_track =
+                self.step_adaptive_linear_transition(&mid_step, &midpose, to, depth + 1)?;
 
-            let cost_start_mid =
-                transition_costs(starting, &middle_joints, &self.transition_coefficients);
-            let cost_mid_end =
-                transition_costs(&middle_joints, &end_step, &self.transition_coefficients);
-            if cost_start_mid <= self.max_transition_cost
-                && cost_mid_end <= self.max_transition_cost
-            {
-                // Both steps are very small
-                return Ok(end_step);
-            }
-
-            // Cost of any step separately should not be more than cost of the whole transition
-            if cost_start_mid <= cheapest_cost && cost_mid_end <= cheapest_cost {
-                // Otherwise only recognize if the cost does not rise in the intermediate steps.
-                return Ok(end_step);
-            }
-            return Err(Transition {
+            Ok(first_track
+                .into_iter()
+                .chain(second_track.into_iter())
+                .collect())
+        } else {
+            Err(Transition {
                 from: from.clone(),
                 to: to.clone(),
                 previous: starting.clone(),
                 solutions: solutions,
-            });
+            })
         }
-
-        Err(Transition {
-            from: from.clone(),
-            to: to.clone(),
-            previous: starting.clone(),
-            solutions: solutions,
-        })
     }
 
     fn log_failed_transition(&self, transition: &Transition, step: i32) {

@@ -1,8 +1,8 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.3"
+version = "1.8.4"
 autoexamples = true
-edition = "2021"
+edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
 description = "Inverse and forward kinematics for 6 axis robots with a parallel base and spherical wrist."
 keywords = ["robotics", "kinematics", "path-planning", "collisions", "opw"]
@@ -18,7 +18,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 nalgebra = "0.33"
 rand = "0.8" # Now is needed for path planner
-
+anyhow = "1.0.94"
 
 # Optional dependencies:
 # - yaml-rust2: For reading YAML files.
@@ -36,7 +36,7 @@ parry3d = { version = "0.17", optional = true }
 rayon = { version = "1.10", optional = true }
 
 # For loading meshes, needed for collision and visualization
-ply-rs-bw = { version = "2.0", optional = true } # patched ply-rs
+rs-read-trimesh = { version = "0.1.4", optional = true }
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
@@ -48,7 +48,7 @@ bevy = { version = "0.12", default-features = false, features = [
 bevy_egui = { version = "0.24", optional = true }
 
 # Needed for stroke planning
-bitflags = "2.6.0"
+bitflags = "2.8.0"
 
 # Copyright 2017 Takashi Ogura Apache 2 license. This is now integrated in the code (src/path_plan/rrt_to.rs)
 # as we needed changes there. Dependencies for this code:
@@ -59,14 +59,13 @@ tracing = { version = "0.1", optional = true }
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs-bw", "stl_io"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
 
 # To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.8.3", default-features = false }
-
+# rs-opw-kinematics = { version = "1.8.4", default-features = false }
 
 [profile.release]
 
