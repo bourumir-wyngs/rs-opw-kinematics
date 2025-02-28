@@ -12,10 +12,10 @@ use {
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::utils,
     rs_opw_kinematics::utils::dump_joints,
-    rs_read_trimesh::load_trimesh
+    rs_read_trimesh::load_trimesh,
+    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
+    rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL}
 };
-use rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES};
-use rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL};
 
 #[cfg(feature = "stroke_planning")]
 pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
