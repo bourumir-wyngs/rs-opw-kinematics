@@ -1,23 +1,24 @@
+use anyhow::{Result, anyhow};
 #[cfg(feature = "collisions")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
 
     rs_opw_kinematics::collisions::CollisionBody,
 
-    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
+    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
     rs_opw_kinematics::kinematic_traits::Kinematics,
+    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
     // This example only makes sense with collisions feature enabled
     // Visualization can optionally be disabled.
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::utils::dump_solutions,
 
-    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
-    rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL},    
-    
+    rs_read_trimesh::load_trimesh,
+
     std::ops::RangeInclusive,
 };
-
 
 /// Creates a sample robot for visualization. This function sets up
 /// a Staubli RX160 robot using its specific parameter set.
@@ -27,13 +28,11 @@ use {
 ///
 /// Additionally, four environment objects and a tool are created for the visualization.
 #[cfg(feature = "collisions")]
-pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::{load_trimesh_from_stl, load_trimesh_from_ply };
-
+pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     // Environment object to collide with.
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
+    let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
 
-    KinematicsWithShape::with_safety(
+    Ok(KinematicsWithShape::with_safety(
         // OPW parameters for Staubli RX 160
         Parameters {
             a1: 0.15,
@@ -63,22 +62,22 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             // you may also need Trimesh::scale in some extreme cases.
             // If your joints or tool consist of multiple meshes, combine these
             // with Trimesh::append
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl"),
+            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 1.0)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 1.0)?,
         ],
         // Base link mesh
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
             Translation3::new(0.4, 0.7, 0.0).into(),
             UnitQuaternion::identity(),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
-        load_trimesh_from_ply("src/tests/data/flag.ply"),
+        load_trimesh("src/tests/data/flag.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
@@ -118,9 +117,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
                 ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
             ]),
             mode: CheckMode::AllCollsions, // we need to report all for visualization
-            // mode: CheckMode::NoCheck, // this is very fast but no collision check
+                                           // mode: CheckMode::NoCheck, // this is very fast but no collision check
         },
-    )
+    ))
 }
 
 /// This example builds and visualizes a complete robot using Bevy.
@@ -132,9 +131,9 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
 /// everything works as expected. You can modify this example to test
 /// your own robot configuration.
 #[cfg(feature = "collisions")]
-fn main() {
+fn main() -> Result<()> {
     // The robot itself.
-    let robot = create_rx160_robot();
+    let robot = create_rx160_robot().map_err(|err| anyhow!(err))?;
 
     // Do some inverse kinematics to show the concept.
     let pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 1.5), UnitQuaternion::identity());
@@ -153,11 +152,13 @@ fn main() {
     let tcp_box: [RangeInclusive<f64>; 3] = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
 
     visualize(robot, initial_angles, tcp_box);
+    Ok(())
 }
 
 #[cfg(not(feature = "collisions"))]
-fn main() {
-    println!("Build configuration does not support this example")
+fn main() -> Result<()> {
+    println!("Build configuration does not support this example");
+    Ok(())
 }
 
 #[cfg(feature = "visualization")]

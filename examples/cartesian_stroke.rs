@@ -1,28 +1,27 @@
+use anyhow::{Result, anyhow};
 #[cfg(feature = "stroke_planning")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
+    rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
     rs_opw_kinematics::collisions::CollisionBody,
-    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
+    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
     rs_opw_kinematics::kinematic_traits::Kinematics,
+    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
-    rs_opw_kinematics::utils,
-    rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
-    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
-    rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
     rs_opw_kinematics::rrt::RRTPlanner,
-    
+    rs_opw_kinematics::utils,
+    rs_read_trimesh::load_trimesh,
     std::time::Instant,
     std::vec::Vec,
 };
 
 #[cfg(feature = "stroke_planning")]
-pub fn create_rx160_robot() -> KinematicsWithShape {
-    use rs_opw_kinematics::read_trimesh::load_trimesh_from_stl;
+pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
+    let monolith = load_trimesh("src/tests/data/object.stl", 0.)?;
 
-    let monolith = load_trimesh_from_stl("src/tests/data/object.stl");
-
-    KinematicsWithShape::with_safety(
+    Ok(KinematicsWithShape::with_safety(
         Parameters {
             a1: 0.15,
             a2: 0.0,
@@ -47,19 +46,19 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             BY_PREV,
         ),
         [
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_1.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_2.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_3.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_4.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_5.stl"),
-            load_trimesh_from_stl("src/tests/data/staubli/rx160/link_6.stl"),
+            load_trimesh("src/tests/data/staubli/rx160/link_1.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_2.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_3.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_4.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 0.)?,
+            load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 0.)?,
         ],
-        load_trimesh_from_stl("src/tests/data/staubli/rx160/base_link.stl"),
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
         Isometry3::from_parts(
             Translation3::new(0.4, 0.7, 0.0).into(),
             UnitQuaternion::identity(),
         ),
-        load_trimesh_from_stl("src/tests/data/flag.stl"),
+        load_trimesh("src/tests/data/flag.stl", 0.)?,
         Isometry3::from_parts(
             Translation3::new(0.0, 0.0, 0.5).into(),
             UnitQuaternion::identity(),
@@ -97,17 +96,17 @@ pub fn create_rx160_robot() -> KinematicsWithShape {
             ]),
             mode: CheckMode::FirstCollisionOnly, // First pose only (true, enough for path planning)
         },
-    )
+    ))
 }
 
 #[cfg(feature = "stroke_planning")]
-fn main() {
+fn main() -> Result<()> {
     fn pose(kinematics: &KinematicsWithShape, angles_in_degrees: [f32; 6]) -> Pose {
         kinematics.forward(&utils::joints(&angles_in_degrees))
     }
-    
+
     // Initialize kinematics with your robot's specific parameters
-    let k = create_rx160_robot();
+    let k = create_rx160_robot().map_err(|e| anyhow!("Failed to create robot: {}", e))?;
 
     // Starting point, where the robot exists at the beginning of the task.
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
@@ -116,7 +115,7 @@ fn main() {
     // in joints as this way it is easier to craft when in rs-opw-kinematics IDE.
 
     // "Landing" pose close to the surface, from where Cartesian landing on the surface
-    // is possible and easy. Robot will change into one of the possible alternative configurations 
+    // is possible and easy. Robot will change into one of the possible alternative configurations
     // between start and land.
     let land = pose(&k, [-120.0, -10.0, -92.51, 18.42, 82.23, 189.35]);
 
@@ -132,7 +131,7 @@ fn main() {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k, // The robot, instance of KinematicsWithShape
+        robot: &k,                               // The robot, instance of KinematicsWithShape
         check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
         check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
@@ -167,9 +166,11 @@ fn main() {
         }
     }
     println!("Took {:?}", elapsed);
+    Ok(())
 }
 
 #[cfg(not(feature = "stroke_planning"))]
-fn main() {
-    println!("Build configuration does not support this example")
+fn main() -> Result<()> {
+    println!("Build configuration does not support this example");
+    Ok(())
 }
