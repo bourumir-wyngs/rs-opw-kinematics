@@ -2,3 +2,9 @@
 .idea
 
 /src/tests/data/tmp/
+/work/isometries.json
+/work/isometries_was.json
+/.run/PlannerTester.run.xml
+/work/rectangle_and_mesh_data.json
+/.run/Run cartesian_stroke.run.xml
+/.run/RViz.run.xml
