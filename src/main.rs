@@ -1,4 +1,4 @@
-const VERSION: &str = "1.7.0";
+const VERSION: &str = "1.8.5";
 
 #[cfg(feature = "allow_filesystem")]
 fn main() {

@@ -22,6 +22,21 @@ pub mod opw_kinematics {
             }
         }
 
+        pub fn igus_rebel() -> Self {
+            Parameters {
+                a1: 0.149,
+                a2: -0.119,
+                b: 0.,
+                c1: 0.1,
+                c2: 0.2384,
+                c3: 0.17,
+                c4: 0.1208,
+                offsets: [0.0; 6],
+                sign_corrections: [-1,1,1,1,1,1],
+                dof: 6
+            }
+        }
+
         pub fn irb2400_10() -> Self {
             Parameters {
                 a1: 0.100,

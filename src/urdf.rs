@@ -256,8 +256,7 @@ fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     if non_zero_values.len() == 1 && (non_zero_values[0] == -1 || non_zero_values[0] == 1) {
         Ok(non_zero_values[0])
     } else {
-        Err("Invalid axis direction, must have exactly one non-zero value \
-        that is either -1 or 1".into())
+        Ok(0) // This is a fixed joint
     }
 }
 
