@@ -1,0 +1,16 @@
+opw_kinematics_geometric_parameters:
+  a1: 0.149
+  a2: -0.119
+  b: 0
+  c1: 0.1
+  c2: 0.2384
+  c3: 0.17
+  c4: 0.1208
+opw_kinematics_joint_offsets: [0,0,0,0,0,0]
+opw_kinematics_joint_sign_corrections: [-1,1,1,1,1,1]
+dof: 6
+
+# Constraints are not loaded when reading parameters from file.
+constraints:
+  from: [deg(-179.0000), deg(-110.0000), deg(-110.0000), deg(-179.0000), deg(-87.5000), deg(-179.0000)]
+  to: [deg(179.0000), deg(110.0000), deg(110.0000), deg(179.0000), deg(102.5000), deg(179.0000)]
