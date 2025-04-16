@@ -42,7 +42,7 @@ pub fn transform_mesh(shape: &TriMesh, local_transform: &Isometry3<f32>) -> TriM
             .map(|v| local_transform.transform_point(v))
             .collect(),
         shape.indices().to_vec(),
-    )
+    ).expect("Failed to build trimesh")
 }
 
 /// Struct representing a collision task for detecting collisions
@@ -154,7 +154,7 @@ fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
     ];
 
     // Return TriMesh
-    TriMesh::new(vertices, INDICES.to_vec())
+    TriMesh::new(vertices, INDICES.to_vec()).expect("Failed to build TrimMesh from AABB")
 }
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
@@ -596,7 +596,7 @@ mod tests {
                 Point3::new(x, y, z + 1.0),
             ],
             vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
-        )
+        ).expect("Failed to build test trimesh")
     }
 
     #[test]
