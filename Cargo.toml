@@ -17,15 +17,15 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 nalgebra = "0.33"
-rand = "0.8" # Now is needed for path planner
-anyhow = "1.0.94"
+rand = ">=0.8, <=0.9" # Now is needed for path planner 0.8
+anyhow = "1.0"
 
 # Optional dependencies:
 # - yaml-rust2: For reading YAML files.
 # - sxd-document: For reading URDF/XML files
 # - regex: For regex matching in file parsing.
 # - clap: For command-line argument parsing by file processor.
-yaml-rust2 = { version = "0.10", optional = true }
+yaml-rust2 = { version = ">=0.9, <=0.10", optional = true }
 sxd-document = { version = "0.3", optional = true }
 regex = { version = "1.10", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
