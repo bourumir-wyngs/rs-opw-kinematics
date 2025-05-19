@@ -57,6 +57,7 @@ struct CollisionTask<'a> {
 }
 
 impl CollisionTask<'_> {
+    #[must_use = "Ignoring collision check may cause collision."]
     fn collides(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
         let r_min = *safety.min_distance(self.i, self.j);
         let collides = if r_min <= NEVER_COLLIDES {
@@ -278,6 +279,7 @@ impl RobotBody {
     /// Returns detailed information about all collisions detected in the robot's configuration.
     /// This method uses default distance limits specified at creation.
     /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
+    #[must_use = "Ignoring collision check may cause collision."]
     pub fn collision_details(
         &self,
         qs: &Joints,
@@ -291,6 +293,7 @@ impl RobotBody {
     /// Returns true if any collision is detected in the robot's configuration.
     /// This method uses default distance limits specified at creation.
     /// Use ```near``` if you need to change limits frequently as the part of your algorithm.
+    #[must_use = "Ignoring collision check may cause collision."]
     pub fn collides(&self, qs: &Joints, kinematics: &dyn Kinematics) -> bool {
         if self.safety.mode == CheckMode::NoCheck {
             return false;
@@ -308,6 +311,7 @@ impl RobotBody {
     /// Returns detailed information about all collisions detected in the robot's configuration.
     /// This method only checks for literally touching objects that limits its application.
     /// Use ```near``` to check if there are no objects closer than the given distance.
+    #[must_use = "Ignoring collision check may cause collision."]
     pub fn near(
         &self,
         qs: &Joints,

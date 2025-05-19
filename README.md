@@ -50,7 +50,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.8.5, <2.0.0"
+rs-opw-kinematics = ">=1.8.6, <2.0.0"
 ```
 
 Simple "hello world" demonstrating singularity evasion would look more or less like this:

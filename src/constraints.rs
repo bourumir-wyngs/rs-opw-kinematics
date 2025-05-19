@@ -158,6 +158,7 @@ impl Constraints {
     }
 
     /// Checks if all values in the given vector or angles satisfy these constraints.
+    #[must_use = "Ignoring compliance check result may cause constraint violations."]
     pub fn compliant(&self, angles: &[f64; 6]) -> bool {
         let ok = angles.iter().enumerate().all(|(i, &angle)| {
             // '!' is used to negate the condition from 'out_of_bounds' directly in the 'all' call.
@@ -168,6 +169,7 @@ impl Constraints {
 
     /// Return new vector of angle arrays, removing all that have members not satisfying these
     /// constraints.
+    #[must_use = "Ignoring filtered results means no constraints are actually applied."]
     pub fn filter(&self, angles: &Vec<[f64; 6]>) -> Vec<[f64; 6]> {
         angles.into_iter()
             .filter(|angle_array| self.compliant(&angle_array))
@@ -191,34 +193,43 @@ impl Constraints {
 
     /// Generate a random valid angle within the defined constraints for each joint.
     pub fn random_angles(&self) -> Joints {
-        fn random_angle(from: f64, to: f64) -> f64 {
-            let mut rng = rand::thread_rng();
-            let random_angle = if from < to {
-                // Direct generation when `from` is less than `to`
-                from + rng.gen_range(0.0..(to - from))
-            } else {
-                // Wrap-around case: generate an angle based on two segments
-                let range_length = (2.0 * PI - (from - to)).abs();
-                let segment = rng.gen_range(0.0..range_length);
+        let mut rng = rand::thread_rng();
 
-                // Determine which segment to take (before or after the wrap)
-                if segment < (2.0 * PI - from) {
-                    from + segment // Within the forward wrap
+        fn random_angle(rng: &mut impl Rng, from: f64, to: f64) -> f64 {
+            if from < to {
+                rng.gen_range(from..to)
+            } else {
+                let range_length = TWO_PI - (from - to);
+                let segment = rng.gen_range(0.0..range_length);
+                if segment < (TWO_PI - from) {
+                    from + segment
                 } else {
-                    to + (segment - (2.0 * PI - from)) // After the wrap
+                    segment - (TWO_PI - from)
                 }
-            };
-            random_angle
+            }
         }
 
         [
-            random_angle(self.from[0], self.to[0]),
-            random_angle(self.from[1], self.to[1]),
-            random_angle(self.from[2], self.to[2]),
-            random_angle(self.from[3], self.to[3]),
-            random_angle(self.from[4], self.to[4]),
-            random_angle(self.from[5], self.to[5]),
+            random_angle(&mut rng, self.from[0], self.to[0]),
+            random_angle(&mut rng, self.from[1], self.to[1]),
+            random_angle(&mut rng, self.from[2], self.to[2]),
+            random_angle(&mut rng, self.from[3], self.to[3]),
+            random_angle(&mut rng, self.from[4], self.to[4]),
+            random_angle(&mut rng, self.from[5], self.to[5]),
         ]
+    }
+
+}
+
+impl Default for Constraints {
+    fn default() -> Self {
+        Constraints {
+            from: [0.0; 6],
+            to: [TWO_PI; 6],
+            centers: [PI; 6],
+            tolerances: [PI; 6],
+            sorting_weight: BY_PREV,
+        }
     }
 }
 
