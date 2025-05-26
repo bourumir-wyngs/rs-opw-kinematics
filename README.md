@@ -18,15 +18,19 @@ Angerer, and Michael Hofbaur. The paper is [available in ResearchGate](https://w
 project, [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics), which served as a reference implementation for generating data for the test suite.
 This documentation also incorporates the robot diagram from that project.
 
+The 1.3 version series is intended for users who do not require the complex features introduced in later versions.
+It has less code receives all fixes and performance improvements from the latest version series.
+
 # Features
 
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
 - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
 - To generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as
-  additional input.
+  additional input. 
 - If the previous joint positions are provided, the solutions are sorted by proximity to them (closest first).
-  It is also possible to prioritize proximity to the center of constraints.
+  It is also possible to prioritize proximity to the center of constraints. "Previous" can be in a wide range well 
+  outside &plusmn;360&deg.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
@@ -68,7 +72,7 @@ the ground at "zero."
 # Constraints
 Please see the [example](examples/constraints.rs).
 
-Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
+Since 1.1.0, it is possible to set [constraints](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/constraints/index.html) for the joints. Robot poses where any of the joints are outside
 the specified constraint range are not included into returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
 
@@ -84,10 +88,10 @@ constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 # The tool and the base
 Please see the [example](examples/tool_and_base.rs).
 
-Since 1.3.4, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
+Since 1.3.4, robot can be equipped with the [tool](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/tool/struct.Tool.html), defined as nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 "Robot with the tool" and "Robot on the base" can be constructed around any Kinematics trait, and implement the
 Kinematics trait themselves. It is possible to cascade them.
@@ -95,10 +99,10 @@ Kinematics trait themselves. It is possible to cascade them.
 # Jacobian: torgues and velocities
 Please see the [example](examples/jacobian.rs).
 
-Since 1.3.4, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
+Since 1.3.4, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
-- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
-- Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
+- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
+- Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
 or torgues in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
@@ -262,7 +266,7 @@ Since version 1.2.0, parameters and constraints can also be directly extracted f
   println!("Reading:\n{}", &parameters.to_yaml());
 ```
 
-There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.3.4-rc/rs_opw_kinematics/urdf/fn.from_urdf.html) 
+There is also more advanced function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.3.6/rs_opw_kinematics/urdf/fn.from_urdf.html) 
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
