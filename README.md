@@ -32,7 +32,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
   just checking if they touch.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
-  robot)
+  robot). Since 1.8.6, the "previous" rotiation can be in a wide range well outside &plusm;360&deg;
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot. 
 - Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.

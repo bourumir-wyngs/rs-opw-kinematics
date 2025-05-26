@@ -87,7 +87,7 @@ pub trait Kinematics: Send + Sync {
     /// the values J4 and J6 from the previous solution
     /// Use CONSTRAINT_CENTERED as previous if there is no previous position but we prefer
     /// to be as close to the center of constraints (or zeroes if not set) as
-    /// possible.
+    /// possible. "Previous" can be in a wide range, say 90000 degrees.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
 
     /// Find forward kinematics (pose from joint positions).
