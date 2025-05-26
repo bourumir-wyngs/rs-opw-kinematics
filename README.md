@@ -75,6 +75,7 @@ fn main() {
     dump_solutions(&solutions);
 }
 ```
+Since version 1.8.7, the "previous" angles can be very large (including negative values). Test cases cover angles up to 90,000 degrees.
 
 The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,

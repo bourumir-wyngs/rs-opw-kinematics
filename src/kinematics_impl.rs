@@ -796,31 +796,26 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
     diff < SINGULARITY_ANGLE_THR
 }
 
-/// Normalizes the angle `now` to be as close as possible to `prev`
+/// Normalizes the angle `now` to be as close as possible to `must_be_near`
 ///
 /// # Arguments
 ///
 /// * `now` - A mutable reference to the angle to be normalized, radians
-/// * `prev` - The reference angle, radians
+/// * `must_be_near` - The reference angle, radians
 fn normalize_near(now: &mut f64, must_be_near: f64) {
     let two_pi = 2.0 * PI;
 
-    fn adjust(now: &mut f64, prev: f64, two_pi: f64) {
-        if (*now - prev).abs() > ((*now - two_pi) - prev).abs() {
-            *now -= two_pi;
-        }
-        if (*now - prev).abs() > ((*now + two_pi) - prev).abs() {
-            *now += two_pi;
-        }
-        // Handle case -pi and pi that are identical angles
-        if (*now).abs() == PI && (prev.signum() != (*now).signum()) {
-            *now = -*now;
-        }
+    // First, reduce to standard range [-pi, pi]
+    *now = (*now - must_be_near) % two_pi;
+
+    if *now > PI {
+        *now -= two_pi;
+    } else if *now < -PI {
+        *now += two_pi;
     }
 
-    // Perform the adjustment potentially twice to ensure minimum difference
-    adjust(now, must_be_near, two_pi);
-    adjust(now, must_be_near, two_pi);
+    // Then, shift back near must_be_near
+    *now += must_be_near;
 }
 
 
@@ -865,3 +860,41 @@ fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
         println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kinematic_traits::{Joints, Kinematics, JOINTS_AT_ZERO};
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
+
+    #[test]
+    fn test_inverse_continuing_large_j6_angles() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+
+        let angles_deg:[f64; 10] = [-90000.0, -9000.0, -900.0, -90.0, -9.0, 9.0, 90.0, 900.0, 9000.0, 90000.0];
+
+        for &angle_deg in &angles_deg {
+            let j6_rad = angle_deg.to_radians();
+
+            let pose = robot.forward(&[0.0, 0.1, 0.2, 0.3, 0.1, j6_rad]);
+
+            let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.1, j6_rad];
+            let solutions = robot.inverse_continuing(&pose, &previous);
+
+            assert!(!solutions.is_empty(), "No solutions found for angle {} degrees", angle_deg);
+
+            let solution_j6 = solutions[0][J6];
+
+            // Normalize near previous angle
+            let mut normalized_solution_j6 = solution_j6;
+            normalize_near(&mut normalized_solution_j6, previous[J6]);
+
+            let diff = (normalized_solution_j6 - previous[J6]).abs();
+
+            // Allow small epsilon due to floating-point errors
+            assert!(diff < 1e-6, "J6 mismatch for angle {} degrees: difference was {} radians", angle_deg, diff);
+        }
+    }
+}
+
