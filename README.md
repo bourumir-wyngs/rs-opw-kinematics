@@ -32,7 +32,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
   just checking if they touch.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
-  robot). Since 1.8.8, the "previous" rotiation can be in a wide range well outside &plusmn;360&deg;
+  robot). Since 1.8.9, the "previous" rotiation can be in a wide range well outside &plusmn;360&deg;
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot. 
 - Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.
@@ -50,7 +50,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.8.8, <2.0.0"
+rs-opw-kinematics = ">=1.8.9, <2.0.0"
 ```
 
 Simple "hello world" demonstrating singularity evasion would look more or less like this:
@@ -75,7 +75,7 @@ fn main() {
     dump_solutions(&solutions);
 }
 ```
-Since version 1.8.8, the "previous" angles can be very large (including negative values). Test cases cover angles up to 90,000 degrees.
+Since version 1.8.9, the "previous" angles can be very large (including negative values). Test cases cover angles up to 90,000 degrees.
 
 The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,

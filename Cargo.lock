@@ -3591,7 +3591,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.7"
+version = "1.8.9"
 dependencies = [
  "anyhow",
  "bevy",
@@ -3615,9 +3615,9 @@ dependencies = [
 
 [[package]]
 name = "rs-read-trimesh"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "429199fc2324e190b3e96bc369dbb91e3d9f6fa64f54aa3dd212aa82ff872fc6"
+checksum = "04a5b534e186bf20129afdd390dd8f966878a94a67b3031eaee7b4197b52975e"
 dependencies = [
  "dae-parser",
  "parry3d",
