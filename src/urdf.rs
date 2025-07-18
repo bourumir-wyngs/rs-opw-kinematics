@@ -136,6 +136,18 @@ impl Vector3 {
     }
 }
 
+/// Helper that returns the non-zero value from a pair of numbers if exactly one
+/// of them is non-zero. If both are zero, `Ok(0.0)` is returned. Returns an
+/// error when both values are non-zero.
+fn non_zero_pair(a: f64, b: f64) -> Result<f64, String> {
+    match (a, b) {
+        (0.0, 0.0) => Ok(0.0),
+        (0.0, b) => Ok(b),
+        (a, 0.0) => Ok(a),
+        (_, _) => Err(String::from("Both potential values are non-zero")),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct JointData {
     name: String,
@@ -416,17 +428,9 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                         opw_parameters.b = 0.0;
                     }
                     Err(_err) => {
-                        pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
-                            match (a, b) {
-                                (0.0, 0.0) => Ok(0.0), // assuming c2 = 0.0
-                                (0.0, b) => Ok(b),
-                                (a, 0.0) => Ok(a),
-                                (_, _) => Err(String::from("Both potential c2 values are non-zero")),
-                            }
-                        }
                         // If there are multiple values, we assume b is given here as y.
-                        // c2 is given either in z or in x, other being 0. 
-                        opw_parameters.c2 = non_zero(joint.vector.x, joint.vector.z)?;
+                        // c2 is given either in z or in x, other being 0.
+                        opw_parameters.c2 = non_zero_pair(joint.vector.x, joint.vector.z)?;
                         opw_parameters.b = joint.vector.y;
                     }
                 }
@@ -437,21 +441,13 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                         opw_parameters.a2 = -value;
                     }
                     Err(_err) => {
-                        pub fn non_zero(a: f64, b: f64) -> Result<f64, String> {
-                            match (a, b) {
-                                (0.0, 0.0) => Ok(0.0), // assuming c2 = 0.0
-                                (0.0, b) => Ok(b),
-                                (a, 0.0) => Ok(a),
-                                (_, _) => Err(String::from("Both potential c2 values are non-zero")),
-                            }
-                        }
                         // If there are multiple values, we assume a2 is given here as z.
                         // c3 is given either in y or in x, other being 0.
                         opw_parameters.a2 = -joint.vector.z;
                         if opw_parameters.c3 != 0.0 {
                             return Err(String::from("C3 seems defined twice (J4)"));
                         }
-                        opw_parameters.c3 = non_zero(joint.vector.x, joint.vector.y)?;
+                        opw_parameters.c3 = non_zero_pair(joint.vector.x, joint.vector.y)?;
                     }
                 }
             }
