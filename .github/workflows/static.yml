@@ -31,6 +31,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
+      - name: Install Wayland dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev        
+
       - name: Cache cargo registry
         uses: actions/cache@v3
         with:
