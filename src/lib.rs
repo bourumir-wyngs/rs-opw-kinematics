@@ -42,7 +42,7 @@
 //! - **basic.rs**: Basic inverse and forward kinematics, including handling of singularities.
 //! - **constraints.rs**: Limiting the rotation range of robot joints.
 //! - **jacobian.rs**: Calculating Jacobian matrices for kinematic analysis.
-//! - **paralellogram.rs**: Supporting robotic arms with a parallelogram mechanism.
+//! - **parallelogram.rs**: Supporting robotic arms with a parallelogram mechanism.
 //! - **tool_and_base.rs**: Configuring robots with a tool attachment and positioning on a specified base.
 //! - **frame.rs**: Using frames, a foundational concept in robotic programming for managing coordinates.
 //! - **complete_visible_robot.rs**: Constructing a complete robot with both shape and kinematics, including visualization.
