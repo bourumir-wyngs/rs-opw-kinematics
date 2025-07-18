@@ -94,7 +94,7 @@ impl Constraints {
 
     fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
         if tolerance.is_infinite() {
-            return false;
+            return true;
         }
         let mut difference = (angle1 - angle2).abs();
         difference = difference % TWO_PI;
@@ -214,6 +214,15 @@ mod tests {
         let filtered_angles = limits.filter(&angles);
         assert_eq!(filtered_angles.len(), 1);
         assert_eq!(filtered_angles[0], [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0]);
+    }
+
+    #[test]
+    fn test_from_equals_to() {
+        let from = [0.0; 6];
+        let to = [0.0; 6];
+        let angles = [PI / 3.0, PI / 2.0, PI / 4.0, PI, PI / 8.0, 0.0];
+        let limits = Constraints::new(from, to, BY_CONSTRAINS);
+        assert!(limits.compliant(&angles));
     }
 }
 
