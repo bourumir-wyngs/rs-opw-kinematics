@@ -257,7 +257,8 @@ pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon
     let current_position = current_pose.translation.vector;
     let current_orientation = current_pose.rotation;
 
-    // Parallelize the loop using rayon
+    // The following loop currently runs sequentially.
+    // Parallelization using Rayon did not show a measurable benefit.
     let jacobian_columns: Vec<_> = (0..6).into_iter().map(|i| {
         let mut perturbed_qs = *joints;
         perturbed_qs[i] += epsilon;
@@ -350,7 +351,7 @@ mod tests {
     fn test_compute_jacobian() {
         let robot = SingleRotaryJointRobot;
 
-        // This loop was used to profile rayon performance. No improvement was found so not used.
+        // This loop was used to profile Rayon performance, but the computation remains sequential.
         for _e in 0..2 {
             let joints: Joints = [0.0; 6];
             let jacobian = compute_jacobian(&robot, &joints, EPSILON);
