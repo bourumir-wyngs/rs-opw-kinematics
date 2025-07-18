@@ -32,7 +32,7 @@ impl Default for CameraController {
 }
 
 pub fn camera_controller_system(
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut wheel_events: EventReader<MouseWheel>,
     mut query: Query<(&mut Transform, &mut CameraController)>,
     windows: Query<&Window, With<PrimaryWindow>>,

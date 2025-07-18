@@ -864,7 +864,7 @@ fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kinematic_traits::{Joints, Kinematics, JOINTS_AT_ZERO};
+    use crate::kinematic_traits::{Joints, Kinematics};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
 

@@ -52,10 +52,11 @@ use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::time::Instant;
+use bevy::render::render_asset::RenderAssetUsages;
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
-    let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList);
+    let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
 
     // Step 1: Extract vertices and indices from the TriMesh
     let vertices: Vec<_> = trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect();
@@ -108,7 +109,7 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals); // Add the flipped normals
 
     // Step 6: Set the indices
-    mesh.set_indices(Some(bevy::render::mesh::Indices::U32(indices)));
+    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
 
     mesh
 }
@@ -266,7 +267,7 @@ fn setup(
     if let Some(tool) = robot.kinematics.body.tool.as_ref() {
         robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool)));
         robot.tool_material = Some(materials.add(StandardMaterial {
-            base_color: Color::rgb(0.8, 1.0, 0.8),
+            base_color: Color::srgb(0.8, 1.0, 0.8),
             metallic: 0.7,
             perceptual_roughness: 0.05,
             ..default()
@@ -276,7 +277,7 @@ fn setup(
     if let Some(base) = robot.kinematics.body.base.as_ref() {
         robot.base = Some(meshes.add(trimesh_to_bevy_mesh(&base.mesh)));
         robot.base_material = Some(materials.add(StandardMaterial {
-            base_color: Color::rgb(0.8, 1.0, 0.8),
+            base_color: Color::srgb(0.8, 1.0, 0.8),
             metallic: 0.7,
             perceptual_roughness: 0.05,
             ..default()
@@ -284,21 +285,21 @@ fn setup(
     }
 
     robot.material = Some(materials.add(StandardMaterial {
-        base_color: Color::rgb(1.0, 1.0, 0.0),
+        base_color: Color::srgb(1.0, 1.0, 0.0),
         metallic: 0.7,
         perceptual_roughness: 0.1,
         ..default()
     }));
 
     robot.environment_material = Some(materials.add(StandardMaterial {
-        base_color: Color::rgb(0.5, 0.5, 0.5),
+        base_color: Color::srgb(0.5, 0.5, 0.5),
         metallic: 1.0,
         perceptual_roughness: 1.0,
         ..default()
     }));
 
     robot.colliding_material = Some(materials.add(StandardMaterial {
-        base_color: Color::rgb(1.0, 0.1, 0.1),
+        base_color: Color::srgb(1.0, 0.1, 0.1),
         metallic: 1.0,
         perceptual_roughness: 0.1,
         ..default()
