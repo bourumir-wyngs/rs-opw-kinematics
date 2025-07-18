@@ -116,7 +116,7 @@ pub trait Kinematics: Send + Sync {
     /// joint angles needed by RRT, or say providing limits of sliders in GUI.
     fn constraints(&self) -> &Option<Constraints>;
     
-    /// Detect the singularity. Returns either A type singlularity or None if
+    /// Detect the singularity. Returns either A type singularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
 
