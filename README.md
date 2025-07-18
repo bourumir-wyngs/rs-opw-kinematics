@@ -234,7 +234,7 @@ The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
 factor of 1.0 is the common, as this value ensures the end-effector’s
 orientation remains unchanged if only J₃ and J₂ move.
 
-See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/parralelogram/struct.Parralelogram.html) and [example](examples/paralellogram.rs).
+See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/parallelogram/struct.Parallelogram.html) and [example](examples/parallelogram.rs).
 
 ## Collision avoidance
 The new class 
