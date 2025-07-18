@@ -1,8 +1,8 @@
 //! Hardcoded OPW parameters for a few robots
 
 pub mod opw_kinematics {
-    use std::f64::consts::PI;
     use crate::parameters::opw_kinematics::Parameters;
+    use std::f64::consts::PI;
 
     #[allow(dead_code)]
     impl Parameters {
@@ -18,7 +18,7 @@ pub mod opw_kinematics {
                 c4: 0.0,
                 offsets: [0.0; 6],
                 sign_corrections: [1; 6],
-                dof: 6
+                dof: 6,
             }
         }
 
@@ -32,8 +32,8 @@ pub mod opw_kinematics {
                 c3: 0.17,
                 c4: 0.1208,
                 offsets: [0.0; 6],
-                sign_corrections: [-1,1,1,1,1,1],
-                dof: 6
+                sign_corrections: [-1, 1, 1, 1, 1, 1],
+                dof: 6,
             }
         }
 
@@ -50,7 +50,6 @@ pub mod opw_kinematics {
                 ..Self::new()
             }
         }
-
 
         // See https://www.staubli.com/content/dam/robotics/products/robots/tx2/TX2-140-160-datasheet-EN.pdf.
         // These three Staubli robots have spherical wrist and mostly identical plan, with only
@@ -146,7 +145,7 @@ pub mod opw_kinematics {
                 c4: 0.11,
                 ..Self::new()
             }
-        }        
+        }
 
         pub fn irb2600_12_165() -> Self {
             Parameters {
@@ -173,6 +172,23 @@ pub mod opw_kinematics {
                 c4: 0.135,
                 offsets: [0.0, 0.0, -PI / 2.0, 0.0, 0.0, 0.0],
                 ..Self::new()
+            }
+        }
+
+        /// Corrected ABB IRB 1600-10/1.45 parameters based on ROS Industrial
+        /// Reference: https://github.com/ros-industrial/abb/blob/noetic-devel/abb_irb1600_support/config/opw_parameters_irb1600_10_145.yaml
+        pub fn abb_1600() -> Self {
+            Parameters {
+                a1: 0.150,  // Distance from base to J1 axis
+                a2: 0.0,    // Distance from J1 to J2 axis (parallel offset)
+                b: 0.0,     // Distance from J2 to J3 axis (perpendicular offset)
+                c1: 0.4865, // Distance from base to J2 axis (height)
+                c2: 0.700,  // Distance from J2 to J3 axis (upper arm length)
+                c3: 0.600,  // Distance from J3 to J4 axis (forearm length)
+                c4: 0.065,  // Distance from J4 to J6 axis (wrist length)
+                offsets: [0.0, 0.0, -std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0],
+                sign_corrections: [1, 1, 1, 1, 1, 1],
+                dof: 6,
             }
         }
     }
