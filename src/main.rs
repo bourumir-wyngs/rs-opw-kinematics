@@ -1,4 +1,5 @@
-const VERSION: &str = "1.3.0";
+/// Package version derived at compile time from `Cargo.toml`.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(feature = "allow_filesystem")]
 fn main() {
