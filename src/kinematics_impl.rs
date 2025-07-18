@@ -108,7 +108,7 @@ impl Kinematics for OPWKinematics {
                     if let Some(Singularity::A) = singularity {
                         let mut now = ik[s_idx];
                         if are_angles_close(now[J5], 0.) {
-                            // J5 = 0 singlularity, J4 and J6 rotate same direction
+                            // J5 = 0 singularity, J4 and J6 rotate same direction
                             s = previous[J4] + previous[J6];
                             s_n = now[J4] + now[J6];
                         } else {

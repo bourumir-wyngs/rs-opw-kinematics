@@ -32,7 +32,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
   just checking if they touch.
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
-  robot). Since 1.8.9, the "previous" rotiation can be in a wide range well outside &plusmn;360&deg;
+  robot). Since 1.8.9, the "previous" rotation can be in a wide range well outside &plusmn;360&deg;
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot. 
 - Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.
@@ -151,7 +151,7 @@ or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), b
 rotations in N m.
 
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent
-overspeed or overtorgue of individual joints.
+overspeed or overtorque of individual joints.
 
 Please see the [example](examples/jacobian.rs).
 
@@ -234,7 +234,7 @@ The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
 factor of 1.0 is the common, as this value ensures the end-effector’s
 orientation remains unchanged if only J₃ and J₂ move.
 
-See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/parralelogram/struct.Parralelogram.html) and [example](examples/paralellogram.rs).
+See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/parallelogram/struct.Parallelogram.html) and [example](examples/parallelogram.rs).
 
 ## Collision avoidance
 The new class 
