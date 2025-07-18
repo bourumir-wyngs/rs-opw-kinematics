@@ -116,7 +116,7 @@ If you have the OPW robot and not sure how to configure it for this tool, contac
 ## Constraints
 
 Since 1.1.0, it is possible to
-set [constraints](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/constraints/index.html) for the joints.
+set [constraints](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/constraints/index.html) for the joints.
 Robot poses where any of the joints are outside
 the specified constraint range are not included in the returned list of solutions. It is also possible to
 influence the sorting of the result list by giving some preference to the center of constraints.
@@ -130,19 +130,19 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with the period of 2&pi;, the
 constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 
-Since 1.8.2, convenience method exists to specify constraints as ranges in degrees.
+Since 1.8.9, convenience method exists to specify constraints as ranges in degrees.
 
 Please see the [example](examples/constraints.rs).
 
 ## Jacobian: torques and velocities
 
 Since 1.3.2, it is possible to obtain
-the [Jacobian](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents
+the [Jacobian](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents
 the relationship between the joint velocities
 and the end-effector velocities. The computed Jacobian object provides:
 
-- Joint [velocities](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
-- Joint [torques](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
+- Joint [velocities](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.velocities) required to achieve a desired end-effector velocity.
+- Joint [torques](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
 or torques in Newton meters. For the end effector, it is possible to use either
@@ -158,15 +158,15 @@ Please see the [example](examples/jacobian.rs).
 ## The tool and the base
 
 Since 1.3.2, robot can be equipped with
-the [tool](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/tool/struct.Tool.html), defined as
+the [tool](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Tool.html), defined as
 nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
 both
 additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
 now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
-on a [base](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+on a [base](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 "Robot with the tool" and "Robot on the base" can be constructed around
-any [Kinematics](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
+any [Kinematics](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
 trait, and implement
 this trait themselves. It is possible to cascade them, constructing a robot on a base and with the tool (or
 two tools if the first is a receptacle of the tool changer).
@@ -175,7 +175,7 @@ Please see the [example](examples/tool_and_base.rs).
 
 ## The frame
 
-Since 1.8.2 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
+Since 1.8.9 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
 angles)
 prepared for one location to make the same kind of movements in another location (translated and rotated).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
@@ -183,13 +183,13 @@ also rotation, or just a single pair is enough if only shift (but not a rotation
 
 Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
 and calculated joint angles for the transformed (shifted and rotated) trajectory. See the
-[frame](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
+[frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
 ## Individual link positions
 
 It is now possible to obtain positions of individual links in forward kinematics. This would be needed for
 collision avoidance and graphical rendering of the robot.
-See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses)
+See [forward_with_joint_poses](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html#tymethod.forward_with_joint_poses)
 method.
 
 ## 5 DOF inverse kinematics
@@ -234,13 +234,13 @@ The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
 factor of 1.0 is the common, as this value ensures the end-effector’s
 orientation remains unchanged if only J₃ and J₂ move.
 
-See [Parallelogram](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/parralelogram/struct.Parralelogram.html) and [example](examples/paralellogram.rs).
+See [Parallelogram](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/parralelogram/struct.Parralelogram.html) and [example](examples/paralellogram.rs).
 
 ## Collision avoidance
 The new class 
-[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html) 
+[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html) 
 combines kinematics and collision checking. It implements the 
-[Kinematics](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, 
+[Kinematics](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html) trait, 
 providing both forward and inverse kinematic solutions. During inverse kinematics, any colliding poses are excluded 
 from the solution list.
 
@@ -256,7 +256,7 @@ Setting a zero safety distance is only advisable if the meshes are "inflated" (m
 but achieving this reliably is challenging and requires careful validation. On the other hand, checking for contact 
 rather than maintaining a safety distance is significantly faster.
 
-Safety distances are controlled through [SafetyDistances](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/collisions/struct.SafetyDistances.html) structure as shown in the example below. 
+Safety distances are controlled through [SafetyDistances](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/collisions/struct.SafetyDistances.html) structure as shown in the example below. 
 
 Safety distances can be configured separately for robot-to-robot and robot-to-environment collisions. 
 Shorter distances can be specified for joints that naturally operate in proximity.
@@ -502,14 +502,14 @@ constraints to be sure everything is collision-free anyway.
 
 Please see the [example](examples/cartesian_stroke.rs).
 
-**Note**: versions 1.8.2 and below may produce large rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3. Under these rare conditions (that occur only near, but not at the J5 = 0 singularity point), the rotation (not translation) of the generated pose may differ from requested, by no more than the value of Cartesian.check_step_rad parameter.
+**Note**: versions 1.8.9 and below may produce large rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3. Under these rare conditions (that occur only near, but not at the J5 = 0 singularity point), the rotation (not translation) of the generated pose may differ from requested, by no more than the value of Cartesian.check_step_rad parameter.
     
 
 ## Visualization
-[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
+[KinematicsWithShape](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
 is also straightforward to visualize, as it fully integrates both the kinematics and 3D meshes representing the robot.
 To display it, simply pass this structure to the built-in function 
-[visualize_robot](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/visualization/fn.visualize_robot.html):
+[visualize_robot](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/visualization/fn.visualize_robot.html):
 
 ```Rust
 fn main() {
@@ -567,7 +567,7 @@ Since version 1.2.0, parameters and constraints can also be directly extracted f
 ```
 
 There is also more advanced
-function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/1.8.2/rs_opw_kinematics/urdf/fn.from_urdf.html)
+function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/urdf/fn.from_urdf.html)
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
