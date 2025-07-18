@@ -71,4 +71,22 @@ mod tests {
             panic!("Solutions do not match");
         }
     }
+
+    #[test]
+    fn test_no_limits_accept_all_angles() {
+        // from == to for each joint means no limits (tolerance is infinity)
+        let from = [0.0; 6];
+        let to = [0.0; 6];
+        let constraints = Constraints::new(from, to, BY_CONSTRAINS);
+
+        let samples = [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [std::f64::consts::PI, -std::f64::consts::PI, 2.0 * std::f64::consts::PI,
+             -2.0 * std::f64::consts::PI, 1.5 * std::f64::consts::PI, -1.5 * std::f64::consts::PI],
+        ];
+
+        for angles in samples.iter() {
+            assert!(constraints.compliant(angles));
+        }
+    }
 }

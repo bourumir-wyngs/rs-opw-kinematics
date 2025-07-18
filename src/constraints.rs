@@ -147,7 +147,7 @@ impl Constraints {
 
     fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
         if tolerance.is_infinite() {
-            return false;
+            return true;
         }
         let mut difference = (angle1 - angle2).abs();
         difference = difference % TWO_PI;
