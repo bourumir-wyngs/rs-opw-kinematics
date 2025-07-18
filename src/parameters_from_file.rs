@@ -66,10 +66,10 @@ impl Parameters {
 
 
     fn read_sign_corrections(doc: &Yaml) -> Result<[i8; 6], ParameterError> {
-        // Store the temporary vector in a variable for longer lifetime
+        // Store the default sign corrections (all ones) for longer lifetime
         let default_sign_corrections = vec![Yaml::Integer(1); 6];
 
-        // Check if the sign corrections field exists, if not default to all 0
+        // Check if the sign corrections field exists, if not default to all 1
         let sign_corrections_yaml = doc.as_vec().unwrap_or(&default_sign_corrections);
 
         let mut sign_corrections: Vec<i8> = sign_corrections_yaml
