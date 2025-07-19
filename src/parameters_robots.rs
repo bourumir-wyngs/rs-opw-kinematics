@@ -146,5 +146,21 @@ pub mod opw_kinematics {
                 ..Self::new()
             }
         }
+
+        /// Corrected ABB IRB 1600-10/1.45 parameters based on ROS Industrial
+        /// Reference: https://github.com/ros-industrial/abb/blob/noetic-devel/abb_irb1600_support/config/opw_parameters_irb1600_10_145.yaml
+        pub fn abb_1600() -> Self {
+            Parameters {
+                a1: 0.150,  // Distance from base to J1 axis
+                a2: 0.0,    // Distance from J1 to J2 axis (parallel offset)
+                b: 0.0,     // Distance from J2 to J3 axis (perpendicular offset)
+                c1: 0.4865, // Distance from base to J2 axis (height)
+                c2: 0.700,  // Distance from J2 to J3 axis (upper arm length)
+                c3: 0.600,  // Distance from J3 to J4 axis (forearm length)
+                c4: 0.065,  // Distance from J4 to J6 axis (wrist length)
+                offsets: [0.0, 0.0, -std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0],
+                sign_corrections: [1, 1, 1, 1, 1, 1],
+            }
+        }        
     }
 }
