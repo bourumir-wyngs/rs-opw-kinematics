@@ -8,6 +8,8 @@ keywords = ["robotics", "kinematics", "path-planning", "ik", "opw"]
 categories = ["science::robotics", "algorithms"]
 
 license = "BSD-3-Clause"
+
+# Branch 1.3.0.
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 
 readme = "README.md"
@@ -29,7 +31,7 @@ default = ["allow_filesystem"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap"]
 
 # To disable filesystem:
-#rs-opw-kinematics = { version = "1.3.7
+# rs-opw-kinematics = { version = "1.3.7", default-features = false }
 [dev-dependencies]
 rand = "0.9"
 
