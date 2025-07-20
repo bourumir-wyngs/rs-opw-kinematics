@@ -65,7 +65,7 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
 ///   configuration for the robot. On failure, it returns a detailed error.
-///   Ust to_robot method to convert OpwParameters directly to the robot instance.
+///   Use the `to_robot` method to convert `OpwParameters` directly to the robot instance.
 ///
 /// # Example showing full control over how the inverse kinematics solver is constructed:
 /// ```
@@ -313,10 +313,10 @@ fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, 
     Ok(map)
 }
 
-/// OPW parameters as extrancted from URDF file, including constraints 
+/// OPW parameters as extracted from URDF file, including constraints
 /// (joint offsets are not directly defined in URDF). This structure
 /// can provide robot parameters, constraints and sign corrections,
-/// or alterntively can be converted to the robot directly. 
+/// or alternatively can be converted to the robot directly.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct URDFParameters {
     pub a1: f64,
