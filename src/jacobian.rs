@@ -24,7 +24,7 @@ use crate::kinematic_traits::{Joints, Kinematics};
 use crate::utils::vector6_to_joints;
 
 /// This structure holds Jacobian matrix and provides methods to
-/// extract velocity and torgue information from it.
+/// extract velocity and torque information from it.
 ///
 ///
 ///  This package provides support for the Jacobian matrix.
@@ -188,7 +188,7 @@ impl Jacobian {
     ///
     /// # Arguments
     ///
-    /// * `desired_force_torque` - isometry structure representing forces (in Newtons, N) and torgues
+    /// * `desired_force_torque` - isometry structure representing forces (in Newtons, N) and torques
     ///                            (in Newton - meters, Nm) rather than dimensions and angles.
     ///
     /// # Returns
@@ -199,15 +199,15 @@ impl Jacobian {
 
         // Extract the linear velocity (translation) and angular velocity (rotation)
         let linear_force = desired_force_isometry.translation.vector;
-        let angular_torgue = desired_force_isometry.rotation.scaled_axis();
+        let angular_torque = desired_force_isometry.rotation.scaled_axis();
 
         // Combine into a single 6D vector
-        let desired_force_torgue_vector = Vector6::new(
+        let desired_force_torque_vector = Vector6::new(
             linear_force.x, linear_force.y, linear_force.z,
-            angular_torgue.x, angular_torgue.y, angular_torgue.z,
+            angular_torque.x, angular_torque.y, angular_torque.z,
         );
 
-        let joint_torques = self.matrix.transpose() * desired_force_torgue_vector;
+        let joint_torques = self.matrix.transpose() * desired_force_torque_vector;
         vector6_to_joints(joint_torques)
     }
 
@@ -216,7 +216,7 @@ impl Jacobian {
     ///
     /// t = JᵀF
     ///
-    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force and torgue
+    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force and torque
     /// vector. The first 3 components are forces along x, y and z in Newtons, the other 3
     /// components are rotations around x (roll), y (pitch) and z (yaw) axis in Newton meters.
     ///
@@ -402,7 +402,7 @@ mod tests {
         let initial_qs = [0.0; 6];
         let jacobian = Jacobian::new(&robot, &initial_qs, EPSILON);
 
-        // For a single joint robot, that we want on the torgue is what we need to put
+        // For a single joint robot, the torque we want is what we need to apply
         let desired_force_torque =
             Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
                            Vector3::new(0.0, 0.0, 1.234));

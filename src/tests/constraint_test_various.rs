@@ -60,7 +60,7 @@ mod tests {
                     }
                 }
 
-                // Decide if we are doing the "wrap arround 360 or 0 case" or ordinary case
+                // Decide if we are doing the "wrap around 360 or 0 case" or ordinary case
                 if rng.gen_bool(0.5) {
                     expected_results[i] = pass;
                     from_angles[i] = a;
@@ -212,7 +212,7 @@ mod tests {
         );
         let actual = constraints.compliant(&as_radians(case.check_angles));
         if actual != case.passing {
-            println!("Case mimatch: expected {}, actual {}", case.passing, actual);
+            println!("Case mismatch: expected {}, actual {}", case.passing, actual);
             println!("ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
                      case.id, case.from_angles, case.to_angles, case.check_angles,
                      case.expected_results, case.passing);
