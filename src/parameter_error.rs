@@ -43,3 +43,12 @@ impl From<io::Error> for ParameterError {
         ParameterError::IoError(err)
     }
 }
+
+impl std::error::Error for ParameterError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ParameterError::IoError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
