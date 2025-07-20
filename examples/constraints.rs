@@ -32,7 +32,7 @@ fn main() {
     let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
 
     println!(
-        "If we do not have the previous pose yet, we can now ask to prever the pose \
+        "If we do not have the previous pose yet, we can now ask to prefer the pose \
     closer to the center of constraints."
     );
     let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);

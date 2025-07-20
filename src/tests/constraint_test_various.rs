@@ -212,7 +212,7 @@ mod tests {
         );
         let actual = constraints.compliant(&as_radians(case.check_angles));
         if actual != case.passing {
-            println!("Case mimatch: expected {}, actual {}", case.passing, actual);
+            println!("Case mismatch: expected {}, actual {}", case.passing, actual);
             println!("ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
                      case.id, case.from_angles, case.to_angles, case.check_angles,
                      case.expected_results, case.passing);

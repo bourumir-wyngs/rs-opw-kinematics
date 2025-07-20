@@ -36,10 +36,10 @@ const TWO_PI: f64 = 2.0 * PI;
 
 impl Constraints {
     /// Create constraints that restrict the joint rotations between 'from' to 'to' values.
-    /// Wrapping arround is supported so order is important. For instance,
+    /// Wrapping around is supported so order is important. For instance,
     /// from = 0.1 and to = 0.2 (radians) means the joint
     /// is allowed to rotate to 0.11, 0.12 ... 1.99, 0.2. 
-    /// from = 0.2 ant to = 0.1 is also valid but means the joint is allowed to rotate
+    /// from = 0.2 and to = 0.1 is also valid but means the joint is allowed to rotate
     /// to 0.21, 0.22, 0.99, 2 * PI or 0.0 (wrapping around), then to 0.09 and finally 0.1,
     /// so the other side of the circle. The sorting_weight parameter influences sorting of the
     /// results: 0.0 (or BY_PREV) gives absolute priority to the previous values of the joints,
@@ -67,11 +67,11 @@ impl Constraints {
             if a == b {
                 tolerances[j_idx] = INFINITY; // No constraint, not checked
             } else if a < b {
-                // Values do not wrap arround
+                // Values do not wrap around
                 centers[j_idx] = (a + b) / 2.0;
                 tolerances[j_idx] = (b - a) / 2.0;
             } else {
-                // Values wrap arround. Move b forward by period till it gets ahead.
+                // Values wrap around. Move b forward by period till it gets ahead.
                 while b < a {
                     b = b + TWO_PI;
                 }
