@@ -60,7 +60,7 @@ mod tests {
                     }
                 }
 
-                // Decide if we are doing the "wrap arround 360 or 0 case" or ordinary case
+                // Decide if we are doing the "wrap around 360 or 0 case" or ordinary case
                 if rng.gen_bool(0.5) {
                     expected_results[i] = pass;
                     from_angles[i] = a;
