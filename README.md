@@ -34,7 +34,7 @@ It has less code receives all fixes and performance improvements from the latest
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
- - Jacobian, torques and velocities
+- Jacobian, torques and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - Experimental support for parameter extraction from URDF.
@@ -168,7 +168,7 @@ fn main() {
             BY_PREV,
         ));
 
-    println!("If we do not have the previous pose yet, we can now ask to prever the pose \
+    println!("If we do not have the previous pose yet, we can now ask to prefer the pose \
     closer to the center of constraints.");
     let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
     dump_solutions(&solutions);
@@ -245,7 +245,7 @@ The constants _BY_PREV_ ( = 0.0) and _BY_CONSTRAINTS_ ( = 1.0) are for convenien
 
 # Configuring the solver for your robot
 
-The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx,
+The project contains built-in definitions for ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05, IRB 1600, KUKA KR 6 R700 sixx,
 FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160 and TX2-160L with various levels of
 testing. Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is
