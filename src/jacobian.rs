@@ -402,7 +402,7 @@ mod tests {
         let initial_qs = [0.0; 6];
         let jacobian = Jacobian::new(&robot, &initial_qs, EPSILON);
 
-        // For a single joint robot, the torque we want is what we need to put
+        // For a single joint robot, the torque we want is what we need to apply
         let desired_force_torque =
             Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
                            Vector3::new(0.0, 0.0, 1.234));
