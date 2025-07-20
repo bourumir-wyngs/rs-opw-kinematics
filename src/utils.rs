@@ -14,7 +14,7 @@ pub(crate) mod opw_kinematics {
     }
 }
 
-/// Print joint values for all solutions, converting radianst to degrees.
+/// Print joint values for all solutions, converting radians to degrees.
 #[allow(dead_code)]
 pub fn dump_solutions(solutions: &Solutions) {
     if solutions.is_empty() {
@@ -45,7 +45,7 @@ pub fn dump_solutions_degrees(solutions: &Solutions) {
     }
 }
 
-/// Print joint values, converting radianst to degrees.
+/// Print joint values, converting radians to degrees.
 #[allow(dead_code)]
 pub fn dump_joints(joints: &Joints) {
     let mut row_str = String::new();
