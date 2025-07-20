@@ -34,7 +34,7 @@ It has less code receives all fixes and performance improvements from the latest
 - For kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk of the real
   robot)
-- Jacobian, torgues and velocities
+- Jacobian, torques and velocities
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any part of the robot.
 - Experimental support for parameter extraction from URDF.
@@ -96,7 +96,7 @@ on a [base](https://docs.rs/rs-opw-kinematics/1.3.7/rs_opw_kinematics/tool/struc
 "Robot with the tool" and "Robot on the base" can be constructed around any Kinematics trait, and implement the
 Kinematics trait themselves. It is possible to cascade them.
 
-# Jacobian: torgues and velocities
+# Jacobian: torques and velocities
 Please see the [example](examples/jacobian.rs).
 
 Since 1.3.4, it is possible to obtain the [Jacobian](https://docs.rs/rs-opw-kinematics/1.3.7/rs_opw_kinematics/jacobian/struct.Jacobian.html) that represents the relationship between the joint velocities
@@ -105,11 +105,11 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [torques](https://docs.rs/rs-opw-kinematics/1.3.7/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torgues in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
+or torques in Newton meters. For the end effector, it is possible to use either nalgebra Isometry3 or Vector6,
 both defining velocities in m/s or rotations in N m.
 
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent
-overspeed or overtorgue of individual joints.
+overspeed or overtorque of individual joints.
 
 
 # Example
@@ -168,7 +168,7 @@ fn main() {
             BY_PREV,
         ));
 
-    println!("If we do not have the previous pose yet, we can now ask to prever the pose \
+    println!("If we do not have the previous pose yet, we can now ask to prefer the pose \
     closer to the center of constraints.");
     let solutions = robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED);
     dump_solutions(&solutions);
