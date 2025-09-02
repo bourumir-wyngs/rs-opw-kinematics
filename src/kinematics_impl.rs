@@ -612,4 +612,81 @@ mod tests {
             assert!(diff < 1e-6, "J6 mismatch for angle {} degrees: difference was {} radians", angle_deg, diff);
         }
     }
+
+    #[test]
+    fn test_inverse_continuing_adds_blended_solution_at_j5_pi() {
+        use std::f64::consts::PI;
+        use crate::kinematic_traits::{Joints, Kinematics};
+
+        // Use a known-good robot model; adjust if you prefer a different preset.
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+
+        // Previous configuration with the wrist at the π singularity.
+        // For J5 ≈ π, the *orientation* depends on (J4 - J6),
+        // and the continuity-preserving update is δ4 = -δ6.
+        let previous: Joints = [0.0, 0.1, 0.2, 0.3, PI, -0.8];
+
+        // Create a target pose by moving J4 and J6 in OPPOSITE directions by ±Δ
+        // while keeping J5 at π. This changes (J4 - J6) by 2Δ.
+        let delta = 0.20_f64;
+        let target: Joints = [
+            previous[0],
+            previous[1],
+            previous[2],
+            previous[J4] + delta,
+            previous[J5],             // keep J5 at π
+            previous[J6] - delta,
+        ];
+
+        // Pose generated from the "target" configuration
+        let pose = robot.forward(&target);
+
+        // Baseline: plain IK solutions (no continuity logic)
+        let base = robot.inverse(&pose);
+        assert!(
+            !base.is_empty(),
+            "baseline IK returned no solutions for the target pose"
+        );
+
+        // Continuation: should add exactly one 'blended' solution near `previous`
+        // when J5 ≈ π (after the bug fix).
+        let cont = robot.inverse_continuing(&pose, &previous);
+        assert!(
+            !cont.is_empty(),
+            "inverse_continuing returned no solutions"
+        );
+        assert_eq!(
+            cont.len(),
+            base.len() + 1,
+            "expected one additional blended continuity solution at the J5≈π singularity"
+        );
+
+        // The top solution is sorted by closeness to `previous`; it should be the blended one.
+        let mut best = cont[0];
+        for j in 0..6 {
+            normalize_near(&mut best[j], previous[j]);
+        }
+
+        // Opposite-direction motion relative to previous: δ4 + δ6 ≈ 0
+        let d4 = best[J4] - previous[J4];
+        let d6 = best[J6] - previous[J6];
+        assert!(
+            (d4 + d6).abs() < 1e-6,
+            "expected opposite-direction update at J5≈π, got δ4={} δ6={}",
+            d4,
+            d6
+        );
+
+        // And (J4 - J6) must match the pose-implied (target) value (mod 2π)
+        let mut best_diff = best[J4] - best[J6];
+        let target_diff = target[J4] - target[J6];
+        normalize_near(&mut best_diff, target_diff);
+        assert!(
+            (best_diff - target_diff).abs() < 1e-6,
+            "q4 - q6 mismatch: got {}, want {}",
+            best_diff,
+            target_diff
+        );
+    }
+
 }
