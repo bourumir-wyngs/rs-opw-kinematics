@@ -133,7 +133,7 @@ impl Kinematics for OPWKinematics {
                         let j_d = angle / 2.0;
 
                         now[J4] = previous[J4] + j_d;
-                        now[J6] = previous[J6] + j_d;
+                        now[J6] = previous[J6] - j_d;
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
@@ -294,10 +294,8 @@ impl OPWKinematics {
         let theta3_iii = tmp12 - tmp10;
         let theta3_iv = -tmp12 - tmp10;
 
-        let theta1_i_sin = theta1_i.sin();
-        let theta1_i_cos = theta1_i.cos();
-        let theta1_ii_sin = theta1_ii.sin();
-        let theta1_ii_cos = theta1_ii.cos();
+        let (theta1_i_sin, theta1_i_cos) = theta1_i.sin_cos();
+        let (theta1_ii_sin, theta1_ii_cos) = theta1_ii.sin_cos();
 
         // orientation part
         let sin1: [f64; 4] = [
@@ -447,6 +445,7 @@ impl OPWKinematics {
 
         result
     }
+
     fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
         match &self.constraints {
             Some(constraints) => constraints.filter(&solutions),
@@ -531,18 +530,9 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
 /// * `must_be_near` - The reference angle, radians
 fn normalize_near(now: &mut f64, must_be_near: f64) {
     let two_pi = 2.0 * PI;
-
-    // First, reduce to standard range [-pi, pi]
-    *now = (*now - must_be_near) % two_pi;
-
-    if *now > PI {
-        *now -= two_pi;
-    } else if *now < -PI {
-        *now += two_pi;
-    }
-
-    // Then, shift back near must_be_near
-    *now += must_be_near;
+    // Smallest signed difference in (-π, π]
+    let diff = (*now - must_be_near + PI).rem_euclid(two_pi) - PI;
+    *now = must_be_near + diff;
 }
 
 fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
