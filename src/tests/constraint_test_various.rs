@@ -27,11 +27,11 @@ mod tests {
 
             for i in 0..6 {
                 // Generate two angles that are not equal
-                let mut a: i32 = rng.gen_range(0..360);
-                let mut b: i32 = rng.gen_range(0..360);
+                let mut a: i32 = rng.random_range(0..360);
+                let mut b: i32 = rng.random_range(0..360);
 
                 while (a - b).abs() < 2 { // Leave at least on value in between
-                    b = rng.gen_range(0..360); // generate again
+                    b = rng.random_range(0..360); // generate again
                 }
 
                 // Make sure b > a
@@ -41,27 +41,27 @@ mod tests {
                 let c; // the value to check
 
                 // Decide if the case should pass
-                let pass = rng.gen_bool(0.95);
+                let pass = rng.random_bool(0.95);
 
                 // ordinary case, a < c < b to pass
                 if pass {
                     // Generate c within the range from a to b boundaries exclusive
-                    c = rng.gen_range(a + 1..b);
+                    c = rng.random_range(a + 1..b);
                 } else {
                     c = loop {
                         // Generate outside the range, either below a or above b:
-                        if rng.gen_bool(0.5) && a > 0 {
+                        if rng.random_bool(0.5) && a > 0 {
                             // below a
-                            break rng.gen_range(0..a);
+                            break rng.random_range(0..a);
                         } else if b < 360 - 2 { // 360 and 359 would not generate as expected
                             // above b
-                            break rng.gen_range(b + 1..360);
+                            break rng.random_range(b + 1..360);
                         };
                     }
                 }
 
                 // Decide if we are doing the "wrap around 360 or 0 case" or ordinary case
-                if rng.gen_bool(0.5) {
+                if rng.random_bool(0.5) {
                     expected_results[i] = pass;
                     from_angles[i] = a;
                     to_angles[i] = b;
