@@ -374,10 +374,8 @@ impl OPWKinematics {
         let theta3_iii = tmp12 - tmp10;
         let theta3_iv = -tmp12 - tmp10;
 
-        let theta1_i_sin = theta1_i.sin();
-        let theta1_i_cos = theta1_i.cos();
-        let theta1_ii_sin = theta1_ii.sin();
-        let theta1_ii_cos = theta1_ii.cos();
+        let (theta1_i_sin, theta1_i_cos) = theta1_i.sin_cos();
+        let (theta1_ii_sin, theta1_ii_cos) = theta1_ii.sin_cos();
 
         // orientation part
         let sin1: [f64; 4] = [
@@ -586,10 +584,8 @@ impl OPWKinematics {
         let theta3_iii = tmp12 - tmp10;
         let theta3_iv = -tmp12 - tmp10;
 
-        let theta1_i_sin = theta1_i.sin();
-        let theta1_i_cos = theta1_i.cos();
-        let theta1_ii_sin = theta1_ii.sin();
-        let theta1_ii_cos = theta1_ii.cos();
+        let (theta1_i_sin, theta1_i_cos) = theta1_i.sin_cos();
+        let (theta1_ii_sin, theta1_ii_cos) = theta1_ii.sin_cos();
 
         // orientation part
         let sin1: [f64; 4] = [
