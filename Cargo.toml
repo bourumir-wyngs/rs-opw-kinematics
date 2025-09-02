@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.9"
+version = "1.8.10"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -16,8 +16,8 @@ readme = "README.md"
 maintenance = { status = "actively-developed" } 
 
 [dependencies]
-nalgebra = "0.33"
-rand = ">=0.8, <=0.9" # Now is needed for path planner 0.8
+nalgebra = ">=0.32.1, <=0.34"
+rand = "0.9" # Now is needed for path planner 0.8
 anyhow = "1.0"
 
 # Optional dependencies:
@@ -31,13 +31,14 @@ regex = { version = ">=1.10, <=1.11", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 
 # Needed for collision
-parry3d = { version = ">= 0.19, <=0.22", optional = true }
+#parry3d = { version = ">= 0.19, <=0.23", optional = true }
+parry3d = { version = "0.23", optional = true }
 
 # Palellization of collision
-rayon = { version = "1.10", optional = true }
+rayon = { version = ">= 1.10, <=1.11", optional = true }
 
 # For loading meshes, needed for collision and visualization
-rs-read-trimesh = { version = "2.0.3", optional = true }
+rs-read-trimesh = { version = "2.0.4", optional = true }
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
@@ -65,8 +66,8 @@ collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
 
-# To disable filesystem, collision and visualizatio support:
-# rs-opw-kinematics = { version = "1.8.9", default-features = false }
+# To disable filesystem, collision and visualization support:
+# rs-opw-kinematics = { version = "1.8.10", default-features = false }
 
 [profile.release]
 
