@@ -193,14 +193,14 @@ impl Constraints {
 
     /// Generate a random valid angle within the defined constraints for each joint.
     pub fn random_angles(&self) -> Joints {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         fn random_angle(rng: &mut impl Rng, from: f64, to: f64) -> f64 {
             if from < to {
-                rng.gen_range(from..to)
+                rng.random_range(from..to)
             } else {
                 let range_length = TWO_PI - (from - to);
-                let segment = rng.gen_range(0.0..range_length);
+                let segment = rng.random_range(0.0..range_length);
                 if segment < (TWO_PI - from) {
                     from + segment
                 } else {
