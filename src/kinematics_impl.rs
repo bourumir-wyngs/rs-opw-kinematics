@@ -132,7 +132,7 @@ impl Kinematics for OPWKinematics {
                         let j_d = angle / 2.0;
 
                         now[J4] = previous[J4] + j_d;
-                        now[J6] = previous[J6] + j_d;
+                        now[J6] = previous[J6] - j_d;
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
@@ -800,20 +800,10 @@ fn are_angles_close(angle1: f64, angle2: f64) -> bool {
 /// * `must_be_near` - The reference angle, radians
 fn normalize_near(now: &mut f64, must_be_near: f64) {
     let two_pi = 2.0 * PI;
-
-    // First, reduce to standard range [-pi, pi]
-    *now = (*now - must_be_near) % two_pi;
-
-    if *now > PI {
-        *now -= two_pi;
-    } else if *now < -PI {
-        *now += two_pi;
-    }
-
-    // Then, shift back near must_be_near
-    *now += must_be_near;
+    // Smallest signed difference in (-π, π]
+    let diff = (*now - must_be_near + PI).rem_euclid(two_pi) - PI;
+    *now = must_be_near + diff;
 }
-
 
 fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
     joint1.iter()
