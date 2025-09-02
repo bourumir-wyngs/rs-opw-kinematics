@@ -216,7 +216,7 @@ impl KinematicsWithShape {
     /// # Returns
     ///
     /// * A new instance of `PositionedRobot` containing the positioned joints with precomputed transforms.
-    pub fn positioned_robot(&self, joint_positions: &Joints) -> PositionedRobot {
+    pub fn positioned_robot(&self, joint_positions: &Joints) -> PositionedRobot<'_> {
         // Compute the global transforms for each joint using forward kinematics
         let global_transforms: [Isometry3<f32>; 6] = self
             .kinematics
