@@ -10,6 +10,6 @@ opw_kinematics_geometric_parameters:
   c3: 0.74
   c4: 0.10
   dof: 5 # 5 DOF robot
-opw_kinematics_joint_offsets: [0, 0, deg(-90), 0, 0, deg(180)]
+opw_kinematics_joint_offsets: [0, 0, deg(-90), 0, deg(180)] # 5 members ok
 opw_kinematics_joint_sign_corrections: [1, 1, -1, -1, -1] # 5 members ok
 

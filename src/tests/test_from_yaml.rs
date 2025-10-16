@@ -50,7 +50,7 @@ mod tests {
             c2: 0.77,
             c3: 0.74,
             c4: 0.10,
-            offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 0.0, 180.0_f64.to_radians()],
+            offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 180.0_f64.to_radians(), 0.0 ],
             sign_corrections: [1, 1, -1, -1, -1, 0], // Sign corrections last member 0
             dof: 5, // Degrees of freedom 5
         };
@@ -82,7 +82,7 @@ mod tests {
             c2: 0.77,
             c3: 0.74,
             c4: 0.10,
-            offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 0.0, 180.0_f64.to_radians()],
+            offsets: [0.0, 0.0, -90.0_f64.to_radians(), 0.0, 180.0_f64.to_radians(), 0.0],
             sign_corrections: [1, 1, 1, 1, 1, 1],
             dof: 6,
         };

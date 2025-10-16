@@ -541,8 +541,7 @@ testing. Robot manufacturers may provide such configurations for the robots they
 For instance, FANUC M10IA is
 described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
 Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
-This project contains the code for reading such configurations directly, including support for *deg(angle)*
-function that sometimes occurs there:
+This project contains the code for reading such configurations directly, including support for ROS-specific YAML constructs like deg(180), rad(pi), 1 + 2*(3 - 4/5), rad(pi/2) and similar that sometimes occurs there:
 
 ```rust
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");

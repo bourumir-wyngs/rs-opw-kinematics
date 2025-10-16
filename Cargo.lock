@@ -521,7 +521,7 @@ dependencies = [
  "nonmax",
  "radsort",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
 ]
 
@@ -678,7 +678,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
 ]
 
@@ -693,7 +693,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_reflect",
  "bevy_utils",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -786,7 +786,7 @@ dependencies = [
  "glam 0.27.0",
  "rand 0.8.5",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
 ]
 
@@ -822,7 +822,7 @@ dependencies = [
  "fixedbitset 0.5.7",
  "nonmax",
  "radsort",
- "smallvec",
+ "smallvec 1.13.2",
  "static_assertions",
 ]
 
@@ -846,7 +846,7 @@ dependencies = [
  "glam 0.27.0",
  "petgraph",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "smol_str",
  "thiserror 1.0.69",
  "uuid",
@@ -906,7 +906,7 @@ dependencies = [
  "ruzstd",
  "send_wrapper",
  "serde",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "wasm-bindgen",
  "web-sys",
@@ -1058,7 +1058,7 @@ dependencies = [
  "bevy_window",
  "bytemuck",
  "nonmax",
- "smallvec",
+ "smallvec 1.13.2",
  "taffy",
  "thiserror 1.0.69",
 ]
@@ -1788,15 +1788,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "encoding_rs"
-version = "0.8.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
 name = "epaint"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2460,7 +2451,7 @@ dependencies = [
  "icu_normalizer_data",
  "icu_properties",
  "icu_provider",
- "smallvec",
+ "smallvec 1.13.2",
  "utf16_iter",
  "utf8_iter",
  "write16",
@@ -2529,7 +2520,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e"
 dependencies = [
  "idna_adapter",
- "smallvec",
+ "smallvec 1.13.2",
  "utf8_iter",
 ]
 
@@ -3364,7 +3355,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "redox_syscall 0.5.7",
- "smallvec",
+ "smallvec 1.13.2",
  "windows-targets 0.52.6",
 ]
 
@@ -3389,7 +3380,7 @@ dependencies = [
  "rstar",
  "simba",
  "slab",
- "smallvec",
+ "smallvec 1.13.2",
  "spade",
  "static_assertions",
  "thiserror 2.0.12",
@@ -3842,7 +3833,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.10"
+version = "1.8.11"
 dependencies = [
  "anyhow",
  "bevy",
@@ -3852,16 +3843,18 @@ dependencies = [
  "kdtree",
  "nalgebra",
  "num-traits",
+ "once_cell",
  "parry3d",
  "rand 0.9.2",
  "rayon",
  "regex",
  "rrt",
  "rs-read-trimesh",
+ "serde",
+ "serde-saphyr",
  "stl_io",
  "sxd-document",
  "tracing",
- "yaml-rust2",
 ]
 
 [[package]]
@@ -3885,7 +3878,7 @@ checksum = "421400d13ccfd26dfa5858199c30a5d76f9c54e0dba7575273025b43c5175dbb"
 dependencies = [
  "heapless",
  "num-traits",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -3937,9 +3930,9 @@ dependencies = [
 
 [[package]]
 name = "ryu"
-version = "1.0.18"
+version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
+checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "safe_arch"
@@ -3957,6 +3950,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "saphyr-parser"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb771b59f6b1985d1406325ec28f97cfb14256abcec4fdfb37b36a1766d6af7"
+dependencies = [
+ "arraydeque",
+ "hashlink",
 ]
 
 [[package]]
@@ -4001,18 +4004,42 @@ checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
 
 [[package]]
 name = "serde"
-version = "1.0.215"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6513c1ad0b11a9376da888e3e0baa0077f1aed55c17f50e7b2397136129fb88f"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde-saphyr"
+version = "0.0.6"
+dependencies = [
+ "base64 0.22.1",
+ "nohash-hasher",
+ "num-traits",
+ "ryu",
+ "saphyr-parser",
+ "serde",
+ "serde_json",
+ "smallvec 2.0.0-alpha.11",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.215"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad1e866f866923f252f05c889987993144fb74e722403468a4ebd70c3cd756c0"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4021,14 +4048,15 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.133"
+version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7fceb2473b9166b2294ef05efcb65a3db80803f0b03ef86a5fc88a2b85ee377"
+checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
 dependencies = [
  "itoa",
  "memchr",
  "ryu",
  "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -4105,6 +4133,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
+name = "smallvec"
+version = "2.0.0-alpha.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87b96efa4bd6bdd2ff0c6615cc36fc4970cbae63cfd46ddff5cee35a1b4df570"
+
+[[package]]
 name = "smithay-client-toolkit"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4147,7 +4181,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "num-traits",
  "robust",
- "smallvec",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -4464,7 +4498,7 @@ dependencies = [
  "once_cell",
  "regex-automata",
  "sharded-slab",
- "smallvec",
+ "smallvec 1.13.2",
  "thread_local",
  "tracing",
  "tracing-core",
@@ -4699,7 +4733,7 @@ dependencies = [
  "downcast-rs 1.2.1",
  "rustix 0.38.44",
  "scoped-tls",
- "smallvec",
+ "smallvec 1.13.2",
  "wayland-sys",
 ]
 
@@ -4856,7 +4890,7 @@ dependencies = [
  "parking_lot",
  "profiling",
  "raw-window-handle",
- "smallvec",
+ "smallvec 1.13.2",
  "static_assertions",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4886,7 +4920,7 @@ dependencies = [
  "profiling",
  "raw-window-handle",
  "rustc-hash",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "web-sys",
  "wgpu-hal",
@@ -4930,7 +4964,7 @@ dependencies = [
  "raw-window-handle",
  "renderdoc-sys",
  "rustc-hash",
- "smallvec",
+ "smallvec 1.13.2",
  "thiserror 1.0.69",
  "wasm-bindgen",
  "web-sys",
@@ -5444,17 +5478,6 @@ name = "xml-rs"
 version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea8b391c9a790b496184c29f7f93b9ed5b16abb306c05415b68bcc16e4d06432"
-
-[[package]]
-name = "yaml-rust2"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818913695e83ece1f8d2a1c52d54484b7b46d0f9c06beeb2649b9da50d9b512d"
-dependencies = [
- "arraydeque",
- "encoding_rs",
- "hashlink",
-]
 
 [[package]]
 name = "yoke"
