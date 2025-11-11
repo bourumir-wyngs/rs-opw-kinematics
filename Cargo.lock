@@ -1788,6 +1788,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
+name = "encoding_rs_io"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cc3c5651fb62ab8aa3103998dade57efdd028544bd300516baa31840c252a83"
+dependencies = [
+ "encoding_rs",
+]
+
+[[package]]
 name = "epaint"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3849,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.11"
+version = "1.8.12"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4030,11 +4048,12 @@ dependencies = [
 
 [[package]]
 name = "serde-saphyr"
-version = "0.0.6"
+version = "0.0.8-alpha-pre"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f637bb99547414f8c08b7d4fe3e56b248fa9db36860e190988501ac1b3741eee"
+checksum = "84fa6904388b1aac61ccaf2c20cac6c439058bbdde18f2fc91ee7fcbe8c69c90"
 dependencies = [
  "base64 0.22.1",
+ "encoding_rs_io",
  "nohash-hasher",
  "num-traits",
  "ryu",
