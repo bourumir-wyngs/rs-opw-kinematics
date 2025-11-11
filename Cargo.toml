@@ -12,9 +12,6 @@ license = "BSD-3-Clause"
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 readme = "README.md"
 
-[badges]
-maintenance = { status = "actively-developed" } 
-
 [dependencies]
 nalgebra = ">=0.32.1, < 0.35"
 rand = "0.9" # Now is needed for path planner 0.8
@@ -68,6 +65,9 @@ allow_filesystem = ["serde-saphyr", "serde", "sxd-document", "regex", "clap", "r
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
+
+[package.metadata]
+status = "minimally maintained"
 
 # To disable filesystem, collision and visualization support:
 # rs-opw-kinematics = { version = "1.8.11", default-features = false }
