@@ -82,15 +82,15 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "ahash"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
+checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
- "getrandom 0.2.15",
+ "getrandom 0.3.3",
  "once_cell",
  "version_check",
- "zerocopy",
+ "zerocopy 0.8.28",
 ]
 
 [[package]]
@@ -3575,7 +3575,7 @@ version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
- "zerocopy",
+ "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -3640,9 +3640,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.37"
+version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af"
+checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
 ]
@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.12"
+version = "1.8.13"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4048,10 +4048,11 @@ dependencies = [
 
 [[package]]
 name = "serde-saphyr"
-version = "0.0.8-alpha-pre"
+version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84fa6904388b1aac61ccaf2c20cac6c439058bbdde18f2fc91ee7fcbe8c69c90"
+checksum = "9b9e06cddad47cc6214c0c456cf209b99a58b54223e7af2f6d4b88a5a9968499"
 dependencies = [
+ "ahash",
  "base64 0.22.1",
  "encoding_rs_io",
  "nohash-hasher",
@@ -4060,7 +4061,7 @@ dependencies = [
  "saphyr-parser",
  "serde",
  "serde_json",
- "smallvec 2.0.0-alpha.11",
+ "smallvec 2.0.0-alpha.12",
 ]
 
 [[package]]
@@ -4171,9 +4172,9 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "smallvec"
-version = "2.0.0-alpha.11"
+version = "2.0.0-alpha.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87b96efa4bd6bdd2ff0c6615cc36fc4970cbae63cfd46ddff5cee35a1b4df570"
+checksum = "ef784004ca8777809dcdad6ac37629f0a97caee4c685fcea805278d81dd8b857"
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -5547,7 +5548,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
 dependencies = [
  "byteorder",
- "zerocopy-derive",
+ "zerocopy-derive 0.7.35",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43fa6694ed34d6e57407afbccdeecfa268c470a7d2a5b0cf49ce9fcc345afb90"
+dependencies = [
+ "zerocopy-derive 0.8.28",
 ]
 
 [[package]]
@@ -5555,6 +5565,17 @@ name = "zerocopy-derive"
 version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c640b22cd9817fae95be82f0d2f90b11f7605f6c319d16705c459b27ac2cbc26"
 dependencies = [
  "proc-macro2",
  "quote",

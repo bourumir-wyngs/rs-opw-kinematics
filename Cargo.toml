@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.12"
+version = "1.8.13"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -23,7 +23,7 @@ anyhow = "1.0"
 # - regex: For regex matching in file parsing.
 # - clap: For command-line argument parsing by file processor.
 
-serde-saphyr = { version = "0.0.8-alpha-pre", optional = true, features = ["robotics"] }
+serde-saphyr = { version = "0.0.10", optional = true, features = ["robotics"] }
 serde = {  version = "1.0", optional = true, features = ["derive"], default-features = false }
 
 sxd-document = { version = "0.3", optional = true }
