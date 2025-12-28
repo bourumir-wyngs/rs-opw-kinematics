@@ -98,7 +98,7 @@ dof: 6
         },
     );
     match root {
-        Ok(root) => {
+        Ok(_root) => {
             assert!(false, "Validation must fail - a1 is nan")
         }
         Err(err) => {
@@ -132,7 +132,7 @@ dof: 6    "#;
         },
     );
     match root {
-        Ok(root) => {
+        Ok(_root) => {
             assert!(false, "Validation must fail - a1 is nan")
         }
         Err(err) => {

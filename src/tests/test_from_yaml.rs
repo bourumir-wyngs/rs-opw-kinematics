@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_parameters_from_yaml_rejects_bad_dof() {
-        let filename = "src/tests/data/fanuc/invalid_dof.yaml";
+        let filename = "src/tests/data/test/invalid_dof.yaml";
         let err = Parameters::from_yaml_file(filename).unwrap_err();
         let msg = err.to_string();
         // println!("{msg}");
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_parameters_from_yaml_rejects_bad_sign_correction() {
-        let filename = "src/tests/data/fanuc/invalid_sign_corrections.yaml";
+        let filename = "src/tests/data/test/invalid_sign_corrections.yaml";
         let err = Parameters::from_yaml_file(filename).unwrap_err();
         let msg = err.to_string();
         // println!("{msg}");
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_parameters_from_yaml_rejects_bad_offset_range() {
-        let filename = "src/tests/data/fanuc/invalid_offsets.yaml";
+        let filename = "src/tests/data/test/invalid_offsets.yaml";
         let err = Parameters::from_yaml_file(filename).unwrap_err();
         let msg = err.to_string();
         // println!("{msg}");
@@ -126,10 +126,47 @@ mod tests {
 
     #[test]
     fn test_parameters_from_yaml_rejects_nan_geometric_parameter() {
-        let filename = "src/tests/data/fanuc/invalid_nan_geom.yaml";
+        let filename = "src/tests/data/test/invalid_nan_geom.yaml";
         let err = Parameters::from_yaml_file(filename).unwrap_err();
         let msg = err.to_string();
         // println!("{msg}");
         assert!(msg.contains("^ validation error: must be finite for `opw_kinematics_geometric_parameters.a1`"), "{msg}");
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_rejects_conflicting_dof() {
+        let filename = "src/tests/data/test/invalid_conflicting_dof.yaml";
+        let err = Parameters::from_yaml_file(filename).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("dof appears at top-level") && msg.contains("conflicting values"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_dof_from_geometric_parameters() {
+        let filename = "src/tests/data/test/dof_only_in_geometric_parameters.yaml";
+        let loaded = Parameters::from_yaml_file(filename).expect(READ_ERROR);
+        assert_eq!(5, loaded.dof);
+        // 5-DOF normalization should lock J6
+        assert_eq!(0.0, loaded.offsets[5]);
+        assert_eq!(0, loaded.sign_corrections[5]);
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_accepts_dof_in_both_places_same_value() {
+        let filename = "src/tests/data/test/dof_in_both_places_same_value.yaml";
+        let loaded = Parameters::from_yaml_file(filename).expect(READ_ERROR);
+        assert_eq!(6, loaded.dof);
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_5dof_normalizes_joint6_values() {
+        let filename = "src/tests/data/test/5dof_with_nonzero_joint6.yaml";
+        let loaded = Parameters::from_yaml_file(filename).expect(READ_ERROR);
+        assert_eq!(5, loaded.dof);
+        assert_eq!(0.0, loaded.offsets[5]);
+        assert_eq!(0, loaded.sign_corrections[5]);
     }
 }

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use garde::Validate;
 use serde::Deserialize;
-use serde_saphyr::{Error, Options};
+use serde_saphyr::Options;
 
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
@@ -12,14 +12,14 @@ use crate::parameters::opw_kinematics::Parameters;
 fn default_offsets() -> Vec<f64> { vec![0.0; 6] }
 fn default_sign_corrections() -> Vec<i8> { vec![1; 6] }
 
-fn validate_finite_f64(v: &f64, _ctx: &()) -> garde::Result {
+fn opw_geometry_parameter(v: &f64, _ctx: &()) -> garde::Result {
     if !v.is_finite() {
         return Err(garde::Error::new("must be finite"));
     }
     Ok(())
 }
 
-fn validate_offset_f64(v: &f64, _ctx: &()) -> garde::Result {
+fn joint_offset(v: &f64, _ctx: &()) -> garde::Result {
     if !v.is_finite() {
         return Err(garde::Error::new("must be finite"));
     }
@@ -30,7 +30,7 @@ fn validate_offset_f64(v: &f64, _ctx: &()) -> garde::Result {
     Ok(())
 }
 
-fn validate_sign_correction_i8(v: &i8, _ctx: &()) -> garde::Result {
+fn sign_correction(v: &i8, _ctx: &()) -> garde::Result {
     if *v != -1 && *v != 1 {
         return Err(garde::Error::new("must be -1 or 1"));
     }
@@ -39,19 +39,19 @@ fn validate_sign_correction_i8(v: &i8, _ctx: &()) -> garde::Result {
 
 #[derive(Deserialize, Validate)]
 struct GeometricParameters {
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub a1: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub a2: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub b: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub c1: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub c2: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub c3: f64,
-    #[garde(custom(validate_finite_f64))]
+    #[garde(custom(opw_geometry_parameter))]
     pub c4: f64,
     /// Optional here; top-level `dof` overrides if also present
     #[serde(default)]
@@ -64,12 +64,12 @@ struct Root {
     #[garde(dive)]
     pub opw_kinematics_geometric_parameters: GeometricParameters,
     #[serde(default = "default_offsets")]
-    #[garde(length(min = 5, max = 6), inner(custom(validate_offset_f64)))]
+    #[garde(length(min = 5, max = 6), inner(custom(joint_offset)))]
     pub opw_kinematics_joint_offsets: Vec<f64>,
     #[serde(default = "default_sign_corrections")]
-    #[garde(length(min = 5, max = 6), inner(custom(validate_sign_correction_i8)))]
+    #[garde(length(min = 5, max = 6), inner(custom(sign_correction)))]
     pub opw_kinematics_joint_sign_corrections: Vec<i8>,
-    /// Optional; overrides gp.dof if present
+    /// Optional; overrides opw_kinematics_geometric_parameters.dof if present
     #[serde(default)]
     #[garde(range(min = 5, max = 6))]
     pub dof: Option<i8>,
@@ -118,31 +118,13 @@ impl Parameters {
             (None, None) => 6,
         };
 
-        // Sign corrections: allow 5 (pad with 1) or 6; validate values in {-1,1}
-        let mut sign_corrections = vec_to_six(root.opw_kinematics_joint_sign_corrections, 1i8, "opw_kinematics_joint_sign_corrections")?;
-        for (i, &sc) in sign_corrections.iter().enumerate() {
-            if sc != -1 && sc != 1 {
-                return Err(ParameterError::ParseError(format!(
-                    "sign_corrections[{}] must be -1 or 1 (got {})", i, sc
-                )));
-            }
-        }
+        // Sign corrections: allow 5 (pad with 1) or 6.
+        // Value/length validation is handled by garde on `Root`.
+        let mut sign_corrections = vec_to_six(root.opw_kinematics_joint_sign_corrections, 1i8)?;
 
-        // Offsets: allow 5 (pad with 0.0) or 6; validate finite and within [-2*PI, 2*PI]
-        let mut offsets = vec_to_six(root.opw_kinematics_joint_offsets, 0.0f64, "opw_kinematics_joint_offsets")?;
-        let limit = 2.0 * std::f64::consts::PI;
-        for (i, &ofs) in offsets.iter().enumerate() {
-            if !ofs.is_finite() {
-                return Err(ParameterError::ParseError(format!(
-                    "offsets[{}] must be finite (got {})", i, ofs
-                )));
-            }
-            if ofs < -limit || ofs > limit {
-                return Err(ParameterError::ParseError(format!(
-                    "offsets[{}] must be within [-2*PI, 2*PI] (got {})", i, ofs
-                )));
-            }
-        }
+        // Offsets: allow 5 (pad with 0.0) or 6.
+        // Value/length validation is handled by garde on `Root`.
+        let mut offsets = vec_to_six(root.opw_kinematics_joint_offsets, 0.0f64)?;
 
         // 5-DOF normalization: lock joint 6 to 0 (both sign correction and offset)
         if dof == 5 {
@@ -156,18 +138,7 @@ impl Parameters {
             }
         }
 
-        // Geometric parameter sanity: all finite
         let gp = &root.opw_kinematics_geometric_parameters;
-        for (name, val) in [
-            ("a1", gp.a1), ("a2", gp.a2), ("b", gp.b),
-            ("c1", gp.c1), ("c2", gp.c2), ("c3", gp.c3), ("c4", gp.c4),
-        ] {
-            if !val.is_finite() {
-                return Err(ParameterError::ParseError(format!(
-                    "geometric parameter '{}' must be finite (got {})", name, val
-                )));
-            }
-        }
 
         Ok(Parameters {
             a1: gp.a1,
@@ -187,22 +158,14 @@ impl Parameters {
 /// Convert a vector to a 6-element array:
 /// - If length is 5, pad with `pad`.
 /// - If length is 6, pass-through.
-/// - Otherwise, error with the field label for context.
-fn vec_to_six<T: Copy + Default>(
+/// - Otherwise, error.
+fn vec_to_six<T: Copy>(
     mut v: Vec<T>,
     pad: T,
-    _label: &str
 ) -> Result<[T; 6], ParameterError> {
     if v.len() == 5 {
         v.push(pad);
     }
-    if v.len() != 6 {
-        return Err(ParameterError::InvalidLength { expected: 6, found: v.len() });
-    }
-    // Initialize with Default then overwrite (works for Copy types)
-    let mut out: [T; 6] = [T::default(); 6];
-    for i in 0..6 {
-        out[i] = v[i];
-    }
-    Ok(out)
+    v.try_into()
+        .map_err(|v: Vec<T>| ParameterError::InvalidLength { expected: 6, found: v.len() })
 }
