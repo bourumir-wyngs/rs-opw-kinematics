@@ -23,7 +23,9 @@ anyhow = "1.0"
 # - regex: For regex matching in file parsing.
 # - clap: For command-line argument parsing by file processor.
 
-serde-saphyr = { version = "0.0.10", optional = true, features = ["robotics"] }
+#serde-saphyr = { version = "0.0.10", optional = true, features = ["robotics"] }
+serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr", branch = "master", optional = true, features = ["robotics", "garde"] }
+garde = { version = "0.22", optional = true, features = ["derive"] }
 serde = {  version = "1.0", optional = true, features = ["derive"], default-features = false }
 
 sxd-document = { version = "0.3", optional = true }
@@ -61,7 +63,7 @@ once_cell = {  version = ">=1.20, < 1.22" }
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["serde-saphyr", "serde", "sxd-document", "regex", "clap", "rs-read-trimesh", "stl_io"]
+allow_filesystem = ["serde-saphyr", "garde", "serde", "sxd-document", "regex", "clap", "rs-read-trimesh", "stl_io"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
@@ -70,7 +72,7 @@ stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
 status = "minimally maintained"
 
 # To disable filesystem, collision and visualization support:
-# rs-opw-kinematics = { version = "1.8.11", default-features = false }
+# rs-opw-kinematics = { version = "1.8.14", default-features = false }
 
 [profile.release]
 

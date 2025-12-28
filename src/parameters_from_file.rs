@@ -1,8 +1,10 @@
 //! Supports extracting OPW parameters from YAML file (optional)
 
 use std::path::Path;
+
+use garde::Validate;
 use serde::Deserialize;
-use serde_saphyr::Options;
+use serde_saphyr::{Error, Options};
 
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
@@ -10,30 +12,66 @@ use crate::parameters::opw_kinematics::Parameters;
 fn default_offsets() -> Vec<f64> { vec![0.0; 6] }
 fn default_sign_corrections() -> Vec<i8> { vec![1; 6] }
 
-#[derive(Deserialize)]
+fn validate_finite_f64(v: &f64, _ctx: &()) -> garde::Result {
+    if !v.is_finite() {
+        return Err(garde::Error::new("must be finite"));
+    }
+    Ok(())
+}
+
+fn validate_offset_f64(v: &f64, _ctx: &()) -> garde::Result {
+    if !v.is_finite() {
+        return Err(garde::Error::new("must be finite"));
+    }
+    let limit = 2.0 * std::f64::consts::PI;
+    if *v < -limit || *v > limit {
+        return Err(garde::Error::new("must be within [-2*PI, 2*PI]"));
+    }
+    Ok(())
+}
+
+fn validate_sign_correction_i8(v: &i8, _ctx: &()) -> garde::Result {
+    if *v != -1 && *v != 1 {
+        return Err(garde::Error::new("must be -1 or 1"));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, Validate)]
 struct GeometricParameters {
+    #[garde(custom(validate_finite_f64))]
     pub a1: f64,
+    #[garde(custom(validate_finite_f64))]
     pub a2: f64,
+    #[garde(custom(validate_finite_f64))]
     pub b: f64,
+    #[garde(custom(validate_finite_f64))]
     pub c1: f64,
+    #[garde(custom(validate_finite_f64))]
     pub c2: f64,
+    #[garde(custom(validate_finite_f64))]
     pub c3: f64,
+    #[garde(custom(validate_finite_f64))]
     pub c4: f64,
     /// Optional here; top-level `dof` overrides if also present
     #[serde(default)]
+    #[garde(range(min = 5, max = 6))]
     pub dof: Option<i8>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Validate)]
 struct Root {
-    #[serde(rename = "opw_kinematics_geometric_parameters")]
-    pub gp: GeometricParameters,
-    #[serde(default = "default_offsets", rename = "opw_kinematics_joint_offsets")]
-    pub offsets: Vec<f64>,
-    #[serde(default = "default_sign_corrections", rename = "opw_kinematics_joint_sign_corrections")]
-    pub sign_corrections: Vec<i8>,
+    #[garde(dive)]
+    pub opw_kinematics_geometric_parameters: GeometricParameters,
+    #[serde(default = "default_offsets")]
+    #[garde(length(min = 5, max = 6), inner(custom(validate_offset_f64)))]
+    pub opw_kinematics_joint_offsets: Vec<f64>,
+    #[serde(default = "default_sign_corrections")]
+    #[garde(length(min = 5, max = 6), inner(custom(validate_sign_correction_i8)))]
+    pub opw_kinematics_joint_sign_corrections: Vec<i8>,
     /// Optional; overrides gp.dof if present
     #[serde(default)]
+    #[garde(range(min = 5, max = 6))]
     pub dof: Option<i8>,
 }
 
@@ -60,7 +98,7 @@ impl Parameters {
     /// See e.g. ROS-Industrial fanuc_m16ib_support opw yaml.
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, ParameterError> {
         let contents = std::fs::read_to_string(path)?;
-        let root: Root = serde_saphyr::from_str_with_options(
+        let root: Root = serde_saphyr::from_str_with_options_valid(
             &contents,
             Options { angle_conversions: true, ..Default::default() }
         ).map_err(|e| ParameterError::ParseError(format!("{}", e)))?;
@@ -68,7 +106,7 @@ impl Parameters {
         // DOF precedence:
         // - If both present and different -> error.
         // - Else prefer top-level; else gp; else default 6.
-        let dof = match (root.dof, root.gp.dof) {
+        let dof = match (root.dof, root.opw_kinematics_geometric_parameters.dof) {
             (Some(top), Some(inner)) if top != inner => {
                 return Err(ParameterError::ParseError(format!(
                     "dof appears at top-level ({}) and under geometric parameters ({}) with conflicting values",
@@ -80,28 +118,28 @@ impl Parameters {
             (None, None) => 6,
         };
 
-        if dof != 5 && dof != 6 {
-            return Err(ParameterError::ParseError(format!(
-                "unsupported dof: {} (only 5 or 6 are supported)", dof
-            )));
-        }
-
-        // Sign corrections: allow 5 (pad with 0) or 6; validate values in {-1,0,1}
-        let mut sign_corrections = vec_to_six(root.sign_corrections, 0i8, "opw_kinematics_joint_sign_corrections")?;
+        // Sign corrections: allow 5 (pad with 1) or 6; validate values in {-1,1}
+        let mut sign_corrections = vec_to_six(root.opw_kinematics_joint_sign_corrections, 1i8, "opw_kinematics_joint_sign_corrections")?;
         for (i, &sc) in sign_corrections.iter().enumerate() {
-            if sc != -1 && sc != 0 && sc != 1 {
+            if sc != -1 && sc != 1 {
                 return Err(ParameterError::ParseError(format!(
-                    "sign_corrections[{}] must be -1, 0, or 1 (got {})", i, sc
+                    "sign_corrections[{}] must be -1 or 1 (got {})", i, sc
                 )));
             }
         }
 
-        // Offsets: allow 5 (pad with 0.0) or 6; validate finite
-        let mut offsets = vec_to_six(root.offsets, 0.0f64, "opw_kinematics_joint_offsets")?;
+        // Offsets: allow 5 (pad with 0.0) or 6; validate finite and within [-2*PI, 2*PI]
+        let mut offsets = vec_to_six(root.opw_kinematics_joint_offsets, 0.0f64, "opw_kinematics_joint_offsets")?;
+        let limit = 2.0 * std::f64::consts::PI;
         for (i, &ofs) in offsets.iter().enumerate() {
             if !ofs.is_finite() {
                 return Err(ParameterError::ParseError(format!(
                     "offsets[{}] must be finite (got {})", i, ofs
+                )));
+            }
+            if ofs < -limit || ofs > limit {
+                return Err(ParameterError::ParseError(format!(
+                    "offsets[{}] must be within [-2*PI, 2*PI] (got {})", i, ofs
                 )));
             }
         }
@@ -119,7 +157,7 @@ impl Parameters {
         }
 
         // Geometric parameter sanity: all finite
-        let gp = &root.gp;
+        let gp = &root.opw_kinematics_geometric_parameters;
         for (name, val) in [
             ("a1", gp.a1), ("a2", gp.a2), ("b", gp.b),
             ("c1", gp.c1), ("c2", gp.c2), ("c3", gp.c3), ("c4", gp.c4),

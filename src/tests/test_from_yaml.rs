@@ -90,4 +90,46 @@ mod tests {
         assert_eq!(expected.sign_corrections, loaded.sign_corrections);
         assert_eq!(expected.dof, loaded.dof);
     }
+
+    #[test]
+    fn test_parameters_from_yaml_rejects_bad_dof() {
+        let filename = "src/tests/data/fanuc/invalid_dof.yaml";
+        let err = Parameters::from_yaml_file(filename).unwrap_err();
+        let msg = err.to_string();
+        // println!("{msg}");
+        assert!(msg.contains("^ validation error: greater than 6 for `dof`"), "{msg}");
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_rejects_bad_sign_correction() {
+        let filename = "src/tests/data/fanuc/invalid_sign_corrections.yaml";
+        let err = Parameters::from_yaml_file(filename).unwrap_err();
+        let msg = err.to_string();
+        // println!("{msg}");
+        assert!(
+            msg.contains("^ validation error: must be -1 or 1 for `opw_kinematics_joint_sign_corrections[2]`"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_rejects_bad_offset_range() {
+        let filename = "src/tests/data/fanuc/invalid_offsets.yaml";
+        let err = Parameters::from_yaml_file(filename).unwrap_err();
+        let msg = err.to_string();
+        // println!("{msg}");
+        assert!(
+            msg.contains("^ validation error: must be within ["),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn test_parameters_from_yaml_rejects_nan_geometric_parameter() {
+        let filename = "src/tests/data/fanuc/invalid_nan_geom.yaml";
+        let err = Parameters::from_yaml_file(filename).unwrap_err();
+        let msg = err.to_string();
+        // println!("{msg}");
+        assert!(msg.contains("^ validation error: must be finite for `opw_kinematics_geometric_parameters.a1`"), "{msg}");
+    }
 }
