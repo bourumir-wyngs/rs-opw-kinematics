@@ -3922,7 +3922,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.13"
+version = "1.8.14"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4104,8 +4104,9 @@ dependencies = [
 
 [[package]]
 name = "serde-saphyr"
-version = "0.0.11"
-source = "git+https://github.com/bourumir-wyngs/serde-saphyr?branch=master#b48892620d79ffec0de4ae25c79346c7688cd873"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef7e021087b4b525edcbb93045ca3f1dafeff7800b3c7960a90a75f197e257da"
 dependencies = [
  "ahash",
  "annotate-snippets",
