@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.14"
+version = "1.8.15"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -23,7 +23,7 @@ anyhow = "1.0"
 # - regex: For regex matching in file parsing.
 # - clap: For command-line argument parsing by file processor.
 
-serde-saphyr = { version = "0.0.12", optional = true, features = ["robotics", "garde"] }
+serde-saphyr = { version = "0.0.16", optional = true, features = ["robotics", "garde"] }
 #serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr", branch = "master", optional = true, features = ["robotics", "garde"] }
 garde = { version = "0.22", optional = true, features = ["derive"] }
 serde = {  version = "1.0", optional = true, features = ["derive"], default-features = false }
@@ -39,7 +39,7 @@ parry3d = { version = "0.25", optional = true }
 rayon = { version = ">= 1.10, <=1.11", optional = true }
 
 # For loading meshes, needed for collision and visualization
-rs-read-trimesh = { version = "2.0.5", optional = true }
+rs-read-trimesh = { version = "2.0.6", optional = true }
 stl_io = { version = "0.8", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
@@ -72,7 +72,7 @@ stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]
 status = "minimally maintained"
 
 # To disable filesystem, collision and visualization support:
-# rs-opw-kinematics = { version = "1.8.14", default-features = false }
+# rs-opw-kinematics = { version = "1.8.15", default-features = false }
 
 [profile.release]
 
