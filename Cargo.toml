@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.15"
+version = "1.8.16"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -11,6 +11,8 @@ categories = ["science::robotics", "algorithms"]
 license = "BSD-3-Clause"
 repository = "https://github.com/bourumir-wyngs/rs-opw-kinematics"
 readme = "README.md"
+
+exclude = ["Cargo.lock"]
 
 [dependencies]
 nalgebra = ">=0.32.1, < 0.35"
