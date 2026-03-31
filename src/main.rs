@@ -1,4 +1,4 @@
-const VERSION: &str = "1.8.9";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(feature = "allow_filesystem")]
 fn main() {
@@ -66,4 +66,3 @@ fn main() {
 fn main() {
     println!("rs-opw-kinematics {VERSION}, CLI not built.");
 }
-
