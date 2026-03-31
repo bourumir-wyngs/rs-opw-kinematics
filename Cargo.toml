@@ -25,8 +25,8 @@ anyhow = "1.0"
 # - regex: For regex matching in file parsing.
 # - clap: For command-line argument parsing by file processor.
 
-serde-saphyr = { version = "0.0.23", optional = true, default-features = false, features = ["serialize", "robotics", "garde"] }
-#serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr", branch = "master", optional = true, features = ["robotics", "garde"] }
+serde-saphyr = { version = "0.0.23", optional = true, default-features = false, features = ["deserialize", "robotics", "garde"] }
+#serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr", branch = "master", optional = true, features = ["deserialize", "robotics", "garde"] }
 garde = { version = "0.22", optional = true, features = ["derive"] }
 serde = {  version = "1.0", optional = true, features = ["derive"], default-features = false }
 
