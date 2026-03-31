@@ -16,7 +16,7 @@ exclude = ["Cargo.lock"]
 
 [dependencies]
 nalgebra = ">=0.32.1, < 0.35"
-rand = "0.9" # Now is needed for path planner 0.8
+rand = ">=0.10, < 0.11" # Now is needed for path planner 0.8
 anyhow = "1.0"
 
 # Optional dependencies:
@@ -41,7 +41,7 @@ parry3d = { version = "0.25", optional = true }
 rayon = { version = ">= 1.10, <=1.11", optional = true }
 
 # For loading meshes, needed for collision and visualization
-rs-read-trimesh = { version = "2.0.6", optional = true }
+rs-read-trimesh = { version = "2.0.7", optional = true }
 stl_io = { version = ">= 0.8, < 0.12", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
@@ -65,7 +65,23 @@ once_cell = {  version = ">=1.20, < 1.22" }
 
 [features]
 default = ["allow_filesystem", "collisions", "stroke_planning", "visualization"]
-allow_filesystem = ["serde-saphyr", "garde", "serde", "sxd-document", "regex", "clap", "rs-read-trimesh", "stl_io"]
+yaml-rust2 = ["dep:serde-saphyr"]
+sxd-document = ["dep:sxd-document"]
+regex = ["dep:regex"]
+clap = ["dep:clap"]
+rs-read-trimesh = ["dep:rs-read-trimesh"]
+stl_io = ["dep:stl_io"]
+garde = ["dep:garde"]
+serde = ["dep:serde"]
+parry3d = ["dep:parry3d"]
+rayon = ["dep:rayon"]
+bevy = ["dep:bevy"]
+bevy_egui = ["dep:bevy_egui"]
+kdtree = ["dep:kdtree"]
+num-traits = ["dep:num-traits"]
+tracing = ["dep:tracing"]
+rrt = ["dep:rrt"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh", "stl_io", "garde", "serde"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions", "rrt"]

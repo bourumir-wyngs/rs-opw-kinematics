@@ -60,7 +60,7 @@ impl Kinematics for OPWKinematics {
             // For 5 DOF robot, we can only do 5 DOF approximate inverse.
             self.inverse_intern_5_dof(pose, f64::NAN)
         } else {
-            self.filter_constraints_compliant(self.inverse_intern(&pose))
+            self.filter_constraints_compliant(self.inverse_intern(pose))
         }
     }
 
@@ -72,13 +72,12 @@ impl Kinematics for OPWKinematics {
             return self.inverse_intern_5_dof(pose, prev[5]);
         }
 
-        let previous;
-        if prev[0].is_nan() {
+        let previous = if prev[0].is_nan() {
             // Special value CONSTRAINT_CENTERED has been used
-            previous = self.constraint_centers();
+            self.constraint_centers()
         } else {
-            previous = prev;
-        }
+            prev
+        };
 
         const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
         const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
@@ -99,14 +98,13 @@ impl Kinematics for OPWKinematics {
                 solutions.extend(&ik);
             }
 
-            for s_idx in 0..ik.len() {
-                let singularity =
-                    self.kinematic_singularity(&ik[s_idx]);
-                if singularity.is_some() && is_valid(&ik[s_idx]) {
+            for candidate in &ik {
+                let singularity = self.kinematic_singularity(candidate);
+                if singularity.is_some() && is_valid(candidate) {
                     let s;
                     let s_n;
                     if let Some(Singularity::A) = singularity {
-                        let mut now = ik[s_idx];
+                        let mut now = *candidate;
                         if are_angles_close(now[J5], 0.) {
                             // J5 = 0 singularity, J4 and J6 rotate same direction
                             s = previous[J4] + previous[J6];
@@ -136,7 +134,7 @@ impl Kinematics for OPWKinematics {
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
-                        if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) &&
+                        if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) &&
                             self.constraints_compliant(now) {
                             // Guard against the case our solution is out of constraints.
                             solutions.push(now);
@@ -151,12 +149,12 @@ impl Kinematics for OPWKinematics {
         }
         // Before any sorting, normalize all angles to be close to
         // 'previous'
-        for s_idx in 0..solutions.len() {
-            for joint_idx in 0..6 {
-                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
+        for solution in &mut solutions {
+            for (joint, previous_joint) in solution.iter_mut().zip(previous.iter()) {
+                normalize_near(joint, *previous_joint);
             }
         }
-        self.sort_by_closeness(&mut solutions, &previous);
+        self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
     }
 
@@ -277,28 +275,27 @@ impl Kinematics for OPWKinematics {
 
 
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
-        self.filter_constraints_compliant(self.inverse_intern_5_dof(&pose, j6))
+        self.filter_constraints_compliant(self.inverse_intern_5_dof(pose, j6))
     }
 
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
-        let previous;
-        if prev[0].is_nan() {
+        let previous = if prev[0].is_nan() {
             // Special value CONSTRAINT_CENTERED has been used
-            previous = self.constraint_centers();
+            self.constraint_centers()
         } else {
-            previous = prev;
-        }
+            prev
+        };
 
         let mut solutions = self.inverse_intern_5_dof(pose, prev[5]);
 
         // Before any sorting, normalize all angles to be close to
         // 'previous'
-        for s_idx in 0..solutions.len() {
-            for joint_idx in 0..6 {
-                normalize_near(&mut solutions[s_idx][joint_idx], previous[joint_idx]);
+        for solution in &mut solutions {
+            for (joint, previous_joint) in solution.iter_mut().zip(previous.iter()) {
+                normalize_near(joint, *previous_joint);
             }
         }
-        self.sort_by_closeness(&mut solutions, &previous);
+        self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
     }
 
@@ -417,49 +414,49 @@ impl OPWKinematics {
         let theta5_vii = -theta5_iii;
         let theta5_viii = -theta5_iv;
 
-        let theta4_i;
-        let theta6_i;
+        
+        
 
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
         let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
-        theta4_i = theta4_iy.atan2(theta4_ix);
+        let theta4_i = theta4_iy.atan2(theta4_ix);
 
         let theta6_iy = matrix[(0, 1)] * s23[0] * cos1[0] + matrix[(1, 1)] * s23[0] * sin1[0] + matrix[(2, 1)] * c23[0];
         let theta6_ix = -matrix[(0, 0)] * s23[0] * cos1[0] - matrix[(1, 0)] * s23[0] * sin1[0] - matrix[(2, 0)] * c23[0];
-        theta6_i = theta6_iy.atan2(theta6_ix);
+        let theta6_i = theta6_iy.atan2(theta6_ix);
 
-        let theta4_ii;
-        let theta6_ii;
+        
+        
 
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
         let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
-        theta4_ii = theta4_iiy.atan2(theta4_iix);
+        let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
         let theta6_iiy = matrix[(0, 1)] * s23[1] * cos1[1] + matrix[(1, 1)] * s23[1] * sin1[1] + matrix[(2, 1)] * c23[1];
         let theta6_iix = -matrix[(0, 0)] * s23[1] * cos1[1] - matrix[(1, 0)] * s23[1] * sin1[1] - matrix[(2, 0)] * c23[1];
-        theta6_ii = theta6_iiy.atan2(theta6_iix);
+        let theta6_ii = theta6_iiy.atan2(theta6_iix);
 
-        let theta4_iii;
-        let theta6_iii;
+        
+        
 
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
         let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
-        theta4_iii = theta4_iiiy.atan2(theta4_iiix);
+        let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
         let theta6_iiiy = matrix[(0, 1)] * s23[2] * cos1[2] + matrix[(1, 1)] * s23[2] * sin1[2] + matrix[(2, 1)] * c23[2];
         let theta6_iiix = -matrix[(0, 0)] * s23[2] * cos1[2] - matrix[(1, 0)] * s23[2] * sin1[2] - matrix[(2, 0)] * c23[2];
-        theta6_iii = theta6_iiiy.atan2(theta6_iiix);
+        let theta6_iii = theta6_iiiy.atan2(theta6_iiix);
 
-        let theta4_iv;
-        let theta6_iv;
+        
+        
 
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
         let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
-        theta4_iv = theta4_ivy.atan2(theta4_ivx);
+        let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
         let theta6_ivy = matrix[(0, 1)] * s23[3] * cos1[3] + matrix[(1, 1)] * s23[3] * sin1[3] + matrix[(2, 1)] * c23[3];
         let theta6_ivx = -matrix[(0, 0)] * s23[3] * cos1[3] - matrix[(1, 0)] * s23[3] * sin1[3] - matrix[(2, 0)] * c23[3];
-        theta6_iv = theta6_ivy.atan2(theta6_ivx);
+        let theta6_iv = theta6_ivy.atan2(theta6_ivx);
 
         let theta4_v = theta4_i + PI;
         let theta4_vi = theta4_ii + PI;
@@ -483,9 +480,9 @@ impl OPWKinematics {
         ];
 
         let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
-        for si in 0..sols.len() {
-            for ji in 0..6 {
-                sols[si][ji] = (theta[si][ji] + params.offsets[ji]) *
+        for (si, solution) in sols.iter_mut().enumerate() {
+            for (ji, joint) in solution.iter_mut().enumerate() {
+                *joint = (theta[si][ji] + params.offsets[ji]) *
                     params.sign_corrections[ji] as f64;
             }
         }
@@ -494,27 +491,27 @@ impl OPWKinematics {
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for si in 0..sols.len() {
+        for (si, solution) in sols.iter_mut().enumerate() {
             let mut valid = true;
-            for ji in 0..6 {
-                let mut angle = sols[si][ji];
-                if angle.is_finite() {
-                    while angle > PI {
-                        angle -= 2.0 * PI;
+            for angle in solution.iter_mut() {
+                let mut current = *angle;
+                if current.is_finite() {
+                    while current > PI {
+                        current -= 2.0 * PI;
                     }
-                    while angle < -PI {
-                        angle += 2.0 * PI;
+                    while current < -PI {
+                        current += 2.0 * PI;
                     }
-                    sols[si][ji] = angle;
+                    *angle = current;
                 } else {
                     valid = false;
                     break;
                 }
             };
             if valid {
-                let check_pose = self.forward(&sols[si]);
-                if compare_poses(&pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
-                    result.push(sols[si]);
+                let check_pose = self.forward(solution);
+                if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                    result.push(*solution);
                 } else {
                     if DEBUG {
                         println!("********** Pose Failure sol {} *********", si);
@@ -627,29 +624,29 @@ impl OPWKinematics {
         let theta5_vii = -theta5_iii;
         let theta5_viii = -theta5_iv;
 
-        let theta4_i;
+        
 
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
         let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
-        theta4_i = theta4_iy.atan2(theta4_ix);
+        let theta4_i = theta4_iy.atan2(theta4_ix);
 
-        let theta4_ii;
+        
 
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
         let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
-        theta4_ii = theta4_iiy.atan2(theta4_iix);
+        let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
-        let theta4_iii;
+        
 
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
         let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
-        theta4_iii = theta4_iiiy.atan2(theta4_iiix);
+        let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
-        let theta4_iv;
+        
 
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
         let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
-        theta4_iv = theta4_ivy.atan2(theta4_ivx);
+        let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
         let theta4_v = theta4_i + PI;
         let theta4_vi = theta4_ii + PI;
@@ -668,39 +665,39 @@ impl OPWKinematics {
         ];
 
         let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
-        for si in 0..sols.len() {
-            for ji in 0..5 {
-                sols[si][ji] = (theta[si][ji] + params.offsets[ji]) *
+        for (si, solution) in sols.iter_mut().enumerate() {
+            for (ji, joint) in solution.iter_mut().take(5).enumerate() {
+                *joint = (theta[si][ji] + params.offsets[ji]) *
                     params.sign_corrections[ji] as f64;
             }
-            sols[si][5] = j6 // J6 goes directly to response and is not more adjusted
+            solution[5] = j6; // J6 goes directly to response and is not more adjusted
         }
 
         let mut result: Solutions = Vec::with_capacity(8);
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for si in 0..sols.len() {
+        for (si, solution) in sols.iter_mut().enumerate() {
             let mut valid = true;
-            for ji in 0..5 { // J6 is not processed in this loop
-                let mut angle = sols[si][ji];
-                if angle.is_finite() {
-                    while angle > PI {
-                        angle -= 2.0 * PI;
+            for angle in solution.iter_mut().take(5) {
+                let mut current = *angle;
+                if current.is_finite() {
+                    while current > PI {
+                        current -= 2.0 * PI;
                     }
-                    while angle < -PI {
-                        angle += 2.0 * PI;
+                    while current < -PI {
+                        current += 2.0 * PI;
                     }
-                    sols[si][ji] = angle;
+                    *angle = current;
                 } else {
                     valid = false;
                     break;
                 }
             };
             if valid {
-                let check_xyz = self.forward(&sols[si]).translation;
+                let check_xyz = self.forward(solution).translation;
                 if Self::compare_xyz_only(&pose.translation, &check_xyz, DISTANCE_TOLERANCE) {
-                    result.push(sols[si]);
+                    result.push(*solution);
                 } else {
                     if DEBUG {
                         println!("********** Pose Failure 5DOF sol {} *********", si);
@@ -785,7 +782,7 @@ fn is_close_to_multiple_of_pi(joint_value: f64, threshold: f64) -> bool {
 
 fn are_angles_close(angle1: f64, angle2: f64) -> bool {
     let mut diff = (angle1 - angle2).abs();
-    diff = diff % (2.0 * PI);
+    diff %= 2.0 * PI;
     while diff > PI {
         diff = (2.0 * PI) - diff;
     }
@@ -837,10 +834,9 @@ fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
 #[allow(dead_code)]
 fn dump_shifted_solutions(d: [f64; 3], ik: &Solutions) {
     println!("Shifted solutions {} {} {}", d[0], d[1], d[2]);
-    for sol_idx in 0..ik.len() {
+    for solution in ik {
         let mut row_str = String::new();
-        for joint_idx in 0..6 {
-            let computed = ik[sol_idx][joint_idx];
+        for computed in solution {
             row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
         }
         println!("[{}]", row_str.trim_end()); // Trim trailing space for aesthetics

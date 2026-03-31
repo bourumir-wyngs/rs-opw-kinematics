@@ -37,13 +37,13 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let kinematics = OPWKinematics::new(parameters.clone());
+            let kinematics = OPWKinematics::new(*parameters);
 
             // Try forward on the initial data set first.
             let ik = kinematics.forward(&case.joints_in_radians());
             let pose = test_utils::Pose::from_isometry(&ik);
 
-            if !test_utils::are_isometries_approx_equal(&ik, &case.pose.to_isometry(), 0.00001) {
+            if !test_utils::are_isometries_approx_equal(&ik, &case.pose.as_isometry(), 0.00001) {
                 println!("Seems not equal");
                 println!("joints: {:?} ", &case.joints);
                 println!("case: {:?} ", &pose);
@@ -68,14 +68,14 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let kinematics = OPWKinematics::new(parameters.clone());
+            let kinematics = OPWKinematics::new(*parameters);
 
             // This test only checks the final pose so far.
             let joints = case.joints_in_radians();
             let ik = kinematics.forward_with_joint_poses(&joints)[5];
             let pose = test_utils::Pose::from_isometry(&ik);
 
-            let case_pose = case.pose.to_isometry();
+            let case_pose = case.pose.as_isometry();
             if !test_utils::are_isometries_approx_equal(&ik, &case_pose, 0.00001) {
                 println!("Seems not equal for {}", &case.id);
                 println!("joints: {:?} ", &case.joints);
@@ -107,12 +107,12 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let kinematics = OPWKinematics::new(parameters.clone());
+            let kinematics = OPWKinematics::new(*parameters);
 
             // Exclude singularity cases that are covered by another test
             if kinematics.kinematic_singularity(&case.joints_in_radians()).is_none() {
                 // Try forward on the initial data set first.
-                let solutions = kinematics.inverse(&case.pose.to_isometry());
+                let solutions = kinematics.inverse(&case.pose.as_isometry());
                 if test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
                                                          0.001_f64.to_radians()).is_none() {
                     println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
@@ -123,10 +123,9 @@ mod tests {
                     println!("Expected joints: [{}]", joints_str);
 
                     println!("Solutions Matrix:");
-                    for sol_idx in 0..solutions.len() {
+                    for solution in &solutions {
                         let mut row_str = String::new();
-                        for joint_idx in 0..6 {
-                            let computed = solutions[sol_idx][joint_idx];
+                        for computed in solution {
                             row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                         }
                         println!("[{}]", row_str.trim_end());
@@ -155,9 +154,9 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let kinematics = OPWKinematics::new(parameters.clone());
+            let kinematics = OPWKinematics::new(*parameters);
             let solutions = kinematics.inverse_continuing(
-                &case.pose.to_isometry(), &case.joints_in_radians());
+                &case.pose.as_isometry(), &case.joints_in_radians());
             let found_matching =
                 test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
                                                       0.001_f64.to_radians());
@@ -171,10 +170,9 @@ mod tests {
                 println!("Expected joints: [{}]", joints_str);
 
                 println!("Solutions Matrix:");
-                for sol_idx in 0..solutions.len() {
+                for solution in &solutions {
                     let mut row_str = String::new();
-                    for joint_idx in 0..6 {
-                        let computed = solutions[sol_idx][joint_idx];
+                    for computed in solution {
                         row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                     }
                     println!("[{}]", row_str.trim_end());
@@ -201,13 +199,13 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let kinematics = OPWKinematics::new(parameters.clone());
+            let kinematics = OPWKinematics::new(*parameters);
 
             // Use translation instead of full pose
-            let isometry = case.pose.to_isometry();
+            let isometry = case.pose.as_isometry();
             let solutions = kinematics.inverse_continuing_5dof(
                 &isometry, &case.joints_in_radians());
-            assert!(solutions.len() > 0);
+            assert!(!solutions.is_empty());
 
             for solution in solutions {
                 // Check if TCP stays in the same location
@@ -228,7 +226,7 @@ mod tests {
         // This robot has both A and B type singularity
         // B type singularity two angles, maestro
         let parameters = Parameters::staubli_tx2_160l();
-        let kinematics = OPWKinematics::new(parameters.clone());
+        let kinematics = OPWKinematics::new(parameters);
         investigate_singularity_continuing(&kinematics, [10, 20, 30, 40, 0, 60]);
         investigate_singularity_continuing(&kinematics, [10, 20, 30, 0, 0, 60]);
         investigate_singularity_continuing(&kinematics, [10, 20, 30, 0, 0, 0]);
@@ -256,10 +254,9 @@ mod tests {
         println!("Joints joints: [{}]", joints_str);
 
         println!("Solutions:");
-        for sol_idx in 0..solutions.len() {
+        for (sol_idx, solution) in solutions.iter().enumerate() {
             let mut row_str = String::new();
-            for joint_idx in 0..6 {
-                let computed = solutions[sol_idx][joint_idx];
+            for computed in solution {
                 row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
             }
             println!("{}. [{}]", sol_idx, row_str.trim_end());
@@ -309,7 +306,7 @@ mod tests {
 
         // As this is 5 DOF robot now, J6 comes from "previous"
         let solutions = kinematics.inverse_continuing(&pose, &previous);
-        assert!(solutions.len() > 0);
+        assert!(!solutions.is_empty());
         for solution in &solutions {
             // J6 must be as we passed.
             assert!(f64::abs(0.55 - &solution[5]) < 1E-6);

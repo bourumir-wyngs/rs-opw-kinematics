@@ -2,7 +2,6 @@
  
 extern crate nalgebra as na;
 
-use std::f64::NAN;
 use na::{Isometry3};
 use crate::constraints::Constraints;
 
@@ -67,7 +66,7 @@ pub const JOINTS_AT_ZERO: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 /// are not previous joint value, but returned joints must be sorted to be as 
 /// close as possible to the centers of the constraints. If no constraitns are set,
 /// zeroes are assumed.
-pub const CONSTRAINT_CENTERED: Joints = [NAN, 0.0, 0.0, 0.0, 0.0, 0.0];
+pub const CONSTRAINT_CENTERED: Joints = [f64::NAN, 0.0, 0.0, 0.0, 0.0, 0.0];
 
 /// For providing solutions. As invalid solutions are discarded, 
 /// this is a variable length vector (may be empty if robot cannot reach the 

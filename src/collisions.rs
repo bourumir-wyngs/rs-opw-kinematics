@@ -251,13 +251,13 @@ impl SafetyDistances {
     /// The order of objects is not important.
     pub fn min_distance(&self, from: u16, to: u16) -> &f32 {
         if let Some(r) = self.special_distances.get(&(from, to)) {
-            return r;
+            r
         } else if let Some(r) = self.special_distances.get(&(to, from)) {
-            return r;
+            r
         } else if from as usize >= ENV_START_IDX || to as usize >= ENV_START_IDX {
-            return &self.to_environment;
+            &self.to_environment
         } else {
-            return &self.to_robot_default;
+            &self.to_robot_default
         }
     }
 
@@ -304,7 +304,7 @@ impl RobotBody {
         let override_mode = Some(CheckMode::FirstCollisionOnly);
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         !self
-            .detect_collisions_with_skips(&joint_poses_f32, &safety, &override_mode, &empty_set)
+            .detect_collisions_with_skips(&joint_poses_f32, safety, &override_mode, &empty_set)
             .is_empty()
     }
 
@@ -320,7 +320,7 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32, &safety_distances, None)
+        self.detect_collisions(&joint_poses_f32, safety_distances, None)
     }
 
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
@@ -350,11 +350,10 @@ impl RobotBody {
                 new_joints[joint_index] = target[joint_index];
 
                 // Discard perturbations that go out of constraints.
-                if let Some(constraints) = kinematics.constraints() {
-                    if !constraints.compliant(&new_joints) {
+                if let Some(constraints) = kinematics.constraints()
+                    && !constraints.compliant(&new_joints) {
                         return None;
                     }
-                }
 
                 // Generate the full joint poses for collision checking
                 let joint_poses = kinematics.forward_with_joint_poses(&new_joints);
@@ -374,16 +373,16 @@ impl RobotBody {
                     )
                     .is_empty()
                 {
-                    return Some(new_joints); // Return non-colliding configuration
+                    Some(new_joints)// Return non-colliding configuration
                 } else {
-                    return None;
+                    None
                 }
             })
             .collect() // Collect non-colliding configurations into Solutions
     }
 }
 
-const SUPPORTED: &'static str = "Mesh intersection should be supported by Parry3d";
+const SUPPORTED: &str = "Mesh intersection should be supported by Parry3d";
 
 impl RobotBody {
     /// Parallel version with Rayon
@@ -400,14 +399,14 @@ impl RobotBody {
             // Exit as soon as any collision is found
             tasks
                 .par_iter()
-                .find_map_any(|task| task.collides(&safety))
+                .find_map_any(|task| task.collides(safety))
                 .into_iter() // Converts the Option result to an iterator
                 .collect()
         } else {
             // Collect all collisions
             tasks
                 .par_iter()
-                .filter_map(|task| task.collides(&safety))
+                .filter_map(|task| task.collides(safety))
                 .collect()
         }
     }
@@ -464,7 +463,7 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         // Convert to usize
-        self.detect_collisions_with_skips(joint_poses, &safety, &override_mode, &empty_set)
+        self.detect_collisions_with_skips(joint_poses, safety, &override_mode, &empty_set)
             .iter()
             .map(|&col_pair| (col_pair.0 as usize, col_pair.1 as usize))
             .collect()
@@ -477,31 +476,30 @@ impl RobotBody {
         override_mode: &Option<CheckMode>,
         skip: &HashSet<usize>,
     ) -> Vec<(u16, u16)> {
-        let mut tasks = Vec::with_capacity(self.count_tasks(&skip));
+        let mut tasks = Vec::with_capacity(self.count_tasks(skip));
 
         // Check if the tool does not hit anything in the environment
         let check_tool = !skip.contains(&J_TOOL);
-        if check_tool {
-            if let Some(tool) = &self.tool {
+        if check_tool
+            && let Some(tool) = &self.tool {
                 for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                    if self.check_required(J_TOOL, (ENV_START_IDX + env_idx) as usize, &skip) {
+                    if self.check_required(J_TOOL, ENV_START_IDX + env_idx, skip) {
                         tasks.push(CollisionTask {
                             i: J_TOOL as u16,
                             j: (ENV_START_IDX + env_idx) as u16,
                             transform_i: &joint_poses[J6],
                             transform_j: &env_obj.pose,
-                            shape_i: &tool,
+                            shape_i: tool,
                             shape_j: &env_obj.mesh,
                         });
                     }
                 }
             }
-        }
 
         for i in 0..6 {
             for j in ((i + 1)..6).rev() {
                 // If both joints did not move, we do not need to check
-                if j - i > 1 && self.check_required(i, j, &skip) {
+                if j - i > 1 && self.check_required(i, j, skip) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: j as u16,
@@ -517,7 +515,7 @@ impl RobotBody {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 // Joints we do not move we do not need to check for collision against objects
                 // that also not move.
-                if self.check_required(i, ENV_START_IDX + env_idx, &skip) {
+                if self.check_required(i, ENV_START_IDX + env_idx, skip) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: (ENV_START_IDX + env_idx) as u16,
@@ -530,8 +528,8 @@ impl RobotBody {
             }
 
             // Check if there is no collision between joint and tool
-            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, &skip) {
-                if let Some(tool) = &self.tool {
+            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, skip)
+                && let Some(tool) = &self.tool {
                     let accessory_pose = &joint_poses[J6];
                     tasks.push(CollisionTask {
                         i: i as u16,
@@ -539,15 +537,14 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &tool,
+                        shape_j: tool,
                     });
                 }
-            }
 
             // Base does not move, we do not need to check for collision against the joint
             // that also did not.
-            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, &skip) {
-                if let Some(base) = &self.base {
+            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, skip)
+                && let Some(base) = &self.base {
                     let accessory = &base.mesh;
                     let accessory_pose = &base.base_pose;
                     tasks.push(CollisionTask {
@@ -556,25 +553,23 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &accessory,
+                        shape_j: accessory,
                     });
                 }
-            }
         }
 
         // Check tool-base collision if necessary
-        if check_tool || self.check_required(J_TOOL, J_BASE, &skip) {
-            if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
+        if (check_tool || self.check_required(J_TOOL, J_BASE, skip))
+            && let (Some(tool), Some(base)) = (&self.tool, &self.base) {
                 tasks.push(CollisionTask {
                     i: J_TOOL as u16,
                     j: J_BASE as u16,
                     transform_i: &joint_poses[J6],
                     transform_j: &base.base_pose,
-                    shape_i: &tool,
+                    shape_i: tool,
                     shape_j: &base.mesh,
                 });
             }
-        }
         Self::process_collision_tasks(tasks, safety_distances, override_mode)
     }
 

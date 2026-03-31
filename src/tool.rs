@@ -97,8 +97,8 @@ impl Kinematics for Tool {
     fn forward(&self, qs: &Joints) -> Pose {
         // Calculate the pose of the tip joint using the robot's kinematics
         let tip_joint = self.robot.forward(qs);
-        let tcp = tip_joint * self.tool;
-        tcp
+        
+        tip_joint * self.tool
     }
 
     /// Tool does not add transform to any joints. J6 stays where it was,
@@ -125,7 +125,7 @@ impl Kinematics for Base {
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing(&(self.base.inverse() * tcp), &previous)
+        self.robot.inverse_continuing(&(self.base.inverse() * tcp), previous)
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
@@ -133,7 +133,7 @@ impl Kinematics for Base {
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing_5dof(&(self.base.inverse() * tcp), &previous)
+        self.robot.inverse_continuing_5dof(&(self.base.inverse() * tcp), previous)
     }    
 
     fn forward(&self, joints: &Joints) -> Pose {
@@ -239,8 +239,8 @@ mod tests {
     }
 
     fn diff(robot_without: &dyn Kinematics, robot_with: &dyn Kinematics, joints: &[f64; 6]) -> (Pose, Pose) {
-        let tcp_without_tool = robot_without.forward(&joints);
-        let tcp_with_tool = robot_with.forward(&joints);
+        let tcp_without_tool = robot_without.forward(joints);
+        let tcp_with_tool = robot_with.forward(joints);
         (tcp_without_tool, tcp_with_tool)
     }
 
@@ -251,7 +251,7 @@ mod tests {
 
         // Tool extends 1 meter in the Z direction
         let tool_translation = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 1.0).into(),
+            Translation3::new(0.0, 0.0, 1.0),
             UnitQuaternion::identity(),
         );
 
@@ -309,7 +309,7 @@ mod tests {
 
         // 1 meter high pedestal
         let base_translation = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 1.0).into(),
+            Translation3::new(0.0, 0.0, 1.0),
             UnitQuaternion::identity(),
         );
 
@@ -334,7 +334,7 @@ mod tests {
     fn test_linear_axis_forward() {
         let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2_160l());
         let base_translation = Isometry3::from_parts(
-            Translation3::new(0.1, 0.2, 0.3).into(),
+            Translation3::new(0.1, 0.2, 0.3),
             UnitQuaternion::identity(),
         );
 
@@ -356,7 +356,7 @@ mod tests {
         let robot_without_base = OPWKinematics::new(Parameters::staubli_tx2_160l());
 
         let base_translation = Isometry3::from_parts(
-            Translation3::new(0.1, 0.2, 0.3).into(),
+            Translation3::new(0.1, 0.2, 0.3),
             UnitQuaternion::identity(),
         );
 
@@ -383,8 +383,8 @@ mod tests {
     #[test]
     fn test_complete_robot() {
         fn diff(alone: &dyn Kinematics, riding: &LinearAxis, axis: f64, joints: &[f64; 6]) -> (Pose, Pose) {
-            let tcp_alone = alone.forward(&joints);
-            let tcp = riding.forward(axis, &joints);
+            let tcp_alone = alone.forward(joints);
+            let tcp = riding.forward(axis, joints);
             (tcp_alone, tcp)
         }
 
@@ -393,7 +393,7 @@ mod tests {
         // Half meter high pedestal
         let pedestal = 0.5;
         let base_translation = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, pedestal).into(),
+            Translation3::new(0.0, 0.0, pedestal),
             UnitQuaternion::identity(),
         );
 
@@ -405,7 +405,7 @@ mod tests {
         // Tool extends 1 meter in the Z direction, envisioning something like sword
         let sword = 1.0;
         let tool_translation = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, sword).into(),
+            Translation3::new(0.0, 0.0, sword),
             UnitQuaternion::identity(),
         );
 
@@ -419,7 +419,7 @@ mod tests {
         // Gantry is based with 0.75 horizontal offset along y
         let gantry_base = 0.75;
         let gantry_translation = Isometry3::from_parts(
-            Translation3::new(0.0, gantry_base, 0.0).into(),
+            Translation3::new(0.0, gantry_base, 0.0),
             UnitQuaternion::identity(),
         );
 

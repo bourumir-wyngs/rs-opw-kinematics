@@ -165,8 +165,8 @@ impl Kinematics for Frame {
     fn forward(&self, qs: &Joints) -> Pose {
         // Calculate the pose of the tip joint using the robot's kinematics
         let tip_joint = self.robot.forward(qs);
-        let tcp = tip_joint * self.frame;
-        tcp
+        
+        tip_joint * self.frame
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -174,7 +174,7 @@ impl Kinematics for Frame {
         let mut poses = self.robot.forward_with_joint_poses(joints);
 
         // Apply the tool transformation only to the last pose (TCP pose)
-        poses[5] = poses[5] * self.frame;
+        poses[5] *= self.frame;
 
         poses
     }    

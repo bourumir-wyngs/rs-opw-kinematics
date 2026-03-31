@@ -59,9 +59,9 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 /// # Parameters
 /// - `xml_content`: A `String` containing the XML data of the URDF file.
 /// - `joint_names`: An optional array containing joint names. This may be required if
-///                  names do not follow typical naming convention, or there are multiple
-///                  robots defined in URDF. 
-///                  For 5 DOF robots, use the name of the tool center point instead of "joint6"
+///   names do not follow typical naming convention, or there are multiple
+///   robots defined in URDF.
+///   For 5 DOF robots, use the name of the tool center point instead of `joint6`
 ///
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
@@ -182,17 +182,16 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
 
     for child in element.children().into_iter().filter_map(|e| e.element()) {
         if child.name() == joint_tag {
-            let name;
             let urdf_name = &child.attribute("name")
                 .map(|attr| attr.value().to_string())
                 .unwrap_or_else(|| "Unnamed".to_string());
-            if joint_names.is_some() {
+            let name = if joint_names.is_some() {
                 // If joint names are explicitly given, they are expected to be as they are.
-                name = urdf_name.clone();
+                urdf_name.clone()
             } else {
                 // Otherwise effort is done to "simplify" the names into joint1 to joint6
-                name = preprocess_joint_name(urdf_name);
-            }
+                preprocess_joint_name(urdf_name)
+            };
             let axis_element = child.children().into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == axis_tag));
             let origin_element = child.children().into_iter()
@@ -216,7 +215,7 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
                 Ok(None) => {}
                 Err(e) => {
                     println!("Joint limits defined but not not readable for {}: {}",
-                             joint_data.name, e.to_string());
+                             joint_data.name, e);
                 }
             }
 
@@ -249,7 +248,7 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
 
 fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     // Fetch the 'xyz' attribute, assuming the element is correctly passed
-    let axis_attr = axis_element.attribute("xyz").ok_or_else(|| {
+    let axis_attr = axis_element.attribute("xyz").ok_or({
         "'xyz' attribute not found in element supposed to represent the axis"
     })?;
 
@@ -403,9 +402,9 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
     let is_six_dof = joint_map.contains_key(names[5]);
     opw_parameters.c4 = 0.0; // joint6 would be something like "tcp" for the 5 DOF robot. Otherwise, 0 is assumed.
 
-    for j in 0..6 {
+    for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;
@@ -491,16 +490,17 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
 // This function is not in use and exists for references only (old version)
 fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
                                     -> Result<URDFParameters, String> {
-    let mut opw_parameters = URDFParameters::default();
-
-    opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
+    let mut opw_parameters = URDFParameters {
+        b: 0.0, // We only support robots with b = 0 so far.
+        ..Default::default()
+    };
 
     let names = joint_names.unwrap_or_else(
         || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
 
-    for j in 0..6 {
+    for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;

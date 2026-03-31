@@ -53,25 +53,25 @@ impl RRTPlanner {
         // Constraint compliant random joint configuration generator.
         let random_joint_angles = || -> Vec<f64> {
             // RRT requires vector and we return array so convert
-            return kinematics
+            kinematics
                 .constraints()
                 .expect("Set joint ranges on kinematics")
                 .random_angles()
-                .to_vec();
+                .to_vec()
         };
 
         // Plan the path with RRT
-        let path = dual_rrt_connect(
+        
+
+        dual_rrt_connect(
             start,
             goal,
             collision_free,
             random_joint_angles,
             self.step_size_joint_space, // Step size in joint space
             self.max_try,               // Max iterations
-            &stop,
-        );
-
-        path
+            stop,
+        )
     }
 
     fn convert_result(&self, data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, String> {
@@ -96,7 +96,7 @@ impl RRTPlanner {
             Ok(path) => {
                 println!("Steps:");
                 for step in path {
-                    dump_joints(&step);
+                    dump_joints(step);
                 }
             }
             Err(error_message) => {
@@ -117,7 +117,7 @@ impl RRTPlanner {
     ) -> Result<Vec<Joints>, String> {
         println!("RRT started {:?} -> {:?}", start, goal);
         let started = Instant::now();
-        let path = self.plan_path(&kinematics, start, goal, stop);
+        let path = self.plan_path(kinematics, start, goal, stop);
         let spent = started.elapsed();
         let result = self.convert_result(path);
 

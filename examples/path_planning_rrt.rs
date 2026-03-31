@@ -63,7 +63,7 @@ pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
+            Translation3::new(0.4, 0.7, 0.0),
             UnitQuaternion::identity(),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
@@ -71,7 +71,7 @@ pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5).into(),
+            Translation3::new(0.0, 0.0, 0.5),
             UnitQuaternion::identity(),
         ),
         // Objects around the robot, with global transforms for them.
@@ -127,8 +127,8 @@ fn plan_path(
     // Constraint compliant random joint configuration generator. 
     let random_joint_angles = || -> Vec<f64> {
         // RRT requires vector and we return array so convert
-        return kinematics.constraints()
-            .expect("Set joint ranges on kinematics").random_angles().to_vec();
+        kinematics.constraints()
+            .expect("Set joint ranges on kinematics").random_angles().to_vec()
     };
 
     // Plan the path with RRT
@@ -162,7 +162,7 @@ fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
         Ok(path) => {
             println!("Steps:");
             for step in path {
-                dump_joints(&step);
+                dump_joints(step);
             }
         }
         Err(error_message) => {
@@ -196,7 +196,7 @@ fn main() -> Result<()>{
 #[cfg(feature = "stroke_planning")]
 fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Result<()>{
     let started = Instant::now();
-    let path = plan_path(&kinematics, start, goal);
+    let path = plan_path(kinematics, start, goal);
     let spent = started.elapsed();
     let result = convert_result(path);
     print_summary(&result);

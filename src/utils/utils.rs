@@ -45,10 +45,9 @@ pub fn dump_solutions(solutions: &Solutions) {
     if solutions.is_empty() {
         println!("No solutions");
     }
-    for sol_idx in 0..solutions.len() {
+    for solution in solutions {
         let mut row_str = String::new();
-        for joint_idx in 0..6 {
-            let computed = solutions[sol_idx][joint_idx];
+        for computed in solution {
             row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
         }
         println!("[{}]", row_str.trim_end());
@@ -59,10 +58,9 @@ pub fn dump_solutions_degrees(solutions: &Solutions) {
     if solutions.is_empty() {
         println!("No solutions");
     }
-    for sol_idx in 0..solutions.len() {
+    for solution in solutions {
         let mut row_str = String::new();
-        for joint_idx in 0..6 {
-            let computed = solutions[sol_idx][joint_idx];
+        for computed in solution {
             row_str.push_str(&format!("{:5.2} ", computed));
         }
         println!("[{}]", row_str.trim_end());
@@ -72,8 +70,7 @@ pub fn dump_solutions_degrees(solutions: &Solutions) {
 /// Print joint values, converting radianst to degrees.
 pub fn dump_joints(joints: &Joints) {
     let mut row_str = String::new();
-    for joint_idx in 0..6 {
-        let computed = joints[joint_idx];
+    for computed in joints {
         row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
     }
     println!("[{}]", row_str.trim_end());
@@ -136,13 +133,13 @@ pub fn assert_pose_eq(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
         dump_pose(ta);
         dump_pose(tb);
     }
-    
+
     let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
     let angular_distance = ta.rotation.angle_to(&tb.rotation);
 
     if translation_distance.abs() > distance_tolerance {
-        bad(ta, tb);        
-        panic!("Poses have too different translations");        
+        bad(ta, tb);
+        panic!("Poses have too different translations");
     }
 
     if angular_distance.abs() > angular_tolerance {

@@ -5,6 +5,12 @@ pub mod opw_kinematics {
     use std::f64::consts::PI;
 
     #[allow(dead_code)]
+    impl Default for Parameters {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Parameters {
         // Provides default values
         pub fn new() -> Self {

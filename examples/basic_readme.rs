@@ -13,5 +13,5 @@ fn main() {
     let pose: Isometry3<f64> = robot.forward(&joints);
     let when_continuing_from: Joints = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
 
-    let solutions = robot.inverse_continuing(&pose, &when_continuing_from);
+    let _solutions = robot.inverse_continuing(&pose, &when_continuing_from);
 }

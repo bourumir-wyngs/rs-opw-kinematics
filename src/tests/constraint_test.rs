@@ -20,7 +20,7 @@ mod tests {
 
         //let robot = OPWKinematics::new_with_constraints(parameters,
         //  Constraints::new(not_below, not_above, BY_CONSTRAINS));
-        let robot = OPWKinematics::new(parameters.clone());
+        let robot = OPWKinematics::new(parameters);
         let pose = robot.forward(&joints);
 
         let solutions = robot.inverse_continuing(&pose, &joints);
@@ -33,7 +33,7 @@ mod tests {
         let constraints = Constraints::new(not_below, not_above, BY_CONSTRAINS);
         assert!(constraints.compliant(&joints));
         let robot = OPWKinematics::new_with_constraints(
-            parameters.clone(), constraints);
+            parameters, constraints);
         let solutions = robot.inverse_continuing(&pose, &joints);
         verify(&solutions, vec!(
             [10.00, 20.00, 30.00, 40.00, 0.00, 60.00]
@@ -67,7 +67,7 @@ mod tests {
             println!("Expected:");
             dump_solutions_degrees(&expected);
             println!("Actual");
-            dump_solutions(&actual);
+            dump_solutions(actual);
             panic!("Solutions do not match");
         }
     }

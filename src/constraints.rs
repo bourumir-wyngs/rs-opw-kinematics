@@ -1,9 +1,9 @@
 //! Joint limit support
 
 use std::f64::consts::PI;
-use std::f64::INFINITY;
 use std::ops::RangeInclusive;
 use rand::Rng;
+use rand::RngExt;
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::utils::deg;
 
@@ -51,11 +51,11 @@ impl Constraints {
         let (centers, tolerances) = Self::compute_centers(from, to);
 
         Constraints {
-            from: from,
-            to: to,
-            centers: centers,
-            tolerances: tolerances,
-            sorting_weight: sorting_weight,
+            from,
+            to,
+            centers,
+            tolerances,
+            sorting_weight,
         }
     }
 
@@ -118,7 +118,7 @@ impl Constraints {
             let a = from[j_idx];
             let mut b = to[j_idx];
             if a == b {
-                tolerances[j_idx] = INFINITY; // No constraint, not checked
+                tolerances[j_idx] = f64::INFINITY; // No constraint, not checked
             } else if a < b {
                 // Values do not wrap arround
                 centers[j_idx] = (a + b) / 2.0;
@@ -126,7 +126,7 @@ impl Constraints {
             } else {
                 // Values wrap arround. Move b forward by period till it gets ahead.
                 while b < a {
-                    b = b + TWO_PI;
+                    b += TWO_PI;
                 }
                 centers[j_idx] = (a + b) / 2.0;
                 tolerances[j_idx] = (b - a) / 2.0;
@@ -150,7 +150,7 @@ impl Constraints {
             return true;
         }
         let mut difference = (angle1 - angle2).abs();
-        difference = difference % TWO_PI;
+        difference %= TWO_PI;
         if difference > PI {
             difference = TWO_PI - difference;
         }
@@ -158,21 +158,18 @@ impl Constraints {
     }
 
     /// Checks if all values in the given vector or angles satisfy these constraints.
-    #[must_use = "Ignoring compliance check result may cause constraint violations."]
     pub fn compliant(&self, angles: &[f64; 6]) -> bool {
-        let ok = angles.iter().enumerate().all(|(i, &angle)| {
+        angles.iter().enumerate().all(|(i, &angle)| {
             // '!' is used to negate the condition from 'out_of_bounds' directly in the 'all' call.
             Self::inside_bounds(angle, self.centers[i], self.tolerances[i])
-        });
-        ok
+        })
     }
 
     /// Return new vector of angle arrays, removing all that have members not satisfying these
     /// constraints.
-    #[must_use = "Ignoring filtered results means no constraints are actually applied."]
-    pub fn filter(&self, angles: &Vec<[f64; 6]>) -> Vec<[f64; 6]> {
-        angles.into_iter()
-            .filter(|angle_array| self.compliant(&angle_array))
+    pub fn filter(&self, angles: &[[f64; 6]]) -> Vec<[f64; 6]> {
+        angles.iter()
+            .filter(|angle_array| self.compliant(angle_array))
             .cloned()
             .collect()
     }
@@ -183,9 +180,9 @@ impl Constraints {
             "constraints:\n  \
                from: [{}]\n  \
                to: [{}]\n",
-            self.from.iter().map(|x| deg(x))
+            self.from.iter().map(deg)
                 .collect::<Vec<_>>().join(", "),
-            self.to.iter().map(|x| deg(x))
+            self.to.iter().map(deg)
                 .collect::<Vec<_>>().join(", ")
         )
     }

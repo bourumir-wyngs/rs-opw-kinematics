@@ -73,7 +73,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
         Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
+            Translation3::new(0.4, 0.7, 0.0),
             UnitQuaternion::identity(),
         ),
         // Tool mesh. Load it from .ply file for feature demonstration
@@ -81,7 +81,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
         Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5).into(),
+            Translation3::new(0.0, 0.0, 0.5),
             UnitQuaternion::identity(),
         ),
         // Objects around the robot, with global transforms for them.
