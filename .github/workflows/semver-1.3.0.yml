@@ -1,0 +1,31 @@
+name: Semver Checks (1.3.0)
+
+on:
+  push:
+    branches: [ "1.3.0" ]
+  pull_request:
+    branches: [ "1.3.0" ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  semver:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-semver-checks
+      uses: taiki-e/install-action@cargo-semver-checks
+
+    - name: Check semver compatibility against 1.3.0
+      run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev 1.3.0 --release-type patch --only-explicit-features
