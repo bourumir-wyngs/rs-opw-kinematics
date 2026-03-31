@@ -3977,7 +3977,7 @@ dependencies = [
 
 [[package]]
 name = "rs-opw-kinematics"
-version = "1.8.17"
+version = "1.8.18"
 dependencies = [
  "anyhow",
  "bevy",
