@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "stroke_planning")]
+use anyhow::anyhow;
 #[cfg(feature = "stroke_planning")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},

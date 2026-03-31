@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "collisions")]
+use anyhow::anyhow;
 #[cfg(feature = "collisions")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
