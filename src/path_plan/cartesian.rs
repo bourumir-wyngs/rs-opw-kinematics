@@ -356,16 +356,13 @@ impl Cartesian<'_> {
     ) -> Result<Vec<Joints>, Transition> {
         pub const DIV_RATIO: f64 = 0.5;
 
-        // Not checked for collisions yet
-        let solutions = self
-            .robot
-            .kinematics
-            .inverse_continuing(&to.pose, starting);
+        // Use collision-aware IK so intermediate recursive steps are also safe.
+        let solutions = self.robot.inverse_continuing(&to.pose, starting);
 
         // Solutions are already sorted best first
         for next in &solutions {
-            // Internal "miniposes" generated through recursion are not checked for collision.
-            // They only check agains continuity of the robot movement (no unexpected jerks)
+            // Internal "miniposes" generated through recursion are checked for collisions
+            // by calling collision-aware inverse_continuing above.
             let cost = transition_costs(starting, next, &self.transition_coefficients);
             if cost <= self.max_transition_cost {
                 return Ok(vec![*next]); // Track minimal cost observed
