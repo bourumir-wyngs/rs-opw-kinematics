@@ -120,13 +120,11 @@ impl Kinematics for OPWKinematics {
                             normalize_near(&mut now[J5], previous[J5]);
                         }
 
-                        let mut angle = s_n - s;
-                        while angle > PI {
-                            angle -= 2.0 * PI;
+                        let angle = s_n - s;
+                        if !angle.is_finite() {
+                            continue;
                         }
-                        while angle < -PI {
-                            angle += 2.0 * PI;
-                        }
+                        let angle = (angle + PI).rem_euclid(2.0 * PI) - PI;
                         let j_d = angle / 2.0;
 
                         now[J4] = previous[J4] + j_d;
@@ -955,5 +953,13 @@ mod tests {
         );
     }
 
-}
+    #[test]
+    fn test_inverse_continuing_handles_non_finite_previous_joint() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        let pose = robot.forward(&[0.0, 0.1, 0.2, 0.3, 0.1, 0.2]);
+        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.1, f64::INFINITY];
 
+        let _ = robot.inverse_continuing(&pose, &previous);
+    }
+
+}
