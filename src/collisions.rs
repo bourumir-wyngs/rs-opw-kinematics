@@ -5,11 +5,19 @@ use crate::kinematic_traits::{
 };
 
 use nalgebra::Isometry3;
+use parry3d::bounding_volume::{Aabb, BoundingVolume};
+use parry3d::math::Point;
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use parry3d::bounding_volume::{Aabb, BoundingVolume};
-use parry3d::math::Point;
+
+fn finite_or(original: &Point<f32>, candidate: Point<f32>) -> Point<f32> {
+    if candidate.x.is_finite() && candidate.y.is_finite() && candidate.z.is_finite() {
+        candidate
+    } else {
+        *original
+    }
+}
 
 /// Optional structure attached to the robot base joint. It has its own global transform
 /// that brings the robot to the location. This structure includes two transforms,
@@ -35,14 +43,13 @@ pub struct CollisionBody {
 /// for the robot joint if it is defined in URDF with some local transform
 pub fn transform_mesh(shape: &TriMesh, local_transform: &Isometry3<f32>) -> TriMesh {
     // Apply the local transformation to the shape
-    TriMesh::new(
-        shape
-            .vertices()
-            .iter()
-            .map(|v| local_transform.transform_point(v))
-            .collect(),
-        shape.indices().to_vec(),
-    ).expect("Failed to build trimesh")
+    let transformed_vertices: Vec<Point<f32>> = shape
+        .vertices()
+        .iter()
+        .map(|v| finite_or(v, local_transform.transform_point(v)))
+        .collect();
+
+    TriMesh::new(transformed_vertices, shape.indices().to_vec()).unwrap_or_else(|_| shape.clone())
 }
 
 /// Struct representing a collision task for detecting collisions
@@ -113,18 +120,36 @@ impl CollisionTask<'_> {
 
 /// Parry does not support AABB as a "proper" shape so we rewrap it as mesh
 fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
-    let min: Point<f32> = aabb.mins;
-    let max: Point<f32> = aabb.maxs;
+    let mut min: Point<f32> = aabb.mins;
+    let mut max: Point<f32> = aabb.maxs;
+    if !min.x.is_finite() || !max.x.is_finite() {
+        min.x = 0.0;
+        max.x = 0.0;
+    } else if min.x > max.x {
+        std::mem::swap(&mut min.x, &mut max.x);
+    }
+    if !min.y.is_finite() || !max.y.is_finite() {
+        min.y = 0.0;
+        max.y = 0.0;
+    } else if min.y > max.y {
+        std::mem::swap(&mut min.y, &mut max.y);
+    }
+    if !min.z.is_finite() || !max.z.is_finite() {
+        min.z = 0.0;
+        max.z = 0.0;
+    } else if min.z > max.z {
+        std::mem::swap(&mut min.z, &mut max.z);
+    }
     // Define the 8 vertices of the AABB
     let vertices = vec![
-        min, // 0
+        min,                             // 0
         Point::new(max.x, min.y, min.z), // 1
         Point::new(min.x, max.y, min.z), // 2
         Point::new(max.x, max.y, min.z), // 3
         Point::new(min.x, min.y, max.z), // 4
         Point::new(max.x, min.y, max.z), // 5
         Point::new(min.x, max.y, max.z), // 6
-        max, // 7
+        max,                             // 7
     ];
 
     // Define the 12 triangles (2 for each face)
@@ -132,30 +157,35 @@ fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
         // Bottom face (min.z)
         [0, 1, 2],
         [2, 1, 3],
-
         // Top face (max.z)
         [4, 5, 6],
         [6, 5, 7],
-
         // Front face (max.y)
         [2, 3, 6],
         [6, 3, 7],
-
         // Back face (min.y)
         [0, 1, 4],
         [4, 1, 5],
-
         // Left face (min.x)
         [0, 2, 4],
         [4, 2, 6],
-
         // Right face (max.x)
         [1, 3, 5],
         [5, 3, 7],
     ];
 
     // Return TriMesh
-    TriMesh::new(vertices, INDICES.to_vec()).expect("Failed to build TrimMesh from AABB")
+    TriMesh::new(vertices, INDICES.to_vec()).unwrap_or_else(|_| {
+        TriMesh::new(
+            vec![
+                Point::new(0.0, 0.0, 0.0),
+                Point::new(1.0, 0.0, 0.0),
+                Point::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .expect("hardcoded fallback trimesh must be valid")
+    })
 }
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
@@ -728,5 +758,16 @@ mod tests {
         let robot = create_robot_for_distance_validation(f32::NAN);
         let collisions = robot.detect_collisions(&[Isometry3::identity(); 6], &robot.safety, None);
         assert_eq!(collisions, vec![(J1, J3)]);
+    }
+
+    #[test]
+    fn transform_mesh_handles_invalid_local_transform() {
+        let mesh = create_trimesh(0.0, 0.0, 0.0);
+        let invalid_transform = Isometry3::translation(f32::NAN, 0.0, 0.0);
+
+        let transformed = transform_mesh(&mesh, &invalid_transform);
+
+        assert_eq!(mesh.vertices().len(), transformed.vertices().len());
+        assert_eq!(mesh.indices().len(), transformed.indices().len());
     }
 }
