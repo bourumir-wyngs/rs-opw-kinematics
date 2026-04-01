@@ -147,26 +147,26 @@ impl Frame {
 
 impl Kinematics for Frame {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        self.robot.inverse(&(self.frame.inverse() * tcp))
+        self.robot.inverse(&(tcp * self.frame.inverse()))
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
-        self.robot.inverse_5dof(&(self.frame.inverse() * tcp), j6)
+        self.robot.inverse_5dof(&(tcp * self.frame.inverse()), j6)
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing_5dof(&(self.frame.inverse() * tcp), previous)
+        self.robot.inverse_continuing_5dof(&(tcp * self.frame.inverse()), previous)
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing(&(self.frame.inverse() * tcp), previous)
+        self.robot.inverse_continuing(&(tcp * self.frame.inverse()), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
         // Calculate the pose of the tip joint using the robot's kinematics
         let tip_joint = self.robot.forward(qs);
         
-        self.frame * tip_joint
+        tip_joint * self.frame
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -174,7 +174,7 @@ impl Kinematics for Frame {
         let mut poses = self.robot.forward_with_joint_poses(joints);
 
         // Apply the frame transformation only to the last pose (TCP pose)
-        poses[5] = self.frame * poses[5];
+        poses[5] = poses[5] * self.frame;
 
         poses
     }    

@@ -3,10 +3,11 @@
 extern crate sxd_document;
 
 use crate::simplify_joint_name::preprocess_joint_name;
-use std::collections::HashMap;
 use sxd_document::{parser, dom, QName};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
+use std::io;
 use std::path::Path;
 use regex::Regex;
 use crate::constraints::{BY_PREV, Constraints};
@@ -40,7 +41,7 @@ use crate::parameters::opw_kinematics::Parameters;
 ///   formatted as URDF/XACRO.
 pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, ParameterError> {
     let xml_content = read_to_string(path)
-        .map_err(|e| ParameterError::IoError(format!("Failed to read xacro/urdf file: {e}")))?;
+        .map_err(|e| ParameterError::IoError(io::Error::other(format!("Failed to read xacro/urdf file: {e}"))))?;
 
     let opw_parameters = from_urdf(xml_content, &None)?;
 
