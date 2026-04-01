@@ -483,7 +483,7 @@ impl RobotBody {
         if check_tool
             && let Some(tool) = &self.tool {
                 for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                    if self.check_required(J_TOOL, ENV_START_IDX + env_idx, skip) {
+                    if self.check_required(J_TOOL, ENV_START_IDX + env_idx, skip, safety_distances) {
                         tasks.push(CollisionTask {
                             i: J_TOOL as u16,
                             j: (ENV_START_IDX + env_idx) as u16,
@@ -499,7 +499,7 @@ impl RobotBody {
         for i in 0..6 {
             for j in ((i + 1)..6).rev() {
                 // If both joints did not move, we do not need to check
-                if j - i > 1 && self.check_required(i, j, skip) {
+                if j - i > 1 && self.check_required(i, j, skip, safety_distances) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: j as u16,
@@ -515,7 +515,7 @@ impl RobotBody {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 // Joints we do not move we do not need to check for collision against objects
                 // that also not move.
-                if self.check_required(i, ENV_START_IDX + env_idx, skip) {
+                if self.check_required(i, ENV_START_IDX + env_idx, skip, safety_distances) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: (ENV_START_IDX + env_idx) as u16,
@@ -528,7 +528,7 @@ impl RobotBody {
             }
 
             // Check if there is no collision between joint and tool
-            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, skip)
+            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, skip, safety_distances)
                 && let Some(tool) = &self.tool {
                     let accessory_pose = &joint_poses[J6];
                     tasks.push(CollisionTask {
@@ -543,7 +543,7 @@ impl RobotBody {
 
             // Base does not move, we do not need to check for collision against the joint
             // that also did not.
-            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, skip)
+            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, skip, safety_distances)
                 && let Some(base) = &self.base {
                     let accessory = &base.mesh;
                     let accessory_pose = &base.base_pose;
@@ -559,7 +559,7 @@ impl RobotBody {
         }
 
         // Check tool-base collision if necessary
-        if (check_tool || self.check_required(J_TOOL, J_BASE, skip))
+        if (check_tool || self.check_required(J_TOOL, J_BASE, skip, safety_distances))
             && let (Some(tool), Some(base)) = (&self.tool, &self.base) {
                 tasks.push(CollisionTask {
                     i: J_TOOL as u16,
@@ -573,9 +573,9 @@ impl RobotBody {
         Self::process_collision_tasks(tasks, safety_distances, override_mode)
     }
 
-    fn check_required(&self, i: usize, j: usize, skip: &HashSet<usize>) -> bool {
+    fn check_required(&self, i: usize, j: usize, skip: &HashSet<usize>, safety_distances: &SafetyDistances) -> bool {
         !skip.contains(&i) && !skip.contains(&j) &&
-            self.safety.min_distance(i as u16, j as u16) > &NEVER_COLLIDES
+            safety_distances.min_distance(i as u16, j as u16) > &NEVER_COLLIDES
     }    
 }
 
