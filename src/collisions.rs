@@ -59,7 +59,7 @@ struct CollisionTask<'a> {
 impl CollisionTask<'_> {
     #[must_use = "Ignoring collision check may cause collision."]
     fn collides(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
-        let r_min = *safety.min_distance(self.i, self.j);
+        let r_min = safety.validated_min_distance(self.i, self.j);
         let collides = if r_min <= NEVER_COLLIDES {
             false
         } else if r_min == TOUCH_ONLY {
@@ -258,6 +258,18 @@ impl SafetyDistances {
             &self.to_environment
         } else {
             &self.to_robot_default
+        }
+    }
+
+    /// Returns the minimal allowed distance with invalid values normalized to `TOUCH_ONLY`.
+    /// This keeps collision detection active even if user-provided values are negative
+    /// (except `NEVER_COLLIDES`) or non-finite.
+    fn validated_min_distance(&self, from: u16, to: u16) -> f32 {
+        let r = *self.min_distance(from, to);
+        if !r.is_finite() || (NEVER_COLLIDES..TOUCH_ONLY).contains(&r) {
+            TOUCH_ONLY
+        } else {
+            r
         }
     }
 
@@ -575,13 +587,14 @@ impl RobotBody {
 
     fn check_required(&self, i: usize, j: usize, skip: &HashSet<usize>, safety_distances: &SafetyDistances) -> bool {
         !skip.contains(&i) && !skip.contains(&j) &&
-            safety_distances.min_distance(i as u16, j as u16) > &NEVER_COLLIDES
+            safety_distances.validated_min_distance(i as u16, j as u16) > NEVER_COLLIDES
     }    
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kinematic_traits::J3;
     use nalgebra::Point3;
     use parry3d::shape::TriMesh;
 
@@ -596,6 +609,29 @@ mod tests {
             ],
             vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
         ).expect("Failed to build test trimesh")
+    }
+
+    fn create_robot_for_distance_validation(distance: f32) -> RobotBody {
+        let joints: [TriMesh; 6] = [
+            create_trimesh(0.0, 0.0, 0.0),
+            create_trimesh(10.0, 10.0, 10.0),
+            create_trimesh(0.0, 0.0, 0.0),
+            create_trimesh(20.0, 20.0, 20.0),
+            create_trimesh(30.0, 30.0, 30.0),
+            create_trimesh(40.0, 40.0, 40.0),
+        ];
+        RobotBody {
+            joint_meshes: joints,
+            tool: None,
+            base: None,
+            collision_environment: vec![],
+            safety: SafetyDistances {
+                to_environment: NEVER_COLLIDES,
+                to_robot_default: NEVER_COLLIDES,
+                special_distances: SafetyDistances::distances(&[((J1, J3), distance)]),
+                mode: CheckMode::AllCollsions,
+            },
+        }
     }
 
     #[test]
@@ -678,5 +714,19 @@ mod tests {
                 "Shape [3] should not be involved in any collision."
             );
         }
+    }
+
+    #[test]
+    fn negative_safety_distance_does_not_disable_collision_checks() {
+        let robot = create_robot_for_distance_validation(-0.1);
+        let collisions = robot.detect_collisions(&[Isometry3::identity(); 6], &robot.safety, None);
+        assert_eq!(collisions, vec![(J1, J3)]);
+    }
+
+    #[test]
+    fn nan_safety_distance_does_not_disable_collision_checks() {
+        let robot = create_robot_for_distance_validation(f32::NAN);
+        let collisions = robot.detect_collisions(&[Isometry3::identity(); 6], &robot.safety, None);
+        assert_eq!(collisions, vec![(J1, J3)]);
     }
 }
