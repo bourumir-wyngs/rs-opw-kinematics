@@ -243,27 +243,26 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
 }
 
 fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
-    // Fetch the 'xyz' attribute, assuming the element is correctly passed
     let axis_attr = axis_element.attribute("xyz").ok_or({
         "'xyz' attribute not found in element supposed to represent the axis"
     })?;
 
-    // Parse the xyz attribute to determine the sign corrections
     let axis_values: Vec<f64> = axis_attr.value().split_whitespace()
         .map(str::parse)
         .collect::<Result<_, _>>()?;
 
-    // Filter and count non-zero values, ensuring exactly one non-zero which must be -1 or 1
-    let non_zero_values: Vec<i32> = axis_values.iter()
-        .filter(|&&v| v != 0.0)
-        .map(|&v| if v < 0.0 { -1 } else { 1 })
-        .collect();
+    if axis_values.len() != 3 {
+        return Err("Axis vector must contain exactly three values".into());
+    }
 
-    // Check that exactly one non-zero value exists and it is either -1 or 1
-    if non_zero_values.len() == 1 && (non_zero_values[0] == -1 || non_zero_values[0] == 1) {
-        Ok(non_zero_values[0])
-    } else {
-        Ok(0) // This is a fixed joint
+    let x = axis_values[0];
+    let y = axis_values[1];
+    let z = axis_values[2];
+
+    match (x, y, z) {
+        (1.0, 0.0, 0.0) | (0.0, 1.0, 0.0) | (0.0, 0.0, 1.0) => Ok(1),
+        (-1.0, 0.0, 0.0) | (0.0, -1.0, 0.0) | (0.0, 0.0, -1.0) => Ok(-1),
+        _ => Err("Axis vector must be exactly one signed unit axis (±1 with two zeros)".into()),
     }
 }
 
@@ -655,6 +654,36 @@ mod tests {
         assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
         assert_eq!(opw_parameters.c3, 0.615, "c3 parameter mismatch");
         assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");
+    }
+
+    #[test]
+    fn test_process_joints_rejects_multi_axis_definition() {
+        let xml = r#"
+            <robot>
+                <joint name="joint1">
+                    <origin xyz="1.0 2.0 3.0"></origin>
+                    <axis xyz="1 1 0"/>
+                </joint>
+            </robot>
+        "#;
+
+        let result = process_joints(xml, &None);
+        assert!(result.is_err(), "Malformed multi-axis definition must be rejected");
+    }
+
+    #[test]
+    fn test_process_joints_rejects_non_unit_axis_definition() {
+        let xml = r#"
+            <robot>
+                <joint name="joint1">
+                    <origin xyz="1.0 2.0 3.0"></origin>
+                    <axis xyz="0 0 0.5"/>
+                </joint>
+            </robot>
+        "#;
+
+        let result = process_joints(xml, &None);
+        assert!(result.is_err(), "Non-unit axis definition must be rejected");
     }
 }
 
