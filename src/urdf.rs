@@ -26,29 +26,25 @@ use crate::parameters::opw_kinematics::Parameters;
 /// - `path`: the location of URDF or XACRO file to load from.
 ///
 /// # Returns
-/// - Returns an instance of `OPWKinematics`, which contains the kinematic parameters
-///   extracted from the specified URDF file, including constraints as defined there.
+/// - Returns `Ok(OPWKinematics)` with kinematic parameters extracted from the specified
+///   URDF file, including constraints as defined there.
 ///
 /// # Example
 /// ```
 /// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("src/tests/data/fanuc/m6ib_macro.xacro");
-/// println!("{:?}", kinematics);
+/// println!("{:?}", kinematics.unwrap());
 /// ```
 ///
 /// # Errors
-/// - The function might panic if the file cannot be found, is not accessible, or is incorrectly 
-///   formatted. Users should ensure the file path is correct and the file is properly formatted as 
-///   URDF or XACRO file.
-pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
-    let xml_content = read_to_string(path).expect("Failed to read xacro/urdf file");
+/// - Returns an error if the file cannot be found, is not accessible, or is incorrectly
+///   formatted as URDF/XACRO.
+pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, ParameterError> {
+    let xml_content = read_to_string(path)
+        .map_err(|e| ParameterError::IoError(format!("Failed to read xacro/urdf file: {e}")))?;
 
-    let joint_data = process_joints(&xml_content, &None)
-        .expect("Failed to process XML joints");
+    let opw_parameters = from_urdf(xml_content, &None)?;
 
-    let opw_parameters = populate_opw_parameters(joint_data, &None)
-        .expect("Failed to read OpwParameters");
-
-    opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO)
+    Ok(opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO))
 }
 
 /// Parses URDF XML content to construct OPW kinematics parameters for a robot.

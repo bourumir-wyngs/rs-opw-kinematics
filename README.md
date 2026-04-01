@@ -552,7 +552,8 @@ This project contains the code for reading such configurations directly, includi
 Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
 
 ```rust
-  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
+      .expect("Failed to load URDF");
   // If you want to inspect parameters, see the `urdf` module helpers.
 ```
 
