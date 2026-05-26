@@ -1,7 +1,7 @@
 use anyhow::Result;
-#[cfg(feature = "collisions")]
+#[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
-#[cfg(feature = "collisions")]
+#[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
 
@@ -29,7 +29,7 @@ use {
 /// shared under the Apache license as part of the ROS Industrial project.
 ///
 /// Additionally, four environment objects and a tool are created for the visualization.
-#[cfg(feature = "collisions")]
+#[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     // Environment object to collide with.
     let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
@@ -132,7 +132,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
 /// example intended to demonstrate functionality and confirm that
 /// everything works as expected. You can modify this example to test
 /// your own robot configuration.
-#[cfg(feature = "collisions")]
+#[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 fn main() -> Result<()> {
     // The robot itself.
     let robot = create_rx160_robot().map_err(|err| anyhow!(err))?;
@@ -157,7 +157,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(feature = "collisions"))]
+#[cfg(not(all(feature = "collisions", feature = "rs-read-trimesh")))]
 fn main() -> Result<()> {
     println!("Build configuration does not support this example");
     Ok(())
@@ -173,12 +173,15 @@ fn visualize(
     visualization::visualize_robot(robot, initial_angles, tcp_box);
 }
 
-#[cfg(all(feature = "collisions", not(feature = "visualization")))]
+#[cfg(all(
+    feature = "collisions",
+    feature = "rs-read-trimesh",
+    not(feature = "visualization")
+))]
 fn visualize(
-    robot: KinematicsWithShape,
-    initial_angles: [f32; 6],
-    tcp_box: [RangeInclusive<f64>; 3],
-    distances: &SafetyDistances,
+    _robot: KinematicsWithShape,
+    _initial_angles: [f32; 6],
+    _tcp_box: [RangeInclusive<f64>; 3],
 ) {
     println!("Build configuration does not support visualization")
 }

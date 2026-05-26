@@ -1,7 +1,7 @@
 use anyhow::Result;
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
     rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
@@ -19,7 +19,7 @@ use {
     std::vec::Vec,
 };
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     let monolith = load_trimesh("src/tests/data/object.stl", 0.)?;
 
@@ -101,7 +101,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
     ))
 }
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn main() -> Result<()> {
     fn pose(kinematics: &KinematicsWithShape, angles_in_degrees: [f32; 6]) -> Pose {
         kinematics.forward(&utils::joints(&angles_in_degrees))
@@ -171,7 +171,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(feature = "stroke_planning"))]
+#[cfg(not(all(feature = "stroke_planning", feature = "rs-read-trimesh")))]
 fn main() -> Result<()> {
     println!("Build configuration does not support this example");
     Ok(())

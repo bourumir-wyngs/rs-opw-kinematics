@@ -1,8 +1,8 @@
 use anyhow::Result;
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     std::sync::atomic::AtomicBool,
     std::time::Instant,
@@ -20,7 +20,7 @@ use {
     rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL}
 };
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
     // Environment object to collide with.
     let monolith = load_trimesh("src/tests/data/object.stl", 1.0)?;
@@ -117,7 +117,7 @@ pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
 
 
 /// Plans a path from `start` to `goal` joint configuration, using `KinematicsWithShape` for collision checking.
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn plan_path(
     kinematics: &KinematicsWithShape,
     start: Joints, goal: Joints,
@@ -144,7 +144,7 @@ fn plan_path(
     )
 }
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn convert_result(data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, String> {
     data.and_then(|vectors| {
         vectors
@@ -161,7 +161,7 @@ fn convert_result(data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, St
     })
 }
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
     match planning_result {
         Ok(path) => {
@@ -176,7 +176,7 @@ fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
     }
 }
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn main() -> Result<()>{
     // Initialize kinematics with your robot's specific parameters
     let kinematics = create_rx160_robot().map_err(|e| anyhow!("Failed to create robot: {}", e))?;
@@ -198,7 +198,7 @@ fn main() -> Result<()>{
     Ok(())
 }
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Result<()>{
     let started = Instant::now();
     let path = plan_path(kinematics, start, goal);
@@ -209,7 +209,7 @@ fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Res
     Ok(())
 }
 
-#[cfg(not(feature = "stroke_planning"))]
+#[cfg(not(all(feature = "stroke_planning", feature = "rs-read-trimesh")))]
 fn main() -> Result<()> {
     println!("Build configuration does not support this example");
     Ok(())
