@@ -97,7 +97,7 @@ rotations are positive about the base axis of the robot. No other setup is requi
 
 <img src="https://camo.githubusercontent.com/a60affbc3f6b93896f6e3c46e320ec0d36eb22b81c85cf8242dc0e315147c0ec/68747470733a2f2f626f7572756d69722d77796e67732e6769746875622e696f2f72732d6f70772d6b696e656d61746963732f646f63756d656e746174696f6e2f6f70772e676966" alt="OPW Kinematics GIF" width="300"/>
 
-<!-- ![OPW Diagram](documentation/opw.gif) -->
+![OPW Diagram](documentation/opw.gif)
 
 To use the library, fill out an `opw_kinematics::Parameters` data structure with the appropriate values for the 7
 kinematic parameters and any joint offsets required to bring the paper's zero position (arm up in Z) to the
