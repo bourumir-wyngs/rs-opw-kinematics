@@ -4,7 +4,6 @@ use std::path::Path;
 
 use garde::Validate;
 use serde::Deserialize;
-use serde_saphyr::Options;
 
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
@@ -100,7 +99,7 @@ impl Parameters {
         let contents = std::fs::read_to_string(path)?;
         let root: Root = serde_saphyr::from_str_with_options_valid(
             &contents,
-            Options { angle_conversions: true, ..Default::default() }
+            serde_saphyr::options! { angle_conversions: true }
         ).map_err(|e| ParameterError::ParseError(format!("{}", e)))?;
 
         // DOF precedence:
