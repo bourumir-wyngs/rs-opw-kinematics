@@ -125,9 +125,13 @@ where
     fn get_until_root(&self, index: usize) -> Vec<Vec<N>> {
         let mut nodes = Vec::new();
         let mut cur_index = index;
-        while let Some(parent_index) = self.vertices[cur_index].parent_index {
-            cur_index = parent_index;
-            nodes.push(self.vertices[cur_index].data.clone())
+        loop {
+            nodes.push(self.vertices[cur_index].data.clone());
+            if let Some(parent_index) = self.vertices[cur_index].parent_index {
+                cur_index = parent_index;
+            } else {
+                break;
+            }
         }
         nodes
     }
@@ -185,4 +189,3 @@ where
     }
     Err("failed".to_string())
 }
-

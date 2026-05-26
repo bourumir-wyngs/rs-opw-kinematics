@@ -5,10 +5,10 @@ planning.
 [![GitHub](https://img.shields.io/badge/GitHub-777777)](https://github.com/bourumir-wyngs/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/v/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/rust.yml)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions)
+[![API 1.8 compatible](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/semver-main.yml?branch=main&label=API%201.8%20compatible)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions/workflows/semver-main.yml)
 [![crates.io](https://img.shields.io/crates/l/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
-[![Dependency Vulnerabilities](https://img.shields.io/endpoint?url=https%3A%2F%2Fapi-hooks.soos.io%2Fapi%2Fshieldsio-badges%3FbadgeType%3DDependencyVulnerabilities%26pid%3D3xxqf0020%26)](https://app.soos.io)
 
 <img src="https://github.com/user-attachments/assets/64cf952a-93b0-4a69-ba6f-d3e98b1cee25" alt="screenshot" width="300"/>
 
@@ -552,7 +552,8 @@ This project contains the code for reading such configurations directly, includi
 Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
 
 ```rust
-  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf");
+  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
+      .expect("Failed to load URDF");
   // If you want to inspect parameters, see the `urdf` module helpers.
 ```
 

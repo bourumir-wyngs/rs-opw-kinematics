@@ -1,4 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "stroke_planning")]
+use anyhow::anyhow;
 #[cfg(feature = "stroke_planning")]
 use {
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
@@ -55,12 +57,12 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         ],
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
         Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
+            Translation3::new(0.4, 0.7, 0.0),
             UnitQuaternion::identity(),
         ),
         load_trimesh("src/tests/data/flag.stl", 0.)?,
         Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5).into(),
+            Translation3::new(0.0, 0.0, 0.5),
             UnitQuaternion::identity(),
         ),
         vec![

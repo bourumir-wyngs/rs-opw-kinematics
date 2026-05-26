@@ -40,7 +40,7 @@ impl Case {
 // ---- Pose conversions ----
 
 impl Pose {
-    pub fn to_isometry(&self) -> Isometry3<f64> {
+    pub fn as_isometry(&self) -> Isometry3<f64> {
         let translation = Translation3::new(self.translation[0], self.translation[1], self.translation[2]);
 
         // Adjusting quaternion creation to match [x, y, z, w] ordering
@@ -140,7 +140,7 @@ static PARAMS: Lazy<HashMap<&'static str, Parameters>> = Lazy::new(|| {
 
 /// Create a fresh (cloned) map if mutation is needed by caller; otherwise expose a getter.
 pub(crate) fn create_parameter_map() -> HashMap<String, Parameters> {
-    PARAMS.iter().map(|(k, v)| (String::from(*k), v.clone())).collect()
+    PARAMS.iter().map(|(k, v)| (String::from(*k), *v)).collect()
 }
 
 // ---- Isometry comparison ----

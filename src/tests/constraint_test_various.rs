@@ -3,7 +3,7 @@ mod tests {
     extern crate rand;
 
     use std::mem;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use rand::rngs::StdRng;
     use crate::constraints::{BY_CONSTRAINS, Constraints};
     use crate::utils::as_radians;
@@ -38,17 +38,15 @@ mod tests {
                 if b < a {
                     mem::swap(&mut a, &mut b);
                 }
-                let c; // the value to check
-
                 // Decide if the case should pass
                 let pass = rng.random_bool(0.95);
 
                 // ordinary case, a < c < b to pass
-                if pass {
+                let c = if pass {
                     // Generate c within the range from a to b boundaries exclusive
-                    c = rng.random_range(a + 1..b);
+                    rng.random_range(a + 1..b)
                 } else {
-                    c = loop {
+                    loop {
                         // Generate outside the range, either below a or above b:
                         if rng.random_bool(0.5) && a > 0 {
                             // below a
@@ -58,7 +56,7 @@ mod tests {
                             break rng.random_range(b + 1..360);
                         };
                     }
-                }
+                };
 
                 // Decide if we are doing the "wrap arround 360 or 0 case" or ordinary case
                 if rng.random_bool(0.5) {

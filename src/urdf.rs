@@ -3,10 +3,11 @@
 extern crate sxd_document;
 
 use crate::simplify_joint_name::preprocess_joint_name;
-use std::collections::HashMap;
 use sxd_document::{parser, dom, QName};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
+use std::io;
 use std::path::Path;
 use regex::Regex;
 use crate::constraints::{BY_PREV, Constraints};
@@ -26,29 +27,25 @@ use crate::parameters::opw_kinematics::Parameters;
 /// - `path`: the location of URDF or XACRO file to load from.
 ///
 /// # Returns
-/// - Returns an instance of `OPWKinematics`, which contains the kinematic parameters
-///   extracted from the specified URDF file, including constraints as defined there.
+/// - Returns `Ok(OPWKinematics)` with kinematic parameters extracted from the specified
+///   URDF file, including constraints as defined there.
 ///
 /// # Example
 /// ```
 /// let kinematics = rs_opw_kinematics::urdf::from_urdf_file("src/tests/data/fanuc/m6ib_macro.xacro");
-/// println!("{:?}", kinematics);
+/// println!("{:?}", kinematics.unwrap());
 /// ```
 ///
 /// # Errors
-/// - The function might panic if the file cannot be found, is not accessible, or is incorrectly 
-///   formatted. Users should ensure the file path is correct and the file is properly formatted as 
-///   URDF or XACRO file.
-pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
-    let xml_content = read_to_string(path).expect("Failed to read xacro/urdf file");
+/// - Returns an error if the file cannot be found, is not accessible, or is incorrectly
+///   formatted as URDF/XACRO.
+pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, ParameterError> {
+    let xml_content = read_to_string(path)
+        .map_err(|e| ParameterError::IoError(io::Error::other(format!("Failed to read xacro/urdf file: {e}"))))?;
 
-    let joint_data = process_joints(&xml_content, &None)
-        .expect("Failed to process XML joints");
+    let opw_parameters = from_urdf(xml_content, &None)?;
 
-    let opw_parameters = populate_opw_parameters(joint_data, &None)
-        .expect("Failed to read OpwParameters");
-
-    opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO)
+    Ok(opw_parameters.to_robot(BY_PREV, &JOINTS_AT_ZERO))
 }
 
 /// Parses URDF XML content to construct OPW kinematics parameters for a robot.
@@ -59,9 +56,9 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> OPWKinematics {
 /// # Parameters
 /// - `xml_content`: A `String` containing the XML data of the URDF file.
 /// - `joint_names`: An optional array containing joint names. This may be required if
-///                  names do not follow typical naming convention, or there are multiple
-///                  robots defined in URDF. 
-///                  For 5 DOF robots, use the name of the tool center point instead of "joint6"
+///   names do not follow typical naming convention, or there are multiple
+///   robots defined in URDF.
+///   For 5 DOF robots, use the name of the tool center point instead of `joint6`
 ///
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
@@ -182,17 +179,16 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
 
     for child in element.children().into_iter().filter_map(|e| e.element()) {
         if child.name() == joint_tag {
-            let name;
             let urdf_name = &child.attribute("name")
                 .map(|attr| attr.value().to_string())
                 .unwrap_or_else(|| "Unnamed".to_string());
-            if joint_names.is_some() {
+            let name = if joint_names.is_some() {
                 // If joint names are explicitly given, they are expected to be as they are.
-                name = urdf_name.clone();
+                urdf_name.clone()
             } else {
                 // Otherwise effort is done to "simplify" the names into joint1 to joint6
-                name = preprocess_joint_name(urdf_name);
-            }
+                preprocess_joint_name(urdf_name)
+            };
             let axis_element = child.children().into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == axis_tag));
             let origin_element = child.children().into_iter()
@@ -216,7 +212,7 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
                 Ok(None) => {}
                 Err(e) => {
                     println!("Joint limits defined but not not readable for {}: {}",
-                             joint_data.name, e.to_string());
+                             joint_data.name, e);
                 }
             }
 
@@ -248,27 +244,26 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
 }
 
 fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
-    // Fetch the 'xyz' attribute, assuming the element is correctly passed
-    let axis_attr = axis_element.attribute("xyz").ok_or_else(|| {
+    let axis_attr = axis_element.attribute("xyz").ok_or({
         "'xyz' attribute not found in element supposed to represent the axis"
     })?;
 
-    // Parse the xyz attribute to determine the sign corrections
     let axis_values: Vec<f64> = axis_attr.value().split_whitespace()
         .map(str::parse)
         .collect::<Result<_, _>>()?;
 
-    // Filter and count non-zero values, ensuring exactly one non-zero which must be -1 or 1
-    let non_zero_values: Vec<i32> = axis_values.iter()
-        .filter(|&&v| v != 0.0)
-        .map(|&v| if v < 0.0 { -1 } else { 1 })
-        .collect();
+    if axis_values.len() != 3 {
+        return Err("Axis vector must contain exactly three values".into());
+    }
 
-    // Check that exactly one non-zero value exists and it is either -1 or 1
-    if non_zero_values.len() == 1 && (non_zero_values[0] == -1 || non_zero_values[0] == 1) {
-        Ok(non_zero_values[0])
-    } else {
-        Ok(0) // This is a fixed joint
+    let x = axis_values[0];
+    let y = axis_values[1];
+    let z = axis_values[2];
+
+    match (x, y, z) {
+        (1.0, 0.0, 0.0) | (0.0, 1.0, 0.0) | (0.0, 0.0, 1.0) => Ok(1),
+        (-1.0, 0.0, 0.0) | (0.0, -1.0, 0.0) | (0.0, 0.0, -1.0) => Ok(-1),
+        _ => Err("Axis vector must be exactly one signed unit axis (±1 with two zeros)".into()),
     }
 }
 
@@ -403,9 +398,9 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
     let is_six_dof = joint_map.contains_key(names[5]);
     opw_parameters.c4 = 0.0; // joint6 would be something like "tcp" for the 5 DOF robot. Otherwise, 0 is assumed.
 
-    for j in 0..6 {
+    for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;
@@ -491,16 +486,17 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
 // This function is not in use and exists for references only (old version)
 fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
                                     -> Result<URDFParameters, String> {
-    let mut opw_parameters = URDFParameters::default();
-
-    opw_parameters.b = 0.0; // We only support robots with b = 0 so far.
+    let mut opw_parameters = URDFParameters {
+        b: 0.0, // We only support robots with b = 0 so far.
+        ..Default::default()
+    };
 
     let names = joint_names.unwrap_or_else(
         || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
 
-    for j in 0..6 {
+    for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(names[j]).ok_or_else(|| format!("Joint {} not found: {}", j, names[j]))?;
+            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;
@@ -659,6 +655,36 @@ mod tests {
         assert_eq!(opw_parameters.c2, 0.6, "c2 parameter mismatch");
         assert_eq!(opw_parameters.c3, 0.615, "c3 parameter mismatch");
         assert_eq!(opw_parameters.c4, 0.10, "c4 parameter mismatch");
+    }
+
+    #[test]
+    fn test_process_joints_rejects_multi_axis_definition() {
+        let xml = r#"
+            <robot>
+                <joint name="joint1">
+                    <origin xyz="1.0 2.0 3.0"></origin>
+                    <axis xyz="1 1 0"/>
+                </joint>
+            </robot>
+        "#;
+
+        let result = process_joints(xml, &None);
+        assert!(result.is_err(), "Malformed multi-axis definition must be rejected");
+    }
+
+    #[test]
+    fn test_process_joints_rejects_non_unit_axis_definition() {
+        let xml = r#"
+            <robot>
+                <joint name="joint1">
+                    <origin xyz="1.0 2.0 3.0"></origin>
+                    <axis xyz="0 0 0.5"/>
+                </joint>
+            </robot>
+        "#;
+
+        let result = process_joints(xml, &None);
+        assert!(result.is_err(), "Non-unit axis definition must be rejected");
     }
 }
 

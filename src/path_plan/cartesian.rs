@@ -134,7 +134,7 @@ impl AnnotatedPose {
         let self_translation = &self.pose.translation.vector;
         let other_translation = &other.pose.translation.vector;
 
-        let translation = self_translation.lerp(&other_translation, p);
+        let translation = self_translation.lerp(other_translation, p);
         let rotation = self.pose.rotation.slerp(&other.pose.rotation, p);
 
         AnnotatedPose {
@@ -258,7 +258,7 @@ impl Cartesian<'_> {
     fn probe_strategy(
         &self,
         work_path_start: &Joints,
-        poses: &Vec<AnnotatedPose>,
+        poses: &[AnnotatedPose],
         stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         println!("Cartesian planning started, computing strategy {work_path_start:?}");
@@ -269,17 +269,16 @@ impl Cartesian<'_> {
         trace.push(AnnotatedJoints {
             joints: *work_path_start,
             flags: PathFlags::LAND, 
-        }.clone());
+        });
 
         let mut step = 1;
 
         let mut pairs_iterator = poses.windows(2);
 
         while let Some([from, to]) = pairs_iterator.next() {
-            let prev = trace
+            let prev = *trace
                 .last()
-                .expect("Should have start and strategy points")
-                .clone();
+                .expect("Should have start and strategy points");
 
             let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
             match transition {
@@ -292,8 +291,8 @@ impl Cartesian<'_> {
                             to.flags
                         };
                         trace.push(AnnotatedJoints {
-                            joints: step.clone(),
-                            flags: flags,
+                            joints: *step,
+                            flags,
                         });
                     }
                 }
@@ -347,6 +346,7 @@ impl Cartesian<'_> {
     /// Transition cartesian way from 'from' into 'to' while assuming 'from'
     /// Returns all path, not including "starting", that should not be empty
     /// as it succeeded. Returns description of the transition on failure.
+    #[allow(clippy::result_large_err)]
     fn step_adaptive_linear_transition(
         &self,
         starting: &Joints,
@@ -356,19 +356,16 @@ impl Cartesian<'_> {
     ) -> Result<Vec<Joints>, Transition> {
         pub const DIV_RATIO: f64 = 0.5;
 
-        // Not checked for collisions yet
-        let solutions = self
-            .robot
-            .kinematics
-            .inverse_continuing(&to.pose, &starting);
+        // Use collision-aware IK so intermediate recursive steps are also safe.
+        let solutions = self.robot.inverse_continuing(&to.pose, starting);
 
         // Solutions are already sorted best first
         for next in &solutions {
-            // Internal "miniposes" generated through recursion are not checked for collision.
-            // They only check agains continuity of the robot movement (no unexpected jerks)
+            // Internal "miniposes" generated through recursion are checked for collisions
+            // by calling collision-aware inverse_continuing above.
             let cost = transition_costs(starting, next, &self.transition_coefficients);
             if cost <= self.max_transition_cost {
-                return Ok(vec![next.clone()]); // Track minimal cost observed
+                return Ok(vec![*next]); // Track minimal cost observed
             }
         }
 
@@ -381,7 +378,7 @@ impl Cartesian<'_> {
             let midpose = from.interpolate(to, DIV_RATIO);
             let first_track =
                 self.step_adaptive_linear_transition(starting, from, &midpose, depth + 1)?;
-            let mid_step = first_track.last().unwrap().clone();
+            let mid_step = *first_track.last().unwrap();
 
             // If both bridgings were successful, return the final position that resulted from
             // bridging from middle joints to the final pose on this step
@@ -390,14 +387,14 @@ impl Cartesian<'_> {
 
             Ok(first_track
                 .into_iter()
-                .chain(second_track.into_iter())
+                .chain(second_track)
                 .collect())
         } else {
             Err(Transition {
-                from: from.clone(),
-                to: to.clone(),
-                previous: starting.clone(),
-                solutions: solutions,
+                from: *from,
+                to: *to,
+                previous: *starting,
+                solutions,
             })
         }
     }
@@ -433,7 +430,7 @@ impl Cartesian<'_> {
     fn with_intermediate_poses(
         &self,
         land: &Pose,
-        steps: &Vec<Pose>,
+        steps: &[Pose],
         park: &Pose,
     ) -> Vec<AnnotatedPose> {
         let mut poses = Vec::with_capacity(10 * steps.len() + 2);
@@ -451,7 +448,7 @@ impl Cartesian<'_> {
             // Add the steps and intermediate poses between them
             for i in 0..steps.len() - 1 {
                 poses.push(AnnotatedPose {
-                    pose: steps[i].clone(),
+                    pose: steps[i],
                     flags: PathFlags::TRACE,
                 });
 
@@ -461,7 +458,7 @@ impl Cartesian<'_> {
             // Add the last step
             let last = *steps.last().unwrap();
             poses.push(AnnotatedPose {
-                pose: last.clone(),
+                pose: last,
                 flags: PathFlags::TRACE,
             });
 
@@ -474,7 +471,7 @@ impl Cartesian<'_> {
 
         // Add the parking pose
         poses.push(AnnotatedPose {
-            pose: park.clone(),
+            pose: *park,
             flags: PathFlags::PARK,
         });
 

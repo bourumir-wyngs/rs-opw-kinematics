@@ -83,7 +83,7 @@ impl Jacobian {
     /// # Arguments
     ///
     /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and
-    ///         angular velocity of the end-effector. The x' vector is extracted from the isometry.
+    ///   angular velocity of the end-effector. The x' vector is extracted from the isometry.
     ///
     /// # Returns
     ///
@@ -147,7 +147,7 @@ impl Jacobian {
     /// # Arguments
     ///
     /// * `X'` - A 6D vector representing the desired linear and angular velocity of the
-    ///     end-effector as defined above.
+    ///   end-effector as defined above.
     ///
     /// # Returns
     ///
@@ -164,7 +164,7 @@ impl Jacobian {
             joint_velocities = jacobian_inverse * X;
         } else {
             // If the inverse does not exist, use the pseudoinverse
-            let svd = SVD::new(self.matrix.clone(), true, true);
+            let svd = SVD::new(self.matrix, true, true);
             match svd.pseudo_inverse(self.epsilon) {
                 Ok(jacobian_pseudoinverse) => {
                     joint_velocities = jacobian_pseudoinverse * X;
@@ -189,7 +189,7 @@ impl Jacobian {
     /// # Arguments
     ///
     /// * `desired_force_torque` - isometry structure representing forces (in Newtons, N) and torgues
-    ///                            (in Newton - meters, Nm) rather than dimensions and angles.
+    ///   (in Newton - meters, Nm) rather than dimensions and angles.
     ///
     /// # Returns
     ///
@@ -223,7 +223,7 @@ impl Jacobian {
     /// # Arguments
     ///
     /// * `F` - A 6D vector representing the desired force and torque at the end-effector
-    ///     as explained above.
+    ///   as explained above.
     ///
     /// # Returns
     ///
@@ -258,7 +258,7 @@ pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon
     let current_orientation = current_pose.rotation;
 
     // Parallelize the loop using rayon
-    let jacobian_columns: Vec<_> = (0..6).into_iter().map(|i| {
+    let jacobian_columns: Vec<_> = (0..6).map(|i| {
         let mut perturbed_qs = *joints;
         perturbed_qs[i] += epsilon;
         let perturbed_pose = robot.forward(&perturbed_qs);

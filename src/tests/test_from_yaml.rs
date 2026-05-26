@@ -3,7 +3,7 @@
 mod tests {
     use crate::parameters::opw_kinematics::Parameters;
     
-    const READ_ERROR: &'static str = "Failed to load parameters from file";
+    const READ_ERROR: &str = "Failed to load parameters from file";
 
     #[test]
     fn test_parameters_from_yaml() {

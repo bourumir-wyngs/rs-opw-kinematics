@@ -21,12 +21,12 @@ mod tests {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!("Parameters for the robot [{}] are unknown", &case.parameters)
             });
-            let robot_alone = OPWKinematics::new(parameters.clone());
+            let robot_alone = OPWKinematics::new(*parameters);
 
             // 1 meter high pedestal
             let pedestal = 0.5;
             let base_translation = Isometry3::from_parts(
-                Translation3::new(0.0, 0.0, pedestal).into(),
+                Translation3::new(0.0, 0.0, pedestal),
                 UnitQuaternion::identity(),
             );
 
@@ -38,7 +38,7 @@ mod tests {
             // Tool extends 1 meter in the Z direction, envisioning something like sword
             let sword = 1.0;
             let tool_translation = Isometry3::from_parts(
-                Translation3::new(0.0, 0.0, sword).into(),
+                Translation3::new(0.0, 0.0, sword),
                 UnitQuaternion::identity(),
             );
 

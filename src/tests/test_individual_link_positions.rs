@@ -251,7 +251,7 @@ fn test_frame_forward_kinematics() {
 
     // Tool extends 1 meter in the Z direction
     let frame_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, frame_offset).into(),
+        Translation3::new(0.0, 0.0, frame_offset),
         UnitQuaternion::identity(),
     );
 
@@ -318,7 +318,7 @@ fn test_base_forward_kinematics() {
 
     // 1 meter high pedestal
     let base_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, base_height).into(),
+        Translation3::new(0.0, 0.0, base_height),
         UnitQuaternion::identity(),
     );
 
@@ -376,7 +376,8 @@ fn test_base_forward_kinematics() {
 }
 
 fn create_parameters() -> Parameters {
-    let parameters = Parameters {
+    
+    Parameters {
         a1: 0.150,
         a2: 0.00017,
         b: 0.0002,
@@ -385,8 +386,7 @@ fn create_parameters() -> Parameters {
         c3: 0.600,
         c4: 0.110,
         ..Parameters::new() // Any other required fields
-    };
-    parameters
+    }
 }
 
 fn check_xyz(poses: [Pose; 6], expected_positions: [(f64, f64, f64); 6]) {
@@ -394,27 +394,27 @@ fn check_xyz(poses: [Pose; 6], expected_positions: [(f64, f64, f64); 6]) {
         let translation = poses[i].translation.vector;
 
         // X, Y, and Z coordinates should match the expected positions
-        assert!((translation[0] as f64 - expected_x).abs() < SMALL, "Pose {} X- expected {}, got {}", i + 1, expected_x, translation[0]);
-        assert!((translation[1] as f64 - expected_y).abs() < SMALL, "Pose {} Y- expected {}, got {}", i + 1, expected_y, translation[1]);
-        assert!((translation[2] as f64 - expected_z).abs() < SMALL, "Pose {} Z- expected {}, got {}", i + 1, expected_z, translation[2]);
+        assert!((translation[0] - expected_x).abs() < SMALL, "Pose {} X- expected {}, got {}", i + 1, expected_x, translation[0]);
+        assert!((translation[1] - expected_y).abs() < SMALL, "Pose {} Y- expected {}, got {}", i + 1, expected_y, translation[1]);
+        assert!((translation[2] - expected_z).abs() < SMALL, "Pose {} Z- expected {}, got {}", i + 1, expected_z, translation[2]);
     }
 }
 
 fn check_rotation(standing: UnitQuaternion<f64>, i: usize, quaternion: &UnitQuaternion<f64>) {
     assert!(
-        (quaternion.w as f64 - standing.w).abs() < SMALL,
+        (quaternion.w - standing.w).abs() < SMALL,
         "Pose {} quaternion w mismatch", i + 1
     );
     assert!(
-        (quaternion.i as f64 - standing.i).abs() < SMALL,
+        (quaternion.i - standing.i).abs() < SMALL,
         "Pose {} quaternion i mismatch", i + 1
     );
     assert!(
-        (quaternion.j as f64 - standing.j).abs() < SMALL,
+        (quaternion.j - standing.j).abs() < SMALL,
         "Pose {} quaternion j mismatch", i + 1
     );
     assert!(
-        (quaternion.k as f64 - standing.k).abs() < SMALL,
+        (quaternion.k - standing.k).abs() < SMALL,
         "Pose {} quaternion k mismatch", i + 1
     );
 }

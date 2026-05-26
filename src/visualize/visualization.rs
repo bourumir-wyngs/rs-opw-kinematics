@@ -154,7 +154,7 @@ impl RobotControls {
 
         Isometry3::from_parts(
             Translation3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
-            quat_from_euler(&self),
+            quat_from_euler(self),
         )
     }
 }
@@ -201,11 +201,11 @@ pub fn visualize_robot_with_safety(
     App::new()
         .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
         .insert_resource(RobotControls {
-            initial_joint_angles: intial_angles.clone(),
-            joint_angles: intial_angles.clone(),
+            initial_joint_angles: intial_angles,
+            joint_angles: intial_angles,
             tcp: [0.0; 6],
-            tcp_box: tcp_box,
-            previous_joint_angles: intial_angles.clone(),
+            tcp_box,
+            previous_joint_angles: intial_angles,
             previous_tcp: [0.0; 6],
             safety_distance: 0.05,
             previous_safety_distance: 0.0
@@ -265,7 +265,7 @@ fn setup(
         .collect();
 
     if let Some(tool) = robot.kinematics.body.tool.as_ref() {
-        robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(&tool)));
+        robot.tool = Some(meshes.add(trimesh_to_bevy_mesh(tool)));
         robot.tool_material = Some(materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 1.0, 0.8),
             metallic: 0.7,
@@ -371,7 +371,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
         material: Handle<StandardMaterial>,
         pose: &Isometry3<f32>,
     ) {
-        let (translation, rotation) = as_bevy(&pose);
+        let (translation, rotation) = as_bevy(pose);
         commands.spawn(PbrBundle {
             mesh: mesh.clone(),
             material,
@@ -388,7 +388,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
     let start = Instant::now();
     robot.safety.to_environment = safety_distance;
     robot.safety.to_robot_default = safety_distance;
-    let collisions = robot.kinematics.near(&angles, &robot.safety);
+    let collisions = robot.kinematics.near(angles, &robot.safety);
     println!("Time for collision check: {:?}", start.elapsed());
 
     let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
@@ -399,7 +399,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
         spawn_joint(
             commands,
             &robot.joint_meshes.as_ref().unwrap()[j],
-            maybe_colliding_material(&robot, &robot.material, &colliding_segments, &j),
+            maybe_colliding_material(robot, &robot.material, &colliding_segments, &j),
             &positioned_joint.transform,
         );
     }
@@ -409,7 +409,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
         spawn_joint(
             commands,
             tool,
-            maybe_colliding_material(&robot, &robot.tool_material, &colliding_segments, &J_TOOL),
+            maybe_colliding_material(robot, &robot.tool_material, &colliding_segments, &J_TOOL),
             &tool_joint.transform,
         );
     }
@@ -419,7 +419,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
         spawn_joint(
             commands,
             base,
-            maybe_colliding_material(&robot, &robot.base_material, &colliding_segments, &J_BASE),
+            maybe_colliding_material(robot, &robot.base_material, &colliding_segments, &J_BASE),
             &base_joint.base_pose,
         );
     }
@@ -430,7 +430,7 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
             commands,
             &robot.environment[i],
             maybe_colliding_material(
-                &robot,
+                robot,
                 &robot.environment_material,
                 &colliding_segments,
                 &(ENV_START_IDX + i),
@@ -479,7 +479,7 @@ fn update_robot(
         // Visualize each joint of the robot
         let angles = utils::joints(&controls.joint_angles);
         visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
-        controls.previous_joint_angles = controls.joint_angles.clone();
+        controls.previous_joint_angles = controls.joint_angles;
 
         // Update the TCP position (this is the end of the tool, not the base)
         let pose = robot.kinematics.kinematics.forward(&angles);
@@ -496,7 +496,7 @@ fn update_robot(
         let start = Instant::now();
         let ik = robot.kinematics.inverse_continuing(&pose, &angles);
         println!("Time for inverse kinematics: {:?}", start.elapsed());
-        if ik.len() > 0 {
+        if !ik.is_empty() {
             for entity in query.iter() {
                 commands.entity(entity).despawn();
             }
@@ -516,7 +516,7 @@ fn update_robot(
                 controls.tcp[5]
             );
         }
-        controls.previous_tcp = controls.tcp.clone();
+        controls.previous_tcp = controls.tcp;
         controls.previous_joint_angles = controls.joint_angles;
         controls.previous_safety_distance = controls.safety_distance;
     }

@@ -41,22 +41,23 @@ impl KinematicsWithShape {
     ///
     /// * `base_mesh` - The mesh of the robot base.
     /// * `base_transform` - The transform to apply to the base mesh. This transform brings
-    /// the robot into its intended location inside the robotic cell.
+    ///   the robot into its intended location inside the robotic cell.
     ///
     /// * `tool_mesh` - The mesh of the robot's tool, which will also be checked for collisions.
     /// * `tool_transform` - The transform to apply to the tool mesh. It defines the location
-    /// of the "action point" of the robot whose location and rotation (pose) is the pose
-    /// for direct and inverse kinematics calls.
+    ///   of the "action point" of the robot whose location and rotation (pose) is the pose
+    ///   for direct and inverse kinematics calls.
     ///
     /// * `collision_environment` - A vector of collision objects represented by `CollisionBody`,
-    /// where each object includes a mesh and its transform.
+    ///   where each object includes a mesh and its transform.
     ///
     /// * `first_pose_only` - As collision check may be expensive, check if we need multiple
-    ///  checked solutions if inverse kinematics, or the first (best) is enough
+    ///   checked solutions if inverse kinematics, or the first (best) is enough
     ///
     /// # Returns
     ///
     /// A `KinematicsWithShape` instance with defined kinematic structure and shapes for collision detection.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         opw_parameters: Parameters,
         constraints: Constraints,
@@ -107,23 +108,24 @@ impl KinematicsWithShape {
     ///
     /// * `base_mesh` - The mesh of the robot base.
     /// * `base_transform` - The transform to apply to the base mesh. This transform brings
-    /// the robot into its intended location inside the robotic cell.
+    ///   the robot into its intended location inside the robotic cell.
     ///
     /// * `tool_mesh` - The mesh of the robot's tool, which will also be checked for collisions.
     /// * `tool_transform` - The transform to apply to the tool mesh. It defines the location
-    /// of the "action point" of the robot whose location and rotation (pose) is the pose
-    /// for direct and inverse kinematics calls.
+    ///   of the "action point" of the robot whose location and rotation (pose) is the pose
+    ///   for direct and inverse kinematics calls.
     ///
     /// * `collision_environment` - A vector of collision objects represented by `CollisionBody`,
-    /// where each object includes a mesh and its transform.
+    ///   where each object includes a mesh and its transform.
     ///
     /// * `safety` - defines the minimal allowed distances between collision objects
-    /// and specifies other details on how collisions are checked. In practice
-    /// robot must stay at some safe distance from collision objects rather than touching them.
+    ///   and specifies other details on how collisions are checked. In practice
+    ///   robot must stay at some safe distance from collision objects rather than touching them.
     ///
     /// # Returns
     ///
     /// A `KinematicsWithShape` instance with defined kinematic structure and shapes for collision detection.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_safety(
         opw_parameters: Parameters,
         constraints: Constraints,
@@ -150,7 +152,7 @@ impl KinematicsWithShape {
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
-                safety: safety,
+                safety,
             },
         }
     }
@@ -165,15 +167,13 @@ impl KinematicsWithShape {
 
         let robot_with_base = Base {
             robot: Arc::new(plain_robot),
-            base: base_transform.clone(),
+            base: base_transform,
         };
 
-        let robot_with_base_and_tool = Tool {
+        Tool {
             robot: Arc::new(robot_with_base),
-            tool: tool_transform.clone(),
-        };
-
-        robot_with_base_and_tool
+            tool: tool_transform,
+        }
     }
 }
 
@@ -236,14 +236,10 @@ impl KinematicsWithShape {
             .collect();
 
         // Return the PositionedRobot with all the positioned joints
-        let positioned_tool = if let Some(tool) = self.body.tool.as_ref() {
-            Some(PositionedJoint {
+        let positioned_tool = self.body.tool.as_ref().map(|tool| PositionedJoint {
                 joint_body: tool,
                 transform: global_transforms[J6], // TCP pose
-            })
-        } else {
-            None
-        };
+            });
 
         // Convert to vector of references
         let referenced_environment = self.body.collision_environment.iter().collect();

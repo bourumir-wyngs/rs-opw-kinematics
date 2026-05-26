@@ -66,7 +66,7 @@ pub mod opw_kinematics {
                 self.c2,
                 self.c3,
                 self.c4,
-                self.offsets.iter().map(|x| deg(x))
+                self.offsets.iter().map(deg)
                     .collect::<Vec<_>>().join(","),
                 self.sign_corrections.iter().map(|x| x.to_string())
                     .collect::<Vec<_>>().join(","),

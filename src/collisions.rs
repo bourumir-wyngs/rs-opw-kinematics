@@ -5,11 +5,19 @@ use crate::kinematic_traits::{
 };
 
 use nalgebra::Isometry3;
+use parry3d::bounding_volume::{Aabb, BoundingVolume};
+use parry3d::math::Point;
 use parry3d::shape::TriMesh;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use parry3d::bounding_volume::{Aabb, BoundingVolume};
-use parry3d::math::Point;
+
+fn finite_or(original: &Point<f32>, candidate: Point<f32>) -> Point<f32> {
+    if candidate.x.is_finite() && candidate.y.is_finite() && candidate.z.is_finite() {
+        candidate
+    } else {
+        *original
+    }
+}
 
 /// Optional structure attached to the robot base joint. It has its own global transform
 /// that brings the robot to the location. This structure includes two transforms,
@@ -35,14 +43,13 @@ pub struct CollisionBody {
 /// for the robot joint if it is defined in URDF with some local transform
 pub fn transform_mesh(shape: &TriMesh, local_transform: &Isometry3<f32>) -> TriMesh {
     // Apply the local transformation to the shape
-    TriMesh::new(
-        shape
-            .vertices()
-            .iter()
-            .map(|v| local_transform.transform_point(v))
-            .collect(),
-        shape.indices().to_vec(),
-    ).expect("Failed to build trimesh")
+    let transformed_vertices: Vec<Point<f32>> = shape
+        .vertices()
+        .iter()
+        .map(|v| finite_or(v, local_transform.transform_point(v)))
+        .collect();
+
+    TriMesh::new(transformed_vertices, shape.indices().to_vec()).unwrap_or_else(|_| shape.clone())
 }
 
 /// Struct representing a collision task for detecting collisions
@@ -59,7 +66,7 @@ struct CollisionTask<'a> {
 impl CollisionTask<'_> {
     #[must_use = "Ignoring collision check may cause collision."]
     fn collides(&self, safety: &SafetyDistances) -> Option<(u16, u16)> {
-        let r_min = *safety.min_distance(self.i, self.j);
+        let r_min = safety.validated_min_distance(self.i, self.j);
         let collides = if r_min <= NEVER_COLLIDES {
             false
         } else if r_min == TOUCH_ONLY {
@@ -113,18 +120,36 @@ impl CollisionTask<'_> {
 
 /// Parry does not support AABB as a "proper" shape so we rewrap it as mesh
 fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
-    let min: Point<f32> = aabb.mins;
-    let max: Point<f32> = aabb.maxs;
+    let mut min: Point<f32> = aabb.mins;
+    let mut max: Point<f32> = aabb.maxs;
+    if !min.x.is_finite() || !max.x.is_finite() {
+        min.x = 0.0;
+        max.x = 0.0;
+    } else if min.x > max.x {
+        std::mem::swap(&mut min.x, &mut max.x);
+    }
+    if !min.y.is_finite() || !max.y.is_finite() {
+        min.y = 0.0;
+        max.y = 0.0;
+    } else if min.y > max.y {
+        std::mem::swap(&mut min.y, &mut max.y);
+    }
+    if !min.z.is_finite() || !max.z.is_finite() {
+        min.z = 0.0;
+        max.z = 0.0;
+    } else if min.z > max.z {
+        std::mem::swap(&mut min.z, &mut max.z);
+    }
     // Define the 8 vertices of the AABB
     let vertices = vec![
-        min, // 0
+        min,                             // 0
         Point::new(max.x, min.y, min.z), // 1
         Point::new(min.x, max.y, min.z), // 2
         Point::new(max.x, max.y, min.z), // 3
         Point::new(min.x, min.y, max.z), // 4
         Point::new(max.x, min.y, max.z), // 5
         Point::new(min.x, max.y, max.z), // 6
-        max, // 7
+        max,                             // 7
     ];
 
     // Define the 12 triangles (2 for each face)
@@ -132,30 +157,35 @@ fn build_trimesh_from_aabb(aabb: Aabb) -> TriMesh {
         // Bottom face (min.z)
         [0, 1, 2],
         [2, 1, 3],
-
         // Top face (max.z)
         [4, 5, 6],
         [6, 5, 7],
-
         // Front face (max.y)
         [2, 3, 6],
         [6, 3, 7],
-
         // Back face (min.y)
         [0, 1, 4],
         [4, 1, 5],
-
         // Left face (min.x)
         [0, 2, 4],
         [4, 2, 6],
-
         // Right face (max.x)
         [1, 3, 5],
         [5, 3, 7],
     ];
 
     // Return TriMesh
-    TriMesh::new(vertices, INDICES.to_vec()).expect("Failed to build TrimMesh from AABB")
+    TriMesh::new(vertices, INDICES.to_vec()).unwrap_or_else(|_| {
+        TriMesh::new(
+            vec![
+                Point::new(0.0, 0.0, 0.0),
+                Point::new(1.0, 0.0, 0.0),
+                Point::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .expect("hardcoded fallback trimesh must be valid")
+    })
 }
 
 /// Struct representing the geometry of a robot, which is composed of exactly 6 joints.
@@ -251,13 +281,25 @@ impl SafetyDistances {
     /// The order of objects is not important.
     pub fn min_distance(&self, from: u16, to: u16) -> &f32 {
         if let Some(r) = self.special_distances.get(&(from, to)) {
-            return r;
+            r
         } else if let Some(r) = self.special_distances.get(&(to, from)) {
-            return r;
+            r
         } else if from as usize >= ENV_START_IDX || to as usize >= ENV_START_IDX {
-            return &self.to_environment;
+            &self.to_environment
         } else {
-            return &self.to_robot_default;
+            &self.to_robot_default
+        }
+    }
+
+    /// Returns the minimal allowed distance with invalid values normalized to `TOUCH_ONLY`.
+    /// This keeps collision detection active even if user-provided values are negative
+    /// (except `NEVER_COLLIDES`) or non-finite.
+    fn validated_min_distance(&self, from: u16, to: u16) -> f32 {
+        let r = *self.min_distance(from, to);
+        if !r.is_finite() || (NEVER_COLLIDES..TOUCH_ONLY).contains(&r) {
+            TOUCH_ONLY
+        } else {
+            r
         }
     }
 
@@ -304,7 +346,7 @@ impl RobotBody {
         let override_mode = Some(CheckMode::FirstCollisionOnly);
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         !self
-            .detect_collisions_with_skips(&joint_poses_f32, &safety, &override_mode, &empty_set)
+            .detect_collisions_with_skips(&joint_poses_f32, safety, &override_mode, &empty_set)
             .is_empty()
     }
 
@@ -320,7 +362,7 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let joint_poses = kinematics.forward_with_joint_poses(qs);
         let joint_poses_f32: [Isometry3<f32>; 6] = joint_poses.map(|pose| pose.cast::<f32>());
-        self.detect_collisions(&joint_poses_f32, &safety_distances, None)
+        self.detect_collisions(&joint_poses_f32, safety_distances, None)
     }
 
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
@@ -350,11 +392,10 @@ impl RobotBody {
                 new_joints[joint_index] = target[joint_index];
 
                 // Discard perturbations that go out of constraints.
-                if let Some(constraints) = kinematics.constraints() {
-                    if !constraints.compliant(&new_joints) {
+                if let Some(constraints) = kinematics.constraints()
+                    && !constraints.compliant(&new_joints) {
                         return None;
                     }
-                }
 
                 // Generate the full joint poses for collision checking
                 let joint_poses = kinematics.forward_with_joint_poses(&new_joints);
@@ -374,16 +415,16 @@ impl RobotBody {
                     )
                     .is_empty()
                 {
-                    return Some(new_joints); // Return non-colliding configuration
+                    Some(new_joints)// Return non-colliding configuration
                 } else {
-                    return None;
+                    None
                 }
             })
             .collect() // Collect non-colliding configurations into Solutions
     }
 }
 
-const SUPPORTED: &'static str = "Mesh intersection should be supported by Parry3d";
+const SUPPORTED: &str = "Mesh intersection should be supported by Parry3d";
 
 impl RobotBody {
     /// Parallel version with Rayon
@@ -400,14 +441,14 @@ impl RobotBody {
             // Exit as soon as any collision is found
             tasks
                 .par_iter()
-                .find_map_any(|task| task.collides(&safety))
+                .find_map_any(|task| task.collides(safety))
                 .into_iter() // Converts the Option result to an iterator
                 .collect()
         } else {
             // Collect all collisions
             tasks
                 .par_iter()
-                .filter_map(|task| task.collides(&safety))
+                .filter_map(|task| task.collides(safety))
                 .collect()
         }
     }
@@ -464,7 +505,7 @@ impl RobotBody {
     ) -> Vec<(usize, usize)> {
         let empty_set: HashSet<usize> = HashSet::with_capacity(0);
         // Convert to usize
-        self.detect_collisions_with_skips(joint_poses, &safety, &override_mode, &empty_set)
+        self.detect_collisions_with_skips(joint_poses, safety, &override_mode, &empty_set)
             .iter()
             .map(|&col_pair| (col_pair.0 as usize, col_pair.1 as usize))
             .collect()
@@ -477,31 +518,30 @@ impl RobotBody {
         override_mode: &Option<CheckMode>,
         skip: &HashSet<usize>,
     ) -> Vec<(u16, u16)> {
-        let mut tasks = Vec::with_capacity(self.count_tasks(&skip));
+        let mut tasks = Vec::with_capacity(self.count_tasks(skip));
 
         // Check if the tool does not hit anything in the environment
         let check_tool = !skip.contains(&J_TOOL);
-        if check_tool {
-            if let Some(tool) = &self.tool {
+        if check_tool
+            && let Some(tool) = &self.tool {
                 for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
-                    if self.check_required(J_TOOL, (ENV_START_IDX + env_idx) as usize, &skip) {
+                    if self.check_required(J_TOOL, ENV_START_IDX + env_idx, skip, safety_distances) {
                         tasks.push(CollisionTask {
                             i: J_TOOL as u16,
                             j: (ENV_START_IDX + env_idx) as u16,
                             transform_i: &joint_poses[J6],
                             transform_j: &env_obj.pose,
-                            shape_i: &tool,
+                            shape_i: tool,
                             shape_j: &env_obj.mesh,
                         });
                     }
                 }
             }
-        }
 
         for i in 0..6 {
             for j in ((i + 1)..6).rev() {
                 // If both joints did not move, we do not need to check
-                if j - i > 1 && self.check_required(i, j, &skip) {
+                if j - i > 1 && self.check_required(i, j, skip, safety_distances) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: j as u16,
@@ -517,7 +557,7 @@ impl RobotBody {
             for (env_idx, env_obj) in self.collision_environment.iter().enumerate() {
                 // Joints we do not move we do not need to check for collision against objects
                 // that also not move.
-                if self.check_required(i, ENV_START_IDX + env_idx, &skip) {
+                if self.check_required(i, ENV_START_IDX + env_idx, skip, safety_distances) {
                     tasks.push(CollisionTask {
                         i: i as u16,
                         j: (ENV_START_IDX + env_idx) as u16,
@@ -530,8 +570,8 @@ impl RobotBody {
             }
 
             // Check if there is no collision between joint and tool
-            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, &skip) {
-                if let Some(tool) = &self.tool {
+            if check_tool && i != J6 && i != J5 && self.check_required(i, J_TOOL, skip, safety_distances)
+                && let Some(tool) = &self.tool {
                     let accessory_pose = &joint_poses[J6];
                     tasks.push(CollisionTask {
                         i: i as u16,
@@ -539,15 +579,14 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &tool,
+                        shape_j: tool,
                     });
                 }
-            }
 
             // Base does not move, we do not need to check for collision against the joint
             // that also did not.
-            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, &skip) {
-                if let Some(base) = &self.base {
+            if i != J1 && !skip.contains(&i) && self.check_required(i, J1, skip, safety_distances)
+                && let Some(base) = &self.base {
                     let accessory = &base.mesh;
                     let accessory_pose = &base.base_pose;
                     tasks.push(CollisionTask {
@@ -556,37 +595,36 @@ impl RobotBody {
                         transform_i: &joint_poses[i],
                         transform_j: accessory_pose,
                         shape_i: &self.joint_meshes[i],
-                        shape_j: &accessory,
+                        shape_j: accessory,
                     });
                 }
-            }
         }
 
         // Check tool-base collision if necessary
-        if check_tool || self.check_required(J_TOOL, J_BASE, &skip) {
-            if let (Some(tool), Some(base)) = (&self.tool, &self.base) {
+        if (check_tool || self.check_required(J_TOOL, J_BASE, skip, safety_distances))
+            && let (Some(tool), Some(base)) = (&self.tool, &self.base) {
                 tasks.push(CollisionTask {
                     i: J_TOOL as u16,
                     j: J_BASE as u16,
                     transform_i: &joint_poses[J6],
                     transform_j: &base.base_pose,
-                    shape_i: &tool,
+                    shape_i: tool,
                     shape_j: &base.mesh,
                 });
             }
-        }
         Self::process_collision_tasks(tasks, safety_distances, override_mode)
     }
 
-    fn check_required(&self, i: usize, j: usize, skip: &HashSet<usize>) -> bool {
+    fn check_required(&self, i: usize, j: usize, skip: &HashSet<usize>, safety_distances: &SafetyDistances) -> bool {
         !skip.contains(&i) && !skip.contains(&j) &&
-            self.safety.min_distance(i as u16, j as u16) > &NEVER_COLLIDES
+            safety_distances.validated_min_distance(i as u16, j as u16) > NEVER_COLLIDES
     }    
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kinematic_traits::J3;
     use nalgebra::Point3;
     use parry3d::shape::TriMesh;
 
@@ -601,6 +639,29 @@ mod tests {
             ],
             vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
         ).expect("Failed to build test trimesh")
+    }
+
+    fn create_robot_for_distance_validation(distance: f32) -> RobotBody {
+        let joints: [TriMesh; 6] = [
+            create_trimesh(0.0, 0.0, 0.0),
+            create_trimesh(10.0, 10.0, 10.0),
+            create_trimesh(0.0, 0.0, 0.0),
+            create_trimesh(20.0, 20.0, 20.0),
+            create_trimesh(30.0, 30.0, 30.0),
+            create_trimesh(40.0, 40.0, 40.0),
+        ];
+        RobotBody {
+            joint_meshes: joints,
+            tool: None,
+            base: None,
+            collision_environment: vec![],
+            safety: SafetyDistances {
+                to_environment: NEVER_COLLIDES,
+                to_robot_default: NEVER_COLLIDES,
+                special_distances: SafetyDistances::distances(&[((J1, J3), distance)]),
+                mode: CheckMode::AllCollsions,
+            },
+        }
     }
 
     #[test]
@@ -683,5 +744,30 @@ mod tests {
                 "Shape [3] should not be involved in any collision."
             );
         }
+    }
+
+    #[test]
+    fn negative_safety_distance_does_not_disable_collision_checks() {
+        let robot = create_robot_for_distance_validation(-0.1);
+        let collisions = robot.detect_collisions(&[Isometry3::identity(); 6], &robot.safety, None);
+        assert_eq!(collisions, vec![(J1, J3)]);
+    }
+
+    #[test]
+    fn nan_safety_distance_does_not_disable_collision_checks() {
+        let robot = create_robot_for_distance_validation(f32::NAN);
+        let collisions = robot.detect_collisions(&[Isometry3::identity(); 6], &robot.safety, None);
+        assert_eq!(collisions, vec![(J1, J3)]);
+    }
+
+    #[test]
+    fn transform_mesh_handles_invalid_local_transform() {
+        let mesh = create_trimesh(0.0, 0.0, 0.0);
+        let invalid_transform = Isometry3::translation(f32::NAN, 0.0, 0.0);
+
+        let transformed = transform_mesh(&mesh, &invalid_transform);
+
+        assert_eq!(mesh.vertices().len(), transformed.vertices().len());
+        assert_eq!(mesh.indices().len(), transformed.indices().len());
     }
 }
