@@ -33,18 +33,20 @@ impl Default for CameraController {
 
 pub fn camera_controller_system(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
-    mut wheel_events: EventReader<MouseWheel>,
+    mut wheel_events: MessageReader<MouseWheel>,
     mut query: Query<(&mut Transform, &mut CameraController)>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut egui_contexts: EguiContexts
+    mut egui_contexts: EguiContexts,
 ) {
-    let egui_ctx = egui_contexts.ctx_mut(); // Call ctx_mut to get the mutable context
-    if egui_ctx.wants_pointer_input() || egui_ctx.wants_keyboard_input() {
-        // If Egui is handling mouse or keyboard input, skip the camera controller
-        return;
+    if let Ok(egui_ctx) = egui_contexts.ctx_mut() {
+        if egui_ctx.wants_pointer_input() || egui_ctx.wants_keyboard_input() {
+            return;
+        }
     }
 
-    let window = windows.single();
+    let Ok(window) = windows.single() else {
+        return;
+    };
 
     for (mut transform, mut controller) in query.iter_mut() {
 
@@ -109,4 +111,3 @@ pub fn camera_controller_system(
         transform.look_at(controller.pan_target, Vec3::Z);
     }
 }
-

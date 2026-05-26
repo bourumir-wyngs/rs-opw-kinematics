@@ -1,9 +1,10 @@
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_with_shape::KinematicsWithShape;
-use crate::rrt_to::{dual_rrt_connect};
 use crate::utils::dump_joints;
 use std::sync::atomic::{AtomicBool};
 use std::time::Instant;
+
+pub use crate::rrt_to::dual_rrt_connect;
 
 #[derive(Debug)]
 /// Defines the RRT planner that relocates the robot between the two positions in a

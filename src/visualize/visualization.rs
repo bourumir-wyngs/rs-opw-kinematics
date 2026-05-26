@@ -45,18 +45,23 @@ use crate::collisions::SafetyDistances;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::utils;
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::Indices;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy::render::render_resource::PrimitiveTopology;
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::time::Instant;
-use bevy::render::render_asset::RenderAssetUsages;
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
-    let mut mesh = Mesh::new(bevy::render::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
 
     // Step 1: Extract vertices and indices from the TriMesh
     let vertices: Vec<_> = trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect();
@@ -109,10 +114,13 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals); // Add the flipped normals
 
     // Step 6: Set the indices
-    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+    mesh.insert_indices(Indices::U32(indices));
 
     mesh
 }
+
+#[derive(Component)]
+struct RenderedRobotPart;
 
 /// Data to store the current joint angles and TCP as they are shown in control panel
 #[derive(Resource)]
@@ -124,7 +132,10 @@ struct RobotControls {
     previous_joint_angles: [f32; 6],   // Store previous joint angles here
     previous_tcp: [f64; 6],
     safety_distance: f32,
-    previous_safety_distance: f32
+    previous_safety_distance: f32,
+    joint_angles_changed: bool,
+    tcp_changed: bool,
+    safety_distance_changed: bool,
 }
 
 impl RobotControls {
@@ -176,7 +187,7 @@ struct Robot {
 }
 
 /// Visualize the given robot, starting from the given initial angles (given in degrees)
-/// The sliders for specifying the tool center point location with take the boundaries
+/// The sliders for specifying the tool center point location use the boundaries
 /// from the tcp_box (given in meters). Bevy will be used for visualization.
 pub fn visualize_robot(
     robot: KinematicsWithShape,
@@ -184,12 +195,7 @@ pub fn visualize_robot(
     tcp_box: [RangeInclusive<f64>; 3],
 ) {
     let safety = robot.body.safety.clone();
-    visualize_robot_with_safety(
-        robot,
-        intial_angles,
-        tcp_box,
-        &safety
-    )
+    visualize_robot_with_safety(robot, intial_angles, tcp_box, &safety)
 }
 
 pub fn visualize_robot_with_safety(
@@ -199,7 +205,7 @@ pub fn visualize_robot_with_safety(
     safety_distances: &SafetyDistances,
 ) {
     App::new()
-        .add_plugins((DefaultPlugins, EguiPlugin)) // Use add_plugin for Egui
+        .add_plugins((DefaultPlugins, EguiPlugin::default()))
         .insert_resource(RobotControls {
             initial_joint_angles: intial_angles,
             joint_angles: intial_angles,
@@ -208,7 +214,10 @@ pub fn visualize_robot_with_safety(
             previous_joint_angles: intial_angles,
             previous_tcp: [0.0; 6],
             safety_distance: 0.05,
-            previous_safety_distance: 0.0
+            previous_safety_distance: 0.0,
+            joint_angles_changed: false,
+            tcp_changed: false,
+            safety_distance_changed: false,
         })
         .insert_resource(Robot {
             kinematics: robot,
@@ -224,10 +233,8 @@ pub fn visualize_robot_with_safety(
             colliding_material: None,
         })
         .add_systems(Startup, setup) // Register setup system in Startup phase
-        .add_systems(
-            Update,
-            (update_robot, camera_controller_system, control_panel),
-        ) // Add systems without .system()
+        .add_systems(Update, (update_robot, camera_controller_system)) // Add systems without .system()
+        .add_systems(EguiPrimaryContextPass, control_panel)
         .run();
 }
 
@@ -307,37 +314,38 @@ fn setup(
 
     // Visualize the robot joints with the initial joint values
     let angles = utils::joints(&robot_controls.initial_joint_angles);
-    visualize_robot_joints(&mut commands, & mut robot, &angles, robot_controls.safety_distance);
+    visualize_robot_joints(
+        &mut commands,
+        &mut robot,
+        &angles,
+        robot_controls.safety_distance,
+    );
     let cartesian = robot.kinematics.kinematics.forward(&angles);
     robot_controls.set_tcp_from_pose(&cartesian);
 
     // Add camera and light
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        DirectionalLight {
             illuminance: 30000.0,
             ..default()
         },
-        transform: Transform::from_xyz(5.0, 8.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
-
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            illuminance: 30000.0,
-            ..default()
-        },
-        transform: Transform::from_xyz(-5.0, 0.0, -5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+        Transform::from_xyz(5.0, 8.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
 
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform {
-                translation: Vec3::new(0.0, 5.0, 20.0), // Adjust camera position as needed
-                // Apply a 90-degree rotation around the X-axis
-                rotation: Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-                ..default()
-            },
+        DirectionalLight {
+            illuminance: 30000.0,
+            ..default()
+        },
+        Transform::from_xyz(-5.0, 0.0, -5.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
+    commands.spawn((
+        Camera3d::default(),
+        Transform {
+            translation: Vec3::new(0.0, 5.0, 20.0), // Adjust camera position as needed
+            // Apply a 90-degree rotation around the X-axis
+            rotation: Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
             ..default()
         },
         CameraController::default(), // Custom component for controlling the camera
@@ -353,7 +361,12 @@ fn setup(
 /// - `robot`: Reference to the robot's kinematic model and shapes (`KinematicsWithShape`).
 /// - `angles`: Joint angles used to compute forward kinematics for rendering.
 ///
-fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, angles: &Joints, safety_distance: f32) {
+fn visualize_robot_joints(
+    commands: &mut Commands,
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+) {
     // Helper function to transform coordinates to Bevy's coordinate system
     fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
         let translation = transform.translation.vector;
@@ -372,16 +385,16 @@ fn visualize_robot_joints(commands: &mut Commands, robot: &mut ResMut<Robot>, an
         pose: &Isometry3<f32>,
     ) {
         let (translation, rotation) = as_bevy(pose);
-        commands.spawn(PbrBundle {
-            mesh: mesh.clone(),
-            material,
-            transform: Transform {
+        commands.spawn((
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(material),
+            Transform {
                 translation,
                 rotation,
                 ..default()
             },
-            ..default()
-        });
+            RenderedRobotPart,
+        ));
     }
 
     // Detect collisions between joints
@@ -460,33 +473,32 @@ fn update_robot(
     mut commands: Commands,
     mut controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
-    query: Query<Entity, With<Handle<Mesh>>>, // Query entities with Mesh components
+    query: Query<Entity, With<RenderedRobotPart>>,
 ) {
-    if controls.safety_distance != controls.previous_safety_distance {
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
-        let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
-        controls.previous_safety_distance = controls.safety_distance;
-    } else if controls.joint_angles != controls.previous_joint_angles {
-        // Despawn the existing visualized robot joints
+    let joint_angles_changed = controls.joint_angles_changed;
+    let tcp_changed = controls.tcp_changed;
+    let safety_distance_changed = controls.safety_distance_changed;
+
+    controls.joint_angles_changed = false;
+    controls.tcp_changed = false;
+    controls.safety_distance_changed = false;
+
+    if joint_angles_changed {
         for entity in query.iter() {
             commands.entity(entity).despawn();
         }
 
-        // Revisualize the robot joints with the updated joint angles
-        // Visualize each joint of the robot
         let angles = utils::joints(&controls.joint_angles);
         visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
         controls.previous_joint_angles = controls.joint_angles;
 
-        // Update the TCP position (this is the end of the tool, not the base)
+        // A joint slider edit is forward kinematics only. Update the displayed TCP,
+        // but do not feed it back into inverse kinematics and rewrite other joints.
         let pose = robot.kinematics.kinematics.forward(&angles);
         controls.set_tcp_from_pose(&pose);
         controls.previous_tcp = controls.tcp;
-        controls.previous_safety_distance = controls.safety_distance;        
-    } else if controls.tcp != controls.previous_tcp {
+        controls.previous_safety_distance = controls.safety_distance;
+    } else if tcp_changed {
         // Revisualize the robot joints with the updated joint angles
         let angles = utils::joints(&controls.joint_angles);
         let pose = controls.pose();
@@ -503,7 +515,7 @@ fn update_robot(
             let angles = ik[0];
             visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
 
-            // Update joint angles to match the current position
+            // Update joint angles to match the current TCP position.
             controls.joint_angles = utils::to_degrees(&angles);
         } else {
             println!(
@@ -519,15 +531,28 @@ fn update_robot(
         controls.previous_tcp = controls.tcp;
         controls.previous_joint_angles = controls.joint_angles;
         controls.previous_safety_distance = controls.safety_distance;
+    } else if safety_distance_changed {
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+        let angles = utils::joints(&controls.joint_angles);
+        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        controls.previous_safety_distance = controls.safety_distance;
     }
 }
 
 // Control panel for adjusting joint angles and tool center point
-fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotControls>) {
-    bevy_egui::egui::Window::new("Robot Controls").show(egui_contexts.ctx_mut(), |ui| {
+fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotControls>) -> Result {
+    egui::Window::new("Robot Controls").show(egui_contexts.ctx_mut()?, |ui| {
         ui.label("Joint rotations");
+        let mut joint_angles_changed = false;
         for (i, angle) in controls.joint_angles.iter_mut().enumerate() {
-            ui.add(egui::Slider::new(angle, -225.0..=225.0).text(format!("Joint {}", i + 1)));
+            joint_angles_changed |= ui
+                .add(egui::Slider::new(angle, -225.0..=225.0).text(format!("Joint {}", i + 1)))
+                .changed();
+        }
+        if joint_angles_changed {
+            controls.joint_angles_changed = true;
         }
 
         let tcp_x_range = controls.tcp_box[0].clone();
@@ -536,18 +561,40 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
 
         ui.add_space(10.0);
         ui.label("Tool center point (TCP)");
-        ui.add(egui::Slider::new(&mut controls.tcp[0], tcp_x_range).text("X"));
-        ui.add(egui::Slider::new(&mut controls.tcp[1], tcp_y_range).text("Y"));
-        ui.add(egui::Slider::new(&mut controls.tcp[2], tcp_z_range).text("Z"));
+        let mut tcp_changed = false;
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[0], tcp_x_range).text("X"))
+            .changed();
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[1], tcp_y_range).text("Y"))
+            .changed();
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[2], tcp_z_range).text("Z"))
+            .changed();
 
         ui.add_space(10.0);
         ui.label("TCP Euler angles");
-        ui.add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Roll"));
-        ui.add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Pitch"));
-        ui.add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("Yaw"));
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Roll"))
+            .changed();
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Pitch"))
+            .changed();
+        tcp_changed |= ui
+            .add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("Yaw"))
+            .changed();
+        if tcp_changed {
+            controls.tcp_changed = true;
+        }
 
         ui.add_space(10.0);
         ui.label("Safety distance");
-        ui.add(egui::Slider::new(&mut controls.safety_distance, 0.0..=0.5).text("Max"));
+        if ui
+            .add(egui::Slider::new(&mut controls.safety_distance, 0.0..=0.5).text("Max"))
+            .changed()
+        {
+            controls.safety_distance_changed = true;
+        }
     });
+    Ok(())
 }

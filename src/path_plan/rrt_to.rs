@@ -137,9 +137,34 @@ where
     }
 }
 
-/// search the path from start to goal which is free, using random_sample function
-/// Changes were made for this fuction 21 Dec 2024 by Bourumir Wyngs, making this
-/// function Rayon friendly
+/// Searches for a collision-free path from `start` to `goal` with bidirectional
+/// RRT-Connect.
+///
+/// The planner grows two trees, one rooted at `start` and one rooted at `goal`.
+/// On each iteration it extends one tree toward a configuration returned by
+/// `random_sample`, then tries to connect the other tree to the newly added
+/// configuration. The two trees are swapped after each unsuccessful iteration,
+/// so both sides of the problem are explored.
+///
+/// `is_free` is called for each newly proposed configuration and must return
+/// `true` only when that configuration is valid and collision-free. It is not
+/// called for the initial `start` or `goal` values. `random_sample` must return
+/// configurations with the same dimension as `start` and `goal`. `extend_length`
+/// is the maximum distance, in configuration space, added to a tree in one
+/// extension step.
+///
+/// Returns a path from `start` to `goal` when the trees connect. The returned
+/// path includes the endpoints and may include the connecting configuration from
+/// both trees as adjacent duplicate entries.
+///
+/// Returns `Err("Cancelled")` if `stop` is set before the planning is finished or
+/// `Err("failed")` when no connection is found after `num_max_try` iterations.
+///
+/// # Panics
+///
+/// Panics if `start` and `goal` have different dimensions, if `extend_length` is
+/// not positive, or if `random_sample` returns a configuration with a dimension
+/// different from the tree dimension.
 pub fn dual_rrt_connect<FF, FR, N>(
     start: &[N],
     goal: &[N],

@@ -4,7 +4,7 @@ use anyhow::anyhow;
 
 #[cfg(feature = "stroke_planning")]
 use {
-    rrt::dual_rrt_connect,
+    std::sync::atomic::AtomicBool,
     std::time::Instant,
     nalgebra::{Isometry3, Translation3, UnitQuaternion},
     rs_opw_kinematics::kinematic_traits::{Joints, Kinematics},
@@ -14,6 +14,7 @@ use {
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::utils,
     rs_opw_kinematics::utils::dump_joints,
+    rs_opw_kinematics::rrt::dual_rrt_connect,
     rs_read_trimesh::load_trimesh,
     rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
     rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL}
@@ -134,10 +135,12 @@ fn plan_path(
     };
 
     // Plan the path with RRT
+    let stop = AtomicBool::new(false);
     dual_rrt_connect(
         &start, &goal, collision_free,
         random_joint_angles, 3_f64.to_radians(), // Step size in joint space
         2000,  // Max iterations
+        &stop,
     )
 }
 

@@ -6,7 +6,6 @@ use anyhow::{Context, Result};
 use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use serde_saphyr::Options;
 
 // ---- Domain types ----
 
@@ -96,10 +95,7 @@ pub(crate) fn load_yaml(file_path: impl AsRef<Path>) -> Result<Vec<Case>> {
     let contents = std::fs::read_to_string(p)
         .with_context(|| format!("Failed to read YAML file: {}", p.display()))?;
 
-    let opts = Options {
-        angle_conversions: true,
-        ..Default::default()
-    };
+    let opts = serde_saphyr::options! { angle_conversions: true };
 
     let root: TestsRoot = serde_saphyr::from_str_with_options(&contents, opts)
         .context("Failed to parse YAML with serde_saphyr")?;

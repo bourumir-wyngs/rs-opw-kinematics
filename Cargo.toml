@@ -46,12 +46,12 @@ rs-read-trimesh = { version = "2.0.7", optional = true }
 stl_io = { version = ">= 0.8, < 0.12", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
-bevy = { version = "0.14.2", default-features = false, features = [
-    "animation", "bevy_scene", "bevy_winit",
+bevy = { version = "0.18.1", default-features = false, features = [
+    "bevy_animation", "bevy_scene", "bevy_winit",
     "bevy_pbr", "bevy_render", "bevy_text", "bevy_ui", "hdr",
-    "x11", "wayland", "tonemapping_luts", "default_font",
+    "x11", "wayland", "tonemapping_luts", "default_font", "zstd_rust",
 ], optional = true }
-bevy_egui = { version = "0.29.0", optional = true }
+bevy_egui = { version = "0.39.1", optional = true }
 
 # Needed for stroke planning
 bitflags = ">=2.9, < 2.12"
@@ -82,14 +82,13 @@ bevy_egui = ["dep:bevy_egui"]
 kdtree = ["dep:kdtree"]
 num-traits = ["dep:num-traits"]
 tracing = ["dep:tracing"]
-#rrt = ["dep:rrt"]
 allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs-bw", "rs-read-trimesh", "stl_io", "garde", "serde"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
 stroke_planning = ["kdtree", "num-traits", "tracing", "collisions"]
 
 [package.metadata]
-status = "minimally maintained"
+status = "maintained"
 
 # To disable filesystem, collision and visualization support:
 # rs-opw-kinematics = { version = "1.8.17", default-features = false }

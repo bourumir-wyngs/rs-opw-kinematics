@@ -2,7 +2,7 @@
 
 use garde::Validate;
 use serde::Deserialize;
-use serde_saphyr::{Error, Options};
+use serde_saphyr::Error;
 
 fn default_offsets() -> Vec<f64> {
     vec![0.0; 6]
@@ -93,10 +93,7 @@ dof: 6
 
     let root: Result<Root, Error> = serde_saphyr::from_str_with_options_valid(
         contents,
-        Options {
-            angle_conversions: true,
-            ..Default::default()
-        },
+        serde_saphyr::options! { angle_conversions: true },
     );
     match root {
         Ok(_root) => panic!("Validation must fail - a1 is nan"),
@@ -125,10 +122,7 @@ dof: 6    "#;
 
     let root: Result<Root, Error> = serde_saphyr::from_str_with_options_valid(
         contents,
-        Options {
-            angle_conversions: true,
-            ..Default::default()
-        },
+        serde_saphyr::options! { angle_conversions: true },
     );
     match root {
         Ok(_root) => panic!("Validation must fail - a1 is nan"),
