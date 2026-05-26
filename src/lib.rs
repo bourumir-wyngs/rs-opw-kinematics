@@ -82,7 +82,7 @@ mod simplify_joint_name;
 #[cfg(feature = "collisions")]
 pub mod collisions;
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(feature = "rrt")]
 #[path = "path_plan/cartesian.rs"]
 pub mod cartesian;
 
@@ -101,18 +101,17 @@ pub mod visualization;
 #[cfg(feature = "visualization")]
 mod camera_controller;
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(feature = "rrt")]
 #[path = "path_plan/rrt.rs"]
 pub mod rrt;
 
-#[cfg(feature = "stroke_planning")]
+#[cfg(feature = "rrt")]
 #[path = "path_plan/rrt_to.rs"]
 mod rrt_to;
 
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
-
 
 
 
