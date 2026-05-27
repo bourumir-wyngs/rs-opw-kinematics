@@ -13,7 +13,7 @@ fn fallback_trimesh() -> TriMesh {
             [1.0e-6_f32, 0.0, 0.0].into(),
             [0.0_f32, 1.0e-6, 0.0].into(),
         ],
-        vec![[0_u32, 1, 2].into()],
+        vec![[0_u32, 1, 2]],
     )
     .expect("Failed to build fallback trimesh")
 }

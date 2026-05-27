@@ -38,10 +38,10 @@ pub fn camera_controller_system(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut egui_contexts: EguiContexts,
 ) {
-    if let Ok(egui_ctx) = egui_contexts.ctx_mut() {
-        if egui_ctx.wants_pointer_input() || egui_ctx.wants_keyboard_input() {
-            return;
-        }
+    if let Ok(egui_ctx) = egui_contexts.ctx_mut()
+        && (egui_ctx.wants_pointer_input() || egui_ctx.wants_keyboard_input())
+    {
+        return;
     }
 
     let Ok(window) = windows.single() else {

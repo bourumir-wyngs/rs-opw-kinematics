@@ -174,7 +174,7 @@ impl Kinematics for Frame {
         let mut poses = self.robot.forward_with_joint_poses(joints);
 
         // Apply the frame transformation only to the last pose (TCP pose)
-        poses[5] = poses[5] * self.frame;
+        poses[5] *= self.frame;
 
         poses
     }    
@@ -494,4 +494,3 @@ mod tests {
         Ok(())
     }
 }
-
