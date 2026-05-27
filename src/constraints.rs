@@ -2,7 +2,6 @@
 
 use std::f64::consts::PI;
 use std::ops::RangeInclusive;
-#[cfg(feature = "rand")]
 use rand::{Rng, RngExt};
 use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
 use crate::utils::deg;
@@ -189,7 +188,6 @@ impl Constraints {
 
 
     /// Generate a random valid angle within the defined constraints for each joint.
-    #[cfg(feature = "rand")]
     pub fn random_angles(&self) -> Joints {
         let mut rng = rand::rng();
 
@@ -311,7 +309,6 @@ mod tests {
         assert_eq!(filtered_angles[0], [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0]);
     }
 
-    #[cfg(feature = "rand")]
     #[test]
     fn test_random_angles_compliance_non_wrapping() {
         // Define non-wrapping constraints
@@ -326,7 +323,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "rand")]
     #[test]
     fn test_random_angles_compliance_wrapping() {
         // Define wrapping constraints

@@ -1,6 +1,5 @@
 mod testcases;
 mod constraint_test;
-#[cfg(feature = "rand")]
 mod constraint_test_various;
 mod urdf_extractor;
 mod tool_base_test;
