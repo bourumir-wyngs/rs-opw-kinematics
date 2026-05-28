@@ -16,6 +16,7 @@ exclude = ["Cargo.lock"]
 
 [dependencies]
 nalgebra = ">=0.32.1, < 0.35"
+glam = "=0.30.10"
 rand = ">=0.10, < 0.11"
 anyhow = "1.0"
 

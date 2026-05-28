@@ -4692,6 +4692,7 @@ dependencies = [
  "bitflags 2.11.1",
  "clap",
  "garde",
+ "glam 0.30.10",
  "kdtree",
  "nalgebra",
  "num-traits",

@@ -27,9 +27,8 @@ Observed on 2026-05-28 before implementation work:
 - [x] `cargo test --no-default-features --features allow_filesystem,collisions`
   passes: 86 unit tests and 9 doctests.
 - [x] `cargo check` with default features passes.
-- [ ] `cargo check --no-default-features --features allow_filesystem` passes.
-  Current blocker: `src/utils/read_trimesh.rs` imports `parry3d`, but
-  `allow_filesystem` does not enable `parry3d`.
+- [x] `cargo check --no-default-features --features allow_filesystem` passes.
+  Verified after fixing `allow_filesystem` to enable `parry3d`.
 
 The no-default feature slice currently includes `kinematic_traits`,
 `kinematics_impl`, `tool`, `frame`, `parallelogram`, `jacobian`, `constraints`,
@@ -38,19 +37,24 @@ planning, and visualization.
 
 ## Scope Decisions
 
-- [ ] Treat the migration as a breaking API change unless a temporary
-  compatibility feature is explicitly added.
-- [ ] Decide whether this is a 2.0 release.
-- [ ] Decide whether to provide a temporary `nalgebra-compat` feature.
-- [ ] Choose the direct `glam` version. Prefer alignment with Bevy's glam version
-  while the visualization feature remains Bevy-based.
-- [ ] Use a crate-owned `Pose` type backed by `glam::DVec3` and `glam::DQuat`.
-- [ ] Do not use `DAffine3` as the main public pose type because it can represent
+- [x] Treat the migration as a breaking API change.
+- [x] Target this migration for a 2.0 release. It may live on an independent
+  migration branch until ready.
+- [x] Do not provide a temporary `nalgebra-compat` feature in the initial
+  migration. Revisit compatibility later only if there is a concrete need.
+- [x] Use direct `glam` dependency version `0.30.10`, matching the version used
+  by Bevy 0.18.
+- [x] Use a crate-owned `Pose` type backed by `glam::DVec3` and `glam::DQuat`.
+  This keeps the main solver API stable inside the crate while reducing the
+  amount of code that must be refactored at once.
+- [x] Do not use `DAffine3` as the main public pose type because it can represent
   scale/shear, while robot poses must remain rigid transforms.
-- [ ] Use glam-native f64 geometry for solver-facing public APIs.
-- [ ] Use glam-native f32 geometry for visualization and collision placement.
-- [ ] Remove nalgebra from the crate API and core implementation before trying to
-  remove every transitive nalgebra occurrence from `cargo tree`.
+- [x] Use glam-native f64 geometry for solver-facing public APIs. Exact IK is
+  expected to work properly only with f64 precision.
+- [x] Use glam-native f32 geometry for visualization and collision placement.
+- [x] Remove nalgebra from the crate API, core implementation, and direct normal
+  dependencies before trying to remove every transitive nalgebra occurrence from
+  `cargo tree`.
 
 ## Parry Decision
 
@@ -58,34 +62,34 @@ The repo currently resolves `parry3d` 0.25.x, whose math API is nalgebra-based.
 Current `parry3d` 0.26.x exposes `parry3d::math::Pose` as a glamx/glam-style
 pose type.
 
-- [ ] Evaluate upgrading `parry3d` from 0.25.x to 0.26.x before porting
-  `collisions.rs`.
-- [ ] Check whether `rs-read-trimesh` supports or constrains the Parry upgrade.
-- [ ] Prefer the Parry 0.26.x glam-style API over adding long-lived nalgebra
+- [x] Use `parry3d` 0.26.x for the glam migration.
+- [x] Use `rs-read-trimesh` in its default configuration for the glam migration.
+  `rs-read-trimesh` 2.0.9 advertises `default = [parry_26]`.
+- [x] Prefer the Parry 0.26.x glam-style API over adding long-lived nalgebra
   conversions around collision queries.
-- [ ] If Parry cannot be bumped immediately, add only private temporary
-  conversions in `collisions.rs`.
+- [ ] During implementation, if `parry3d` 0.26.x or default `rs-read-trimesh`
+  does not work in this repo, stop and describe the incompatibility before
+  adding a workaround.
 - [ ] After the Parry decision, run `cargo tree -i nalgebra` and record why any
   remaining nalgebra path still exists.
 
 ## Phase 0: Feature Hygiene and Baseline
 
-- [ ] Fix `allow_filesystem` so it builds without default features.
-- [ ] Decide whether `allow_filesystem` should enable `parry3d`.
-- [ ] Alternatively, move `read_trimesh` behind a mesh/collision feature that
-  also enables `parry3d`.
-- [ ] Add direct `glam` dependency.
-- [ ] Add direct `nalgebra` compatibility feature only if chosen in Scope
-  Decisions.
-- [ ] Record updated baseline results after the feature leak is fixed.
+- [x] Fix `allow_filesystem` so it builds without default features.
+- [x] Decide whether `allow_filesystem` should enable `parry3d`.
+- [x] Keep `read_trimesh` under `allow_filesystem` instead of moving it behind a
+  separate mesh/collision feature.
+- [x] Add direct `glam = "=0.30.10"` dependency.
+- [x] Do not add an initial direct `nalgebra` compatibility feature.
+- [x] Record updated baseline results after the feature leak is fixed.
 
 Phase 0 checkpoints:
 
-- [ ] `cargo test --no-default-features`
-- [ ] `cargo test --no-default-features --features allow_filesystem`
-- [ ] `cargo test --no-default-features --features collisions`
-- [ ] `cargo test --no-default-features --features rrt`
-- [ ] `cargo check`
+- [x] `cargo test --no-default-features`
+- [x] `cargo test --no-default-features --features allow_filesystem`
+- [x] `cargo test --no-default-features --features collisions`
+- [x] `cargo test --no-default-features --features rrt`
+- [x] `cargo check`
 
 ## Phase 1: Pose Foundation
 
