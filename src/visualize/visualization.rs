@@ -44,13 +44,14 @@ use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::collisions::SafetyDistances;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
+use crate::pose::Pose32;
 use crate::utils;
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
-use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use glam::{DQuat, DVec3, EulerRot};
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
@@ -81,16 +82,16 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         let i2 = triangle[2] as usize;
 
         // Get the three vertices of the triangle
-        let v0 = nalgebra::Vector3::new(vertices[i0][0], vertices[i0][1], vertices[i0][2]);
-        let v1 = nalgebra::Vector3::new(vertices[i1][0], vertices[i1][1], vertices[i1][2]);
-        let v2 = nalgebra::Vector3::new(vertices[i2][0], vertices[i2][1], vertices[i2][2]);
+        let v0 = Vec3::from_array(vertices[i0]);
+        let v1 = Vec3::from_array(vertices[i1]);
+        let v2 = Vec3::from_array(vertices[i2]);
 
         // Calculate the two edge vectors
         let edge1 = v1 - v0;
         let edge2 = v2 - v0;
 
         // Calculate the normal using the cross product of the two edges
-        let normal = edge1.cross(&edge2).normalize();
+        let normal = edge1.cross(edge2).normalize_or_zero();
 
         for &i in &[i0, i1, i2] {
             normals[i][0] += normal.x;
@@ -139,8 +140,8 @@ struct RobotControls {
 }
 
 impl RobotControls {
-    fn set_tcp_from_pose(&mut self, pose: &Isometry3<f64>) {
-        let (roll, pitch, yaw) = pose.rotation.to_rotation_matrix().euler_angles();
+    fn set_tcp_from_pose(&mut self, pose: &Pose) {
+        let (roll, pitch, yaw) = pose.rotation.to_euler(EulerRot::ZYX);
         self.tcp = [
             pose.translation.x,
             pose.translation.y,
@@ -152,19 +153,17 @@ impl RobotControls {
     }
 
     fn pose(&self) -> Pose {
-        fn quat_from_euler(this: &RobotControls) -> UnitQuaternion<f64> {
+        fn quat_from_euler(this: &RobotControls) -> DQuat {
             let roll = this.tcp[3].to_radians();
             let pitch = this.tcp[4].to_radians();
             let yaw = this.tcp[5].to_radians();
 
-            // Combine rotations in roll-pitch-yaw order
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), roll)
-                * UnitQuaternion::from_axis_angle(&Vector3::y_axis(), pitch)
-                * UnitQuaternion::from_axis_angle(&Vector3::x_axis(), yaw)
+            // Preserve the existing UI angle order: Z, then Y, then X.
+            DQuat::from_euler(EulerRot::ZYX, roll, pitch, yaw)
         }
 
-        Isometry3::from_parts(
-            Translation3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
+        Pose::from_parts(
+            DVec3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
             quat_from_euler(self),
         )
     }
@@ -367,14 +366,12 @@ fn visualize_robot_joints(
     angles: &Joints,
     safety_distance: f32,
 ) {
-    // Helper function to transform coordinates to Bevy's coordinate system
-    fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
-        let translation = transform.translation.vector;
-        let rotation = transform.rotation;
-        (
-            Vec3::new(translation.x, translation.y, translation.z),
-            Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w),
-        )
+    fn transform_from_pose(pose: &Pose32) -> Transform {
+        Transform {
+            translation: pose.translation,
+            rotation: pose.rotation,
+            ..default()
+        }
     }
 
     /// Spawns a `PbrBundle` entity for a joint, with specified mesh, material, translation, and rotation.
@@ -382,17 +379,12 @@ fn visualize_robot_joints(
         commands: &mut Commands,
         mesh: &Handle<Mesh>,
         material: Handle<StandardMaterial>,
-        pose: &Isometry3<f32>,
+        pose: &Pose32,
     ) {
-        let (translation, rotation) = as_bevy(pose);
         commands.spawn((
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material),
-            Transform {
-                translation,
-                rotation,
-                ..default()
-            },
+            transform_from_pose(pose),
             RenderedRobotPart,
         ));
     }

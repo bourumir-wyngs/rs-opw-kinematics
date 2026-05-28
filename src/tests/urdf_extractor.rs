@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use std::fs::read_to_string;
 use crate::kinematic_traits::{Joints};
 use crate::parameters::opw_kinematics::Parameters;

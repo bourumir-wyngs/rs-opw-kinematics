@@ -5,7 +5,6 @@ planning.
 [![GitHub](https://img.shields.io/badge/GitHub-777777)](https://github.com/bourumir-wyngs/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/v/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/rust.yml)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions)
-[![API 1.8 compatible](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/semver-main.yml?branch=main&label=API%201.8%20compatible)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions/workflows/semver-main.yml)
 [![crates.io](https://img.shields.io/crates/l/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
@@ -49,7 +48,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.8.10, <2.0.0"
+rs-opw-kinematics = "2"
 ```
 
 Simple "hello world" demonstrating singularity handling:
@@ -159,6 +158,27 @@ let pose = Pose::from_parts(
 
 println!("TCP z = {:.3}", pose.translation.z);
 ```
+
+## Migrating to 2.0
+
+Version 2.0 makes the geometry API glam-native and removes nalgebra from this
+crate's public API and direct dependencies.
+
+- Replace nalgebra `Isometry3`, `Translation3`, and `UnitQuaternion` poses with
+  crate-owned `Pose` values created by `Pose::from_translation` or
+  `Pose::from_parts(DVec3, DQuat)`.
+- Use `pose.translation` and `pose.rotation` directly instead of nalgebra
+  isometry fields.
+- Use `Pose32` for collision and visualization placement, including
+  `CollisionBody::pose`, `BaseBody::base_pose`, and `PositionedJoint::transform`.
+- `KinematicsWithShape::new` and `KinematicsWithShape::with_safety` take
+  `Pose` for base and tool transforms.
+- Jacobian velocity and torque APIs use `Twist` and `Wrench`; six-component
+  helper methods accept `Joints`.
+- Parry is upgraded to `parry3d` 0.26, and mesh loading uses
+  `rs-read-trimesh` 2.0.9 with its default Parry 0.26 support.
+- Downstream code that still needs nalgebra should add its own nalgebra
+  dependency and keep conversions at the application boundary.
 
 ## Jacobian: torques and velocities
 
@@ -607,7 +627,7 @@ or collision detection is not used), the filesystem access can be completely dis
 library like:
 
 ```toml
-rs-opw-kinematics = { version = ">=1.8.0, <2.0.0", default-features = false }
+rs-opw-kinematics = { version = "2", default-features = false }
 ```
 
 In this case, import of URDF and YAML files will be inaccessible, visualization and

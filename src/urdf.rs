@@ -540,6 +540,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_process_joints() {
         let xml = r#"
             <robot>

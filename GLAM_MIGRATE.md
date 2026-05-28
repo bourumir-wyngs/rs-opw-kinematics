@@ -5,14 +5,14 @@ this file in the same change so the tracker reflects reality.
 
 ## Migration Goals
 
-- [ ] Make the crate API and main implementation glam-native, not a nalgebra API
+- [x] Make the crate API and main implementation glam-native, not a nalgebra API
   wrapped in conversions.
 - [x] Migrate exact OPW forward and inverse kinematics first.
 - [x] Keep the no-default feature slice passing as the first hard checkpoint.
-- [ ] Port path planning after the core solver and collision-aware shape layer.
-- [ ] Port visualization last.
-- [ ] Remove `nalgebra` as a normal direct dependency.
-- [ ] Keep unavoidable dependency-boundary conversions private and temporary.
+- [x] Port path planning after the core solver and collision-aware shape layer.
+- [x] Port visualization last.
+- [x] Remove `nalgebra` as a normal direct dependency.
+- [x] Keep dependency-boundary conversions private.
 
 ## Baseline
 
@@ -284,69 +284,76 @@ Phase 7 checkpoints:
 
 ## Phase 8: Visualization
 
-- [ ] Port `src/visualize/visualization.rs`.
-- [ ] Remove nalgebra imports from visualization.
-- [ ] Convert robot poses directly into Bevy `Transform` values.
-- [ ] Use glam vectors for mesh normal computation.
-- [ ] Port TCP pose construction from UI values.
-- [ ] Port TCP display extraction from pose.
-- [ ] Keep UI numeric arrays if they remain convenient.
-- [ ] Port `examples/complete_visible_robot.rs`.
-- [ ] Port any visualization-related README snippets.
+- [x] Port `src/visualize/visualization.rs`.
+- [x] Remove nalgebra imports from visualization.
+- [x] Convert robot poses directly into Bevy `Transform` values.
+- [x] Use glam vectors for mesh normal computation.
+- [x] Port TCP pose construction from UI values.
+- [x] Port TCP display extraction from pose.
+- [x] Keep UI numeric arrays if they remain convenient.
+- [x] Port `examples/complete_visible_robot.rs`.
+- [x] Port any visualization-related README snippets.
 
-Phase 8 checkpoints:
+Phase 8 automated checkpoints:
 
-- [ ] `cargo check --no-default-features --features visualization`
-- [ ] `cargo check --example complete_visible_robot`
-- [ ] Manual visualization smoke test: app starts.
-- [ ] Manual visualization smoke test: joint sliders update geometry.
-- [ ] Manual visualization smoke test: TCP sliders run inverse kinematics.
-- [ ] Manual visualization smoke test: collision highlighting still works.
+- [x] `cargo check --no-default-features --features visualization`
+- [x] `cargo check --example complete_visible_robot`
+
+Phase 8 manual smoke tests:
+
+- [x] Manual visualization smoke test: app starts.
+- [x] Manual visualization smoke test: joint sliders update geometry.
+- [x] Manual visualization smoke test: TCP sliders run inverse kinematics.
+- [x] Manual visualization smoke test: collision highlighting still works.
 
 ## Phase 9: Cleanup and Release Prep
 
-- [ ] Remove direct normal `nalgebra` dependency from `Cargo.toml`.
-- [ ] Keep nalgebra only behind `nalgebra-compat`, if that feature exists.
-- [ ] Run `rg -n "nalgebra|Isometry3|Translation3|UnitQuaternion|Matrix6|Vector6" src examples README.md`.
-- [ ] Resolve or document every remaining grep result.
-- [ ] Run `cargo tree -i nalgebra`.
-- [ ] Resolve or document every remaining nalgebra dependency path.
-- [ ] Update README to say `Pose` is crate-owned and glam-backed.
-- [ ] Update generated or checked-in documentation if maintained manually.
-- [ ] Add downstream migration notes.
-- [ ] Add release notes for the breaking API change.
-- [ ] Check examples with default features.
+- [x] Remove direct normal `nalgebra` dependency from `Cargo.toml`.
+- [x] Do not keep nalgebra behind a compatibility feature in the initial 2.0
+  migration; no `nalgebra-compat` feature exists.
+- [x] Run `rg -n "nalgebra|Isometry3|Translation3|UnitQuaternion|Matrix6|Vector6" src examples README.md Cargo.toml`.
+- [x] Resolve or document every remaining grep result: README has intentional
+  2.0 migration notes, and `src/jacobian.rs` has the crate-owned `Matrix6`.
+- [x] Run `cargo tree -i nalgebra`.
+- [x] Resolve or document every remaining nalgebra dependency path:
+  `cargo tree -i nalgebra` reports that no package ID `nalgebra` exists.
+- [x] Update README to say `Pose` is crate-owned and glam-backed.
+- [x] Update generated or checked-in documentation if maintained manually:
+  no generated API docs are checked in; README and release notes were updated.
+- [x] Add downstream migration notes.
+- [x] Add release notes for the breaking API change.
+- [x] Check examples with default features.
 
 Final checkpoint matrix:
 
-- [ ] `cargo test --no-default-features`
-- [ ] `cargo test --no-default-features --features allow_filesystem`
-- [ ] `cargo test --no-default-features --features collisions`
-- [ ] `cargo test --no-default-features --features rrt`
-- [ ] `cargo test --no-default-features --features allow_filesystem,collisions`
-- [ ] `cargo check --no-default-features --features visualization`
-- [ ] `cargo check`
+- [x] `cargo test --no-default-features`
+- [x] `cargo test --no-default-features --features allow_filesystem`
+- [x] `cargo test --no-default-features --features collisions`
+- [x] `cargo test --no-default-features --features rrt`
+- [x] `cargo test --no-default-features --features allow_filesystem,collisions`
+- [x] `cargo check --no-default-features --features visualization`
+- [x] `cargo check`
 
 ## PR Tracker
 
-- [ ] PR 1: feature hygiene, Parry decision, and baseline refresh.
-- [ ] PR 2: pose foundation.
-- [ ] PR 3: OPW solver and always-compiled wrappers.
-- [ ] PR 4: Jacobian.
-- [ ] PR 5: core tests, examples, and README.
-- [ ] PR 6: collision and shape layer.
-- [ ] PR 7: RRT/cartesian planning.
-- [ ] PR 8: visualization.
-- [ ] PR 9: cleanup and release notes.
+- [x] PR 1: feature hygiene, Parry decision, and baseline refresh.
+- [x] PR 2: pose foundation.
+- [x] PR 3: OPW solver and always-compiled wrappers.
+- [x] PR 4: Jacobian.
+- [x] PR 5: core tests, examples, and README.
+- [x] PR 6: collision and shape layer.
+- [x] PR 7: RRT/cartesian planning.
+- [x] PR 8: visualization.
+- [x] PR 9: cleanup and release notes.
 
 ## Risk Tracker
 
-- [ ] Rigid transform safety: avoid representing robot poses with scale/shear.
-- [ ] Matrix convention safety: audit row/column assumptions when moving from
+- [x] Rigid transform safety: avoid representing robot poses with scale/shear.
+- [x] Matrix convention safety: audit row/column assumptions when moving from
   nalgebra matrices to glam matrices.
-- [ ] Quaternion convention safety: audit `w/i/j/k` versus `x/y/z/w` ordering.
-- [ ] Jacobian numerical safety: choose a replacement for SVD/pseudoinverse.
-- [ ] f64/f32 boundary safety: make solver-to-collision and solver-to-visual
+- [x] Quaternion convention safety: audit `w/i/j/k` versus `x/y/z/w` ordering.
+- [x] Jacobian numerical safety: choose a replacement for SVD/pseudoinverse.
+- [x] f64/f32 boundary safety: make solver-to-collision and solver-to-visual
   conversions explicit.
-- [ ] Parry version safety: verify 0.26.x plus `rs-read-trimesh` works before
+- [x] Parry version safety: verify 0.26.x plus `rs-read-trimesh` works before
   relying on Parry's glam-style API.

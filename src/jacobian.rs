@@ -63,10 +63,8 @@ impl Matrix6 {
 
     fn mul_vector(self, vector: &Joints) -> Joints {
         let mut result = [0.0; SIZE];
-        for r in 0..SIZE {
-            for c in 0..SIZE {
-                result[r] += self.rows[r][c] * vector[c];
-            }
+        for (out, row) in result.iter_mut().zip(self.rows.iter()) {
+            *out = row.iter().zip(vector.iter()).map(|(left, right)| left * right).sum();
         }
         result
     }
@@ -77,13 +75,13 @@ impl Matrix6 {
 
     fn mul_self_transpose(self) -> Self {
         let mut rows = [[0.0; SIZE]; SIZE];
-        for r in 0..SIZE {
-            for c in 0..SIZE {
-                let mut value = 0.0;
-                for k in 0..SIZE {
-                    value += self.rows[r][k] * self.rows[c][k];
-                }
-                rows[r][c] = value;
+        for (r, row) in rows.iter_mut().enumerate() {
+            for (c, value) in row.iter_mut().enumerate() {
+                *value = self.rows[r]
+                    .iter()
+                    .zip(self.rows[c].iter())
+                    .map(|(left, right)| left * right)
+                    .sum();
             }
         }
         Self { rows }
@@ -119,13 +117,8 @@ impl IndexMut<(usize, usize)> for Matrix6 {
 }
 
 fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Option<Joints> {
-    for row in 0..SIZE {
-        for col in 0..SIZE {
-            if !matrix[row][col].is_finite() {
-                return None;
-            }
-        }
-        if !rhs[row].is_finite() {
+    for (row, rhs_value) in matrix.iter().zip(rhs.iter()) {
+        if row.iter().any(|value| !value.is_finite()) || !rhs_value.is_finite() {
             return None;
         }
     }
@@ -133,8 +126,8 @@ fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Opti
     for pivot_col in 0..SIZE {
         let mut pivot_row = pivot_col;
         let mut pivot_abs = matrix[pivot_col][pivot_col].abs();
-        for row in (pivot_col + 1)..SIZE {
-            let value_abs = matrix[row][pivot_col].abs();
+        for (row, matrix_row) in matrix.iter().enumerate().skip(pivot_col + 1) {
+            let value_abs = matrix_row[pivot_col].abs();
             if value_abs > pivot_abs {
                 pivot_abs = value_abs;
                 pivot_row = row;
@@ -150,13 +143,16 @@ fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Opti
             rhs.swap(pivot_col, pivot_row);
         }
 
-        for row in (pivot_col + 1)..SIZE {
-            let factor = matrix[row][pivot_col] / matrix[pivot_col][pivot_col];
-            matrix[row][pivot_col] = 0.0;
-            for col in (pivot_col + 1)..SIZE {
-                matrix[row][col] -= factor * matrix[pivot_col][col];
+        let pivot_row_values = matrix[pivot_col];
+        let pivot_value = pivot_row_values[pivot_col];
+        let pivot_rhs = rhs[pivot_col];
+        for (row, matrix_row) in matrix.iter_mut().enumerate().skip(pivot_col + 1) {
+            let factor = matrix_row[pivot_col] / pivot_value;
+            matrix_row[pivot_col] = 0.0;
+            for (col, value) in matrix_row.iter_mut().enumerate().skip(pivot_col + 1) {
+                *value -= factor * pivot_row_values[col];
             }
-            rhs[row] -= factor * rhs[pivot_col];
+            rhs[row] -= factor * pivot_rhs;
         }
     }
 

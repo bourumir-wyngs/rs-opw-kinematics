@@ -1,8 +1,8 @@
 //! Provides implementation of inverse and direct kinematics.
 
-use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
+use crate::constraints::{Constraints, BY_CONSTRAINS, BY_PREV};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions, JOINTS_AT_ZERO};
 use crate::kinematic_traits::{J4, J5, J6};
-use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Singularity, Solutions};
 use crate::parameters::opw_kinematics::Parameters;
 use crate::utils::opw_kinematics::is_valid;
 use glam::{DMat3, DQuat, DVec3};
@@ -415,36 +415,29 @@ impl OPWKinematics {
 
         // orientation part
         let sin1: [f64; 4] = [theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin];
-
         let cos1: [f64; 4] = [theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos];
 
-        let s23: [f64; 4] = [
-            (theta2_i + theta3_i).sin(),
-            (theta2_ii + theta3_ii).sin(),
-            (theta2_iii + theta3_iii).sin(),
-            (theta2_iv + theta3_iv).sin(),
-        ];
+        let (sin23_i, cos23_i) = (theta2_i + theta3_i).sin_cos();
+        let (sin23_ii, cos23_ii) = (theta2_ii + theta3_ii).sin_cos();
+        let (sin23_iii, cos23_iii) = (theta2_iii + theta3_iii).sin_cos();
+        let (sin23_iv, cos23_iv) = (theta2_iv + theta3_iv).sin_cos();
 
-        let c23: [f64; 4] = [
-            (theta2_i + theta3_i).cos(),
-            (theta2_ii + theta3_ii).cos(),
-            (theta2_iii + theta3_iii).cos(),
-            (theta2_iv + theta3_iv).cos(),
-        ];
+        let sin23: [f64; 4] = [sin23_i, sin23_ii, sin23_iii, sin23_iv];
+        let cos23: [f64; 4] = [cos23_i, cos23_ii, cos23_iii, cos23_iv];
 
         let m: [f64; 4] = [
-            matrix[(0, 2)] * s23[0] * cos1[0]
-                + matrix[(1, 2)] * s23[0] * sin1[0]
-                + matrix[(2, 2)] * c23[0],
-            matrix[(0, 2)] * s23[1] * cos1[1]
-                + matrix[(1, 2)] * s23[1] * sin1[1]
-                + matrix[(2, 2)] * c23[1],
-            matrix[(0, 2)] * s23[2] * cos1[2]
-                + matrix[(1, 2)] * s23[2] * sin1[2]
-                + matrix[(2, 2)] * c23[2],
-            matrix[(0, 2)] * s23[3] * cos1[3]
-                + matrix[(1, 2)] * s23[3] * sin1[3]
-                + matrix[(2, 2)] * c23[3],
+            matrix[(0, 2)] * sin23[0] * cos1[0]
+                + matrix[(1, 2)] * sin23[0] * sin1[0]
+                + matrix[(2, 2)] * cos23[0],
+            matrix[(0, 2)] * sin23[1] * cos1[1]
+                + matrix[(1, 2)] * sin23[1] * sin1[1]
+                + matrix[(2, 2)] * cos23[1],
+            matrix[(0, 2)] * sin23[2] * cos1[2]
+                + matrix[(1, 2)] * sin23[2] * sin1[2]
+                + matrix[(2, 2)] * cos23[2],
+            matrix[(0, 2)] * sin23[3] * cos1[3]
+                + matrix[(1, 2)] * sin23[3] * sin1[3]
+                + matrix[(2, 2)] * cos23[3],
         ];
 
         let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
@@ -458,55 +451,55 @@ impl OPWKinematics {
         let theta5_viii = -theta5_iv;
 
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
-        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0]
-            - matrix[(2, 2)] * s23[0];
+        let theta4_ix = matrix[(0, 2)] * cos23[0] * cos1[0] + matrix[(1, 2)] * cos23[0] * sin1[0]
+            - matrix[(2, 2)] * sin23[0];
         let theta4_i = theta4_iy.atan2(theta4_ix);
 
-        let theta6_iy = matrix[(0, 1)] * s23[0] * cos1[0]
-            + matrix[(1, 1)] * s23[0] * sin1[0]
-            + matrix[(2, 1)] * c23[0];
-        let theta6_ix = -matrix[(0, 0)] * s23[0] * cos1[0]
-            - matrix[(1, 0)] * s23[0] * sin1[0]
-            - matrix[(2, 0)] * c23[0];
+        let theta6_iy = matrix[(0, 1)] * sin23[0] * cos1[0]
+            + matrix[(1, 1)] * sin23[0] * sin1[0]
+            + matrix[(2, 1)] * cos23[0];
+        let theta6_ix = -matrix[(0, 0)] * sin23[0] * cos1[0]
+            - matrix[(1, 0)] * sin23[0] * sin1[0]
+            - matrix[(2, 0)] * cos23[0];
         let theta6_i = theta6_iy.atan2(theta6_ix);
 
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
-        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1]
-            - matrix[(2, 2)] * s23[1];
+        let theta4_iix = matrix[(0, 2)] * cos23[1] * cos1[1] + matrix[(1, 2)] * cos23[1] * sin1[1]
+            - matrix[(2, 2)] * sin23[1];
         let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
-        let theta6_iiy = matrix[(0, 1)] * s23[1] * cos1[1]
-            + matrix[(1, 1)] * s23[1] * sin1[1]
-            + matrix[(2, 1)] * c23[1];
-        let theta6_iix = -matrix[(0, 0)] * s23[1] * cos1[1]
-            - matrix[(1, 0)] * s23[1] * sin1[1]
-            - matrix[(2, 0)] * c23[1];
+        let theta6_iiy = matrix[(0, 1)] * sin23[1] * cos1[1]
+            + matrix[(1, 1)] * sin23[1] * sin1[1]
+            + matrix[(2, 1)] * cos23[1];
+        let theta6_iix = -matrix[(0, 0)] * sin23[1] * cos1[1]
+            - matrix[(1, 0)] * sin23[1] * sin1[1]
+            - matrix[(2, 0)] * cos23[1];
         let theta6_ii = theta6_iiy.atan2(theta6_iix);
 
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
-        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2]
-            - matrix[(2, 2)] * s23[2];
+        let theta4_iiix = matrix[(0, 2)] * cos23[2] * cos1[2] + matrix[(1, 2)] * cos23[2] * sin1[2]
+            - matrix[(2, 2)] * sin23[2];
         let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
-        let theta6_iiiy = matrix[(0, 1)] * s23[2] * cos1[2]
-            + matrix[(1, 1)] * s23[2] * sin1[2]
-            + matrix[(2, 1)] * c23[2];
-        let theta6_iiix = -matrix[(0, 0)] * s23[2] * cos1[2]
-            - matrix[(1, 0)] * s23[2] * sin1[2]
-            - matrix[(2, 0)] * c23[2];
+        let theta6_iiiy = matrix[(0, 1)] * sin23[2] * cos1[2]
+            + matrix[(1, 1)] * sin23[2] * sin1[2]
+            + matrix[(2, 1)] * cos23[2];
+        let theta6_iiix = -matrix[(0, 0)] * sin23[2] * cos1[2]
+            - matrix[(1, 0)] * sin23[2] * sin1[2]
+            - matrix[(2, 0)] * cos23[2];
         let theta6_iii = theta6_iiiy.atan2(theta6_iiix);
 
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
-        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3]
-            - matrix[(2, 2)] * s23[3];
+        let theta4_ivx = matrix[(0, 2)] * cos23[3] * cos1[3] + matrix[(1, 2)] * cos23[3] * sin1[3]
+            - matrix[(2, 2)] * sin23[3];
         let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
-        let theta6_ivy = matrix[(0, 1)] * s23[3] * cos1[3]
-            + matrix[(1, 1)] * s23[3] * sin1[3]
-            + matrix[(2, 1)] * c23[3];
-        let theta6_ivx = -matrix[(0, 0)] * s23[3] * cos1[3]
-            - matrix[(1, 0)] * s23[3] * sin1[3]
-            - matrix[(2, 0)] * c23[3];
+        let theta6_ivy = matrix[(0, 1)] * sin23[3] * cos1[3]
+            + matrix[(1, 1)] * sin23[3] * sin1[3]
+            + matrix[(2, 1)] * cos23[3];
+        let theta6_ivx = -matrix[(0, 0)] * sin23[3] * cos1[3]
+            - matrix[(1, 0)] * sin23[3] * sin1[3]
+            - matrix[(2, 0)] * cos23[3];
         let theta6_iv = theta6_ivy.atan2(theta6_ivx);
 
         let theta4_v = theta4_i + PI;
@@ -656,33 +649,28 @@ impl OPWKinematics {
 
         let cos1: [f64; 4] = [theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos];
 
-        let s23: [f64; 4] = [
-            (theta2_i + theta3_i).sin(),
-            (theta2_ii + theta3_ii).sin(),
-            (theta2_iii + theta3_iii).sin(),
-            (theta2_iv + theta3_iv).sin(),
-        ];
+        let (sin23_i, cos23_i) = (theta2_i + theta3_i).sin_cos();
+        let (sin23_ii, cos23_ii) = (theta2_ii + theta3_ii).sin_cos();
+        let (sin23_iii, cos23_iii) = (theta2_iii + theta3_iii).sin_cos();
+        let (sin23_iv, cos23_iv) = (theta2_iv + theta3_iv).sin_cos();
 
-        let c23: [f64; 4] = [
-            (theta2_i + theta3_i).cos(),
-            (theta2_ii + theta3_ii).cos(),
-            (theta2_iii + theta3_iii).cos(),
-            (theta2_iv + theta3_iv).cos(),
-        ];
+        let sin23: [f64; 4] = [sin23_i, sin23_ii, sin23_iii, sin23_iv];
+
+        let cos23: [f64; 4] = [cos23_i, cos23_ii, cos23_iii, cos23_iv];
 
         let m: [f64; 4] = [
-            matrix[(0, 2)] * s23[0] * cos1[0]
-                + matrix[(1, 2)] * s23[0] * sin1[0]
-                + matrix[(2, 2)] * c23[0],
-            matrix[(0, 2)] * s23[1] * cos1[1]
-                + matrix[(1, 2)] * s23[1] * sin1[1]
-                + matrix[(2, 2)] * c23[1],
-            matrix[(0, 2)] * s23[2] * cos1[2]
-                + matrix[(1, 2)] * s23[2] * sin1[2]
-                + matrix[(2, 2)] * c23[2],
-            matrix[(0, 2)] * s23[3] * cos1[3]
-                + matrix[(1, 2)] * s23[3] * sin1[3]
-                + matrix[(2, 2)] * c23[3],
+            matrix[(0, 2)] * sin23[0] * cos1[0]
+                + matrix[(1, 2)] * sin23[0] * sin1[0]
+                + matrix[(2, 2)] * cos23[0],
+            matrix[(0, 2)] * sin23[1] * cos1[1]
+                + matrix[(1, 2)] * sin23[1] * sin1[1]
+                + matrix[(2, 2)] * cos23[1],
+            matrix[(0, 2)] * sin23[2] * cos1[2]
+                + matrix[(1, 2)] * sin23[2] * sin1[2]
+                + matrix[(2, 2)] * cos23[2],
+            matrix[(0, 2)] * sin23[3] * cos1[3]
+                + matrix[(1, 2)] * sin23[3] * sin1[3]
+                + matrix[(2, 2)] * cos23[3],
         ];
 
         let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
@@ -696,23 +684,23 @@ impl OPWKinematics {
         let theta5_viii = -theta5_iv;
 
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
-        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0]
-            - matrix[(2, 2)] * s23[0];
+        let theta4_ix = matrix[(0, 2)] * cos23[0] * cos1[0] + matrix[(1, 2)] * cos23[0] * sin1[0]
+            - matrix[(2, 2)] * sin23[0];
         let theta4_i = theta4_iy.atan2(theta4_ix);
 
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
-        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1]
-            - matrix[(2, 2)] * s23[1];
+        let theta4_iix = matrix[(0, 2)] * cos23[1] * cos1[1] + matrix[(1, 2)] * cos23[1] * sin1[1]
+            - matrix[(2, 2)] * sin23[1];
         let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
-        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2]
-            - matrix[(2, 2)] * s23[2];
+        let theta4_iiix = matrix[(0, 2)] * cos23[2] * cos1[2] + matrix[(1, 2)] * cos23[2] * sin1[2]
+            - matrix[(2, 2)] * sin23[2];
         let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
-        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3]
-            - matrix[(2, 2)] * s23[3];
+        let theta4_ivx = matrix[(0, 2)] * cos23[3] * cos1[3] + matrix[(1, 2)] * cos23[3] * sin1[3]
+            - matrix[(2, 2)] * sin23[3];
         let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
         let theta4_v = theta4_i + PI;
@@ -962,7 +950,7 @@ mod tests {
 
     #[test]
     fn test_inverse_continuing_adds_blended_solution_at_j5_pi() {
-        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
+        use crate::kinematic_traits::{Joints, Kinematics, J4, J5, J6};
         use std::f64::consts::PI;
 
         // Use a known-good robot model; adjust if you prefer a different preset.

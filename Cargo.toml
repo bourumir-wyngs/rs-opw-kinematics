@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.20"
+version = "2.0.0"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -15,7 +15,6 @@ readme = "README.md"
 exclude = ["Cargo.lock"]
 
 [dependencies]
-nalgebra = ">=0.32.1, < 0.35"
 glam = "=0.30.10"
 rand = ">=0.10, < 0.11"
 anyhow = "1.0"
@@ -96,7 +95,7 @@ stl_io = []
 status = "maintained"
 
 # To disable filesystem, collision and visualization support:
-# rs-opw-kinematics = { version = "1.8.20", default-features = false }
+# rs-opw-kinematics = { version = "2", default-features = false }
 
 [profile.release]
 

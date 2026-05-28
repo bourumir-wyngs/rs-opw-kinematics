@@ -1,7 +1,6 @@
 //! Defines traits for direct and inverse kinematics.
 
 use crate::constraints::Constraints;
-pub use crate::pose::Pose;
 
 /// Pose of the robot TCP. It contains a Cartesian position and a unit rotation quaternion.
 /// ```
@@ -12,6 +11,7 @@ pub use crate::pose::Pose;
 /// let rotation = DQuat::from_rotation_z(std::f64::consts::FRAC_PI_2);
 /// let transform = Pose::from_parts(translation, rotation);
 /// ```
+pub use crate::pose::Pose;
 
 /// Defines kinematic singularity. A is a singularity when J5 = 0 (this is possible with
 /// any robot). The structure is reserved for other possible singularies but these require
