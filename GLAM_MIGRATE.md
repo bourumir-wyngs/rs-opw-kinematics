@@ -161,10 +161,11 @@ compile until they are ported or temporarily gated.
 - [x] Replace `Point3` API with glam-native point/vector usage.
 - [x] Keep frame transforms rigid.
 - [x] Port `src/parallelogram.rs`.
-- [ ] Port `src/utils/utils.rs`.
-- [ ] Port pose dumping helpers.
-- [ ] Port pose assertion helpers.
-- [ ] Replace nalgebra vector helpers or move them behind compatibility feature.
+- [x] Port `src/utils/utils.rs`.
+- [x] Port pose dumping helpers.
+- [x] Port pose assertion helpers.
+- [x] Move nalgebra `Vector6` helpers out of shared utils and into the Jacobian
+  Phase 4 scope.
 - [x] Keep `src/jacobian.rs` building, either by porting it in Phase 4 before
   running the no-default checkpoint or by temporarily feature-gating it.
 
@@ -172,7 +173,7 @@ Phase 3 checkpoints:
 
 - [x] `cargo check --no-default-features`
 - [x] `cargo test --no-default-features`
-- [ ] `rg -n "nalgebra|Isometry3|Translation3|UnitQuaternion" src/kinematic_traits.rs src/kinematics_impl.rs src/tool.rs src/frame.rs src/parallelogram.rs src/utils`
+- [x] `rg -n "nalgebra|Isometry3|Translation3|UnitQuaternion" src/kinematic_traits.rs src/kinematics_impl.rs src/tool.rs src/frame.rs src/parallelogram.rs src/utils`
   shows no unintended core usage.
 
 ## Phase 4: Jacobian

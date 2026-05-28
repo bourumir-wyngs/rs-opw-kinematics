@@ -1,7 +1,6 @@
 //! Helper functions
 
-use crate::kinematic_traits::{Joints, Solutions};
-use nalgebra::{Isometry3, UnitQuaternion, Vector6};
+use crate::kinematic_traits::{Joints, Pose, Solutions};
 
 /// Checks the solution for validity. This is only internally needed as all returned
 /// solutions are already checked.
@@ -76,17 +75,13 @@ pub fn dump_joints(joints: &Joints) {
     println!("[{}]", row_str.trim_end());
 }
 
-pub fn dump_pose(isometry: &Isometry3<f64>) {
-    // Extract translation components
-    let translation = isometry.translation.vector;
+pub fn dump_pose(pose: &Pose) {
+    let translation = pose.translation;
+    let rotation = pose.rotation;
 
-    // Extract rotation components and convert to Euler angles in radians
-    let rotation: UnitQuaternion<f64> = isometry.rotation;
-
-    // Print translation and rotation
     println!(
         "x: {:.5}, y: {:.5}, z: {:.5},  quat: {:.5},{:.5},{:.5},{:.5}",
-        translation.x, translation.y, translation.z, rotation.i, rotation.j, rotation.k, rotation.w
+        translation.x, translation.y, translation.z, rotation.x, rotation.y, rotation.z, rotation.w
     );
 }
 
@@ -103,16 +98,6 @@ pub(crate) fn deg(x: &f64) -> String {
     format!("deg({:.4})", x.to_degrees())
 }
 
-/// Converts ```nalgebra::Vector6<f64>``` to Joints ([f64; 6])
-pub fn vector6_to_joints(v: Vector6<f64>) -> Joints {
-    [v[0], v[1], v[2], v[3], v[4], v[5]]
-}
-
-/// Converts ```Joints ([f64; 6])``` to a ```Vector6<f64>```
-pub fn joints_to_vector6(j: Joints) -> nalgebra::Vector6<f64> {
-    Vector6::new(j[0], j[1], j[2], j[3], j[4], j[5])
-}
-
 /// Calculates the transition cost between two sets of joint positions,
 /// weighted by given coefficients (rotating heavy base joints is
 /// more expensive). This function returns maximum rotation
@@ -127,15 +112,19 @@ pub fn transition_costs(from: &Joints, to: &Joints, coefficients: &Joints) -> f6
     .fold(f64::NEG_INFINITY, |a, &b| a.max(b))
 }
 
-pub fn assert_pose_eq(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
-                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
-    fn bad(ta: &Isometry3<f64>, tb: &Isometry3<f64>) {
+pub fn assert_pose_eq(
+    ta: &Pose,
+    tb: &Pose,
+    distance_tolerance: f64,
+    angular_tolerance: f64,
+) -> bool {
+    fn bad(ta: &Pose, tb: &Pose) {
         dump_pose(ta);
         dump_pose(tb);
     }
 
-    let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
-    let angular_distance = ta.rotation.angle_to(&tb.rotation);
+    let translation_distance = (ta.translation - tb.translation).length();
+    let angular_distance = ta.angular_distance(*tb);
 
     if translation_distance.abs() > distance_tolerance {
         bad(ta, tb);

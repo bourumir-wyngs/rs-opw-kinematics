@@ -19,9 +19,12 @@
 extern crate nalgebra as na;
 
 use crate::kinematic_traits::{Joints, Kinematics};
-use crate::utils::vector6_to_joints;
 use na::linalg::SVD;
 use na::{Isometry3, Matrix6, Vector6};
+
+fn vector6_to_joints(v: Vector6<f64>) -> Joints {
+    [v[0], v[1], v[2], v[3], v[4], v[5]]
+}
 
 /// This structure holds Jacobian matrix and provides methods to
 /// extract velocity and torgue information from it.
