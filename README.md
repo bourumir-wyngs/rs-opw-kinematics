@@ -141,6 +141,25 @@ Since 1.8.2, convenience method exists to specify constraints as ranges in degre
 
 Please see the [example](examples/constraints.rs).
 
+## Pose
+
+The public kinematics API uses a crate-owned
+[Pose](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Pose.html)
+type backed by `glam::DVec3` translation and `glam::DQuat` rotation. Forward kinematics returns this pose,
+and inverse kinematics accepts the same type.
+
+```rust
+use glam::{DQuat, DVec3};
+use rs_opw_kinematics::kinematic_traits::Pose;
+
+let pose = Pose::from_parts(
+    DVec3::new(0.4, 0.2, 0.8),
+    DQuat::from_rotation_z(90.0_f64.to_radians()),
+);
+
+println!("TCP z = {:.3}", pose.translation.z);
+```
+
 ## Jacobian: torques and velocities
 
 Since 1.3.2, it is possible to obtain
@@ -152,10 +171,15 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [torques](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torques in Newton meters. For the end effector, it is possible to use either
-nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
-or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), supporting linear and angular velocities (m/s and rad/s).
-For wrenches, forces are in N and torques in N*m.
+or torques in Newton meters. End-effector velocity is represented as
+[`Twist`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Twist.html):
+linear velocity in meters per second and angular velocity in radians per second, both stored as `glam::DVec3`.
+End-effector force and torque are represented as
+[`Wrench`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Wrench.html):
+force in newtons and torque in newton meters.
+
+For callers that already store six-component arrays, `velocities_from_vector` and `torques_from_vector` accept `Joints`
+with the first three components for the linear part and the last three for the angular part.
 
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent
 overspeed or overtorque of individual joints.
@@ -165,12 +189,18 @@ Please see the [example](examples/jacobian.rs).
 ## The tool and the base
 
 Since 1.3.2, robot can be equipped with
-the [tool](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Tool.html), defined as
-nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
-both
-additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
-now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
+the [tool](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Tool.html), defined as a `Pose`.
+The tool pose defines both additional translation and additional rotation. The "pose" as defined in forward and
+inverse kinematics now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
 on a [base](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+
+```rust
+use glam::DVec3;
+use rs_opw_kinematics::kinematic_traits::Pose;
+
+let base = Pose::from_translation(DVec3::new(0.0, 0.0, 0.5));
+let tool = Pose::from_translation(DVec3::new(0.0, 0.0, 1.0));
+```
 
 "Robot with the tool" and "Robot on the base" can be constructed around
 any [Kinematics](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
@@ -188,8 +218,9 @@ prepared for one location to make the same kind of movements in another location
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
-Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
-and calculated joint angles for the transformed (shifted and rotated) trajectory. See the
+Frame construction uses `glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
+original and transformed points, the Frame object can take "canonical" joint angles and calculated joint angles for the
+transformed (shifted and rotated) trajectory. See the
 [frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
 ## Individual link positions
@@ -272,13 +303,15 @@ The code below demonstrates how to create this structure, complete with tool,
 base, and constraints (see also [example](examples/complete_visible_robot.rs)):
 
 ```rust
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+use glam::{DVec3, Vec3};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::collisions::{
     CollisionBody, SafetyDistances, CheckMode, J_BASE, J2, J3, J4, J6, J_TOOL, NEVER_COLLIDES,
 };
+use rs_opw_kinematics::kinematic_traits::Pose;
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::pose::Pose32;
 use rs_read_trimesh::load_trimesh; // loads .stl, .ply, .obj and .dae. Supports scaling. 
 
 /// Create the sample robot we will visualize. This function creates
@@ -326,23 +359,17 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         // Base link mesh
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
         // Tool mesh. Load it from .ply file for feature demonstration
         load_trimesh("src/tests/data/flag.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. Past this transform is the TCP.
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5).into(),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         // Objects around the robot, with global transforms for them.
         vec![
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(-1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
-            CollisionBody { mesh: monolith,         pose: Isometry3::translation(0., -1., 0.) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(1.0, 0.0, 0.0)) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(-1.0, 0.0, 0.0)) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(0.0, 1.0, 0.0)) },
+            CollisionBody { mesh: monolith,         pose: Pose32::from_translation(Vec3::new(0.0, -1.0, 0.0)) },
         ],
         SafetyDistances {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
@@ -585,7 +612,7 @@ rs-opw-kinematics = { version = ">=1.8.0, <2.0.0", default-features = false }
 
 In this case, import of URDF and YAML files will be inaccessible, visualization and
 collision detection will not work either, and used dependencies
-will be limited to the single _nalgebra_ crate.
+will be limited to the core kinematics dependency set.
 
 # Testing
 

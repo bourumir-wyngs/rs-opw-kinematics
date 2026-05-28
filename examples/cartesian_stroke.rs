@@ -3,7 +3,7 @@ use anyhow::Result;
 use anyhow::anyhow;
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
 use {
-    nalgebra::{Isometry3, Translation3, UnitQuaternion},
+    glam::{DVec3, Vec3},
     rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
@@ -12,6 +12,7 @@ use {
     rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
+    rs_opw_kinematics::pose::Pose32,
     rs_opw_kinematics::rrt::RRTPlanner,
     rs_opw_kinematics::utils,
     rs_read_trimesh::load_trimesh,
@@ -56,31 +57,25 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
             load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 0.)?,
         ],
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
         load_trimesh("src/tests/data/flag.stl", 0.)?,
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         vec![
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(-1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(-1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., 1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, 1.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., -1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, -1.0, 0.0)),
             },
         ],
         SafetyDistances {

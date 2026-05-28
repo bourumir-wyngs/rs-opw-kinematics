@@ -7,8 +7,8 @@ this file in the same change so the tracker reflects reality.
 
 - [ ] Make the crate API and main implementation glam-native, not a nalgebra API
   wrapped in conversions.
-- [ ] Migrate exact OPW forward and inverse kinematics first.
-- [ ] Keep the no-default feature slice passing as the first hard checkpoint.
+- [x] Migrate exact OPW forward and inverse kinematics first.
+- [x] Keep the no-default feature slice passing as the first hard checkpoint.
 - [ ] Port path planning after the core solver and collision-aware shape layer.
 - [ ] Port visualization last.
 - [ ] Remove `nalgebra` as a normal direct dependency.
@@ -58,20 +58,21 @@ planning, and visualization.
 
 ## Parry Decision
 
-The repo currently resolves `parry3d` 0.25.x, whose math API is nalgebra-based.
-Current `parry3d` 0.26.x exposes `parry3d::math::Pose` as a glamx/glam-style
-pose type.
+Before Phase 6, the repo resolved `parry3d` 0.25.x, whose math API was
+nalgebra-based. The migration now resolves `parry3d` 0.26.x, whose
+`parry3d::math::Pose` is a glamx/glam-style f32 pose type.
 
 - [x] Use `parry3d` 0.26.x for the glam migration.
 - [x] Use `rs-read-trimesh` in its default configuration for the glam migration.
   `rs-read-trimesh` 2.0.9 advertises `default = [parry_26]`.
 - [x] Prefer the Parry 0.26.x glam-style API over adding long-lived nalgebra
   conversions around collision queries.
-- [ ] During implementation, if `parry3d` 0.26.x or default `rs-read-trimesh`
-  does not work in this repo, stop and describe the incompatibility before
-  adding a workaround.
-- [ ] After the Parry decision, run `cargo tree -i nalgebra` and record why any
-  remaining nalgebra path still exists.
+- [x] `parry3d` 0.26.x and default `rs-read-trimesh` work in this repo with
+  `cargo test --no-default-features --features allow_filesystem,collisions`.
+- [x] After the Parry decision,
+  `cargo tree --no-default-features --features allow_filesystem,collisions -i nalgebra`
+  shows only this crate's remaining direct dependency; Parry no longer pulls
+  nalgebra transitively.
 
 ## Phase 0: Feature Hygiene and Baseline
 
@@ -214,7 +215,7 @@ Phase 4 checkpoints:
 - [x] Port YAML pose conversion helpers.
 - [x] Port integration tests that read `pose.translation`.
 - [x] Port integration tests that read or mutate `pose.rotation`.
-- [x] Port integration tests that construct nalgebra isometries.
+- [x] Port integration tests that previously constructed nalgebra isometries.
 - [x] Port `examples/basic.rs`.
 - [x] Port `examples/basic_readme.rs`.
 - [x] Port `examples/constraints.rs`.
@@ -222,10 +223,10 @@ Phase 4 checkpoints:
 - [x] Port `examples/jacobian.rs`.
 - [x] Port `examples/parallelogram.rs`.
 - [x] Port `examples/tool_and_base.rs`.
-- [ ] Update README `Pose` section.
-- [ ] Update README Jacobian velocity/torque vector section.
-- [ ] Update README tool/base examples.
-- [ ] Update README frame examples.
+- [x] Update README `Pose` section.
+- [x] Update README Jacobian velocity/torque vector section.
+- [x] Update README tool/base examples.
+- [x] Update README frame examples.
 - [x] Update doctests in `kinematic_traits`, `tool`, `frame`, and
   `parallelogram`.
 
@@ -242,43 +243,44 @@ Phase 5 checkpoints:
 
 ## Phase 6: Collision and Shape Layer
 
-- [ ] Complete the Parry 0.26.x upgrade evaluation.
-- [ ] Port `CollisionBody::pose`.
-- [ ] Port `BaseBody::base_pose`.
-- [ ] Port `PositionedJoint::transform`.
-- [ ] Port public collision placement APIs to glam-native f32 pose data.
-- [ ] Port `KinematicsWithShape::new` base transform parameter.
-- [ ] Port `KinematicsWithShape::new` tool transform parameter.
-- [ ] Port `KinematicsWithShape::with_safety` base transform parameter.
-- [ ] Port `KinematicsWithShape::with_safety` tool transform parameter.
-- [ ] Keep `TriMesh` as-is unless replacing Parry is explicitly added to scope.
-- [ ] If on Parry 0.26.x, map crate f32 poses to `parry3d::math::Pose`.
-- [ ] If still on Parry 0.25.x, contain temporary nalgebra conversions inside
-  `collisions.rs`.
-- [ ] Port `transform_mesh`.
-- [ ] Port collision tests.
+- [x] Complete the Parry 0.26.x upgrade evaluation.
+- [x] Port `CollisionBody::pose`.
+- [x] Port `BaseBody::base_pose`.
+- [x] Port `PositionedJoint::transform`.
+- [x] Port public collision placement APIs to glam-native f32 pose data.
+- [x] Port `KinematicsWithShape::new` base transform parameter.
+- [x] Port `KinematicsWithShape::new` tool transform parameter.
+- [x] Port `KinematicsWithShape::with_safety` base transform parameter.
+- [x] Port `KinematicsWithShape::with_safety` tool transform parameter.
+- [x] Keep `TriMesh` as-is unless replacing Parry is explicitly added to scope.
+- [x] If on Parry 0.26.x, map crate f32 poses to `parry3d::math::Pose`.
+- [x] Not applicable: Parry 0.26.x is in use, so `collisions.rs` does not need
+  temporary nalgebra conversions.
+- [x] Port `transform_mesh`.
+- [x] Port collision tests.
 
 Phase 6 checkpoints:
 
-- [ ] `cargo test --no-default-features --features collisions`
-- [ ] `cargo test --no-default-features --features allow_filesystem,collisions`
-- [ ] `cargo tree -i nalgebra` inspected for remaining Parry-related paths.
+- [x] `cargo test --no-default-features --features collisions`
+- [x] `cargo test --no-default-features --features allow_filesystem,collisions`
+- [x] `cargo tree -i nalgebra` inspected for remaining Parry-related paths.
 
 ## Phase 7: Path Planning
 
-- [ ] Port `src/path_plan/rrt.rs` if any type fallout reaches it.
-- [ ] Port `src/path_plan/cartesian.rs`.
-- [ ] Port `AnnotatedPose`.
-- [ ] Port pose interpolation to `DVec3::lerp` and `DQuat::slerp`.
-- [ ] Replace nalgebra translation construction in intermediate poses.
-- [ ] Keep collision-aware IK behavior unchanged.
-- [ ] Port RRT/path planning examples.
+- [x] Port `src/path_plan/rrt.rs` if any type fallout reaches it.
+- [x] Port `src/path_plan/cartesian.rs`.
+- [x] Port `AnnotatedPose`.
+- [x] Port pose interpolation to `DVec3::lerp` and `DQuat::slerp`.
+- [x] Replace nalgebra translation construction in intermediate poses.
+- [x] Keep collision-aware IK behavior unchanged.
+- [x] Port RRT/path planning examples.
 
 Phase 7 checkpoints:
 
-- [ ] `cargo test --no-default-features --features rrt`
-- [ ] `cargo check --no-default-features --features rrt --example path_planning_rrt`
-- [ ] `cargo check --no-default-features --features rrt,allow_filesystem --example cartesian_stroke`
+- [x] `cargo test --no-default-features --features rrt`
+- [x] `cargo check --no-default-features --features rrt --example path_planning_rrt`
+- [x] `cargo check --no-default-features --features rrt,allow_filesystem --example cartesian_stroke`
+- [x] Extra check: `cargo check --no-default-features --features rrt,allow_filesystem --example path_planning_rrt`
 
 ## Phase 8: Visualization
 

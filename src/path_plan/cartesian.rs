@@ -6,7 +6,6 @@ use crate::rrt::RRTPlanner;
 use crate::utils;
 use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
-use nalgebra::Translation3;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
 use std::sync::Arc;
@@ -115,8 +114,8 @@ bitflags! {
 
 #[derive(Clone, Copy)]
 pub(crate) struct AnnotatedPose {
-    pub (crate) pose: Pose,
-    pub (crate) flags: PathFlags,
+    pub(crate) pose: Pose,
+    pub(crate) flags: PathFlags,
 }
 
 /// Annotated joints specifying if it is joint-joint or Cartesian move (to this joint, not from)
@@ -130,15 +129,11 @@ impl AnnotatedPose {
     pub(crate) fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
 
-        // Interpolate translation (linearly)
-        let self_translation = &self.pose.translation.vector;
-        let other_translation = &other.pose.translation.vector;
-
-        let translation = self_translation.lerp(other_translation, p);
-        let rotation = self.pose.rotation.slerp(&other.pose.rotation, p);
+        let translation = self.pose.translation.lerp(other.pose.translation, p);
+        let rotation = self.pose.rotation.slerp(other.pose.rotation, p);
 
         AnnotatedPose {
-            pose: Pose::from_parts(Translation3::from(translation), rotation),
+            pose: Pose::from_parts(translation, rotation),
             flags: PathFlags::LIN_INTERP,
         }
     }
@@ -164,19 +159,19 @@ fn flag_representation(flags: &PathFlags) -> String {
 
 impl fmt::Debug for AnnotatedPose {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let translation = self.pose.translation.vector;
+        let translation = self.pose.translation;
         let rotation = self.pose.rotation;
         write!(
             formatter,
-            "{}: [{:.3}, {:.3}, {:.3}], quat {{ w: {:.3}, i: {:.3}, j: {:.3}, k: {:.3} }}",
+            "{}: [{:.3}, {:.3}, {:.3}], quat {{ x: {:.3}, y: {:.3}, z: {:.3}, w: {:.3} }}",
             flag_representation(&self.flags),
             translation.x,
             translation.y,
             translation.z,
-            rotation.w,
-            rotation.i,
-            rotation.j,
-            rotation.k
+            rotation.x,
+            rotation.y,
+            rotation.z,
+            rotation.w
         )
     }
 }
@@ -205,7 +200,6 @@ struct Transition {
 }
 
 impl Cartesian<'_> {
-
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
     pub fn plan(
@@ -230,9 +224,7 @@ impl Cartesian<'_> {
         strategies
             .par_iter()
             .find_map_any(|strategy| {
-                match self.probe_strategy(
-                    strategy, &poses, &stop
-                ) {
+                match self.probe_strategy(strategy, &poses, &stop) {
                     Ok(outcome) => {
                         println!("Strategy worked out: {:?}", strategy);
                         stop.store(true, Ordering::Relaxed);
@@ -268,7 +260,7 @@ impl Cartesian<'_> {
         // Push the strategy point, from here the move must be already CARTESIAN
         trace.push(AnnotatedJoints {
             joints: *work_path_start,
-            flags: PathFlags::LAND, 
+            flags: PathFlags::LAND,
         });
 
         let mut step = 1;
@@ -276,9 +268,7 @@ impl Cartesian<'_> {
         let mut pairs_iterator = poses.windows(2);
 
         while let Some([from, to]) = pairs_iterator.next() {
-            let prev = *trace
-                .last()
-                .expect("Should have start and strategy points");
+            let prev = *trace.last().expect("Should have start and strategy points");
 
             let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
             match transition {
@@ -300,9 +290,7 @@ impl Cartesian<'_> {
                 Err(failed_transition) => {
                     let mut success = false;
                     // Try with altered pose
-                    println!(
-                        "Closing step {:?} with RRT", step
-                    );
+                    println!("Closing step {:?} with RRT", step);
                     let solutions = self.robot.inverse_continuing(&to.pose, &prev.joints);
                     for next in solutions {
                         let path = self.rrt.plan_rrt(&prev.joints, &next, self.robot, stop);
@@ -385,10 +373,7 @@ impl Cartesian<'_> {
             let second_track =
                 self.step_adaptive_linear_transition(&mid_step, &midpose, to, depth + 1)?;
 
-            Ok(first_track
-                .into_iter()
-                .chain(second_track)
-                .collect())
+            Ok(first_track.into_iter().chain(second_track).collect())
         } else {
             Err(Transition {
                 from: *from,
@@ -481,12 +466,12 @@ impl Cartesian<'_> {
     /// Add intermediate poses. start and end poses are not added.
     fn add_intermediate_poses(&self, start: &Pose, end: &Pose, poses: &mut Vec<AnnotatedPose>) {
         // Calculate the translation difference and distance
-        let translation_diff = end.translation.vector - start.translation.vector;
-        let translation_distance = translation_diff.norm();
+        let translation_diff = end.translation - start.translation;
+        let translation_distance = translation_diff.length();
 
         // Calculate the rotation difference and angle
         let rotation_diff = end.rotation * start.rotation.inverse();
-        let rotation_angle = rotation_diff.angle();
+        let rotation_angle = rotation_diff.to_scaled_axis().length();
 
         // Calculate the number of steps required for translation and rotation
         let translation_steps = (translation_distance / self.check_step_m).ceil() as usize;
@@ -503,12 +488,12 @@ impl Cartesian<'_> {
             let fraction = i as f64 / steps as f64;
 
             // Interpolate translation and rotation
-            let intermediate_translation = start.translation.vector + translation_step * i as f64;
-            let intermediate_rotation = start.rotation.slerp(&end.rotation, fraction);
+            let intermediate_translation = start.translation + translation_step * i as f64;
+            let intermediate_rotation = start.rotation.slerp(end.rotation, fraction);
 
             // Construct the intermediate pose
             let intermediate_pose =
-                Pose::from_parts(intermediate_translation.into(), intermediate_rotation);
+                Pose::from_parts(intermediate_translation, intermediate_rotation);
 
             poses.push(AnnotatedPose {
                 pose: intermediate_pose,

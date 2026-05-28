@@ -4,20 +4,21 @@ use anyhow::anyhow;
 
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
 use {
-    std::sync::atomic::AtomicBool,
-    std::time::Instant,
-    nalgebra::{Isometry3, Translation3, UnitQuaternion},
-    rs_opw_kinematics::kinematic_traits::{Joints, Kinematics},
+    glam::{DVec3, Vec3},
+    rs_opw_kinematics::collisions::CollisionBody,
+    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
+    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
+    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
+    rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
-    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
-    rs_opw_kinematics::collisions::CollisionBody,
+    rs_opw_kinematics::pose::Pose32,
+    rs_opw_kinematics::rrt::dual_rrt_connect,
     rs_opw_kinematics::utils,
     rs_opw_kinematics::utils::dump_joints,
-    rs_opw_kinematics::rrt::dual_rrt_connect,
     rs_read_trimesh::load_trimesh,
-    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
-    rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL}
+    std::sync::atomic::AtomicBool,
+    std::time::Instant,
 };
 
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
@@ -65,35 +66,29 @@ pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
         // Base link mesh
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
         // Tool mesh. Load it from .ply file for feature demonstration
         load_trimesh("src/tests/data/flag.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(-1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(-1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., 1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, 1.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., -1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, -1.0, 0.0)),
             },
         ],
         SafetyDistances {
@@ -110,36 +105,42 @@ pub fn create_rx160_robot() -> anyhow::Result<KinematicsWithShape, String> {
                 ((J4, J6), 0.02_f32),     // reduce distance requirement to 2 cm.
             ]),
             mode: CheckMode::AllCollsions, // we need to report all for visualization
-            // mode: CheckMode::NoCheck, // this is very fast but no collision check
+                                           // mode: CheckMode::NoCheck, // this is very fast but no collision check
         },
     ))
 }
-
 
 /// Plans a path from `start` to `goal` joint configuration, using `KinematicsWithShape` for collision checking.
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
 fn plan_path(
     kinematics: &KinematicsWithShape,
-    start: Joints, goal: Joints,
+    start: Joints,
+    goal: Joints,
 ) -> Result<Vec<Vec<f64>>, String> {
     let collision_free = |joint_angles: &[f64]| -> bool {
         let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
         !kinematics.collides(joints)
     };
 
-    // Constraint compliant random joint configuration generator. 
+    // Constraint compliant random joint configuration generator.
     let random_joint_angles = || -> Vec<f64> {
         // RRT requires vector and we return array so convert
-        kinematics.constraints()
-            .expect("Set joint ranges on kinematics").random_angles().to_vec()
+        kinematics
+            .constraints()
+            .expect("Set joint ranges on kinematics")
+            .random_angles()
+            .to_vec()
     };
 
     // Plan the path with RRT
     let stop = AtomicBool::new(false);
     dual_rrt_connect(
-        &start, &goal, collision_free,
-        random_joint_angles, 3_f64.to_radians(), // Step size in joint space
-        2000,  // Max iterations
+        &start,
+        &goal,
+        collision_free,
+        random_joint_angles,
+        3_f64.to_radians(), // Step size in joint space
+        2000,               // Max iterations
         &stop,
     )
 }
@@ -177,7 +178,7 @@ fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
 }
 
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
-fn main() -> Result<()>{
+fn main() -> Result<()> {
     // Initialize kinematics with your robot's specific parameters
     let kinematics = create_rx160_robot().map_err(|e| anyhow!("Failed to create robot: {}", e))?;
 
@@ -194,12 +195,12 @@ fn main() -> Result<()>{
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     let goal = utils::joints(&[-120.0, -80.0, -90., 18.42, 82.23, 189.35]);
     example(start, goal, &kinematics)?;
-    
+
     Ok(())
 }
 
 #[cfg(all(feature = "rrt", feature = "rs-read-trimesh"))]
-fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Result<()>{
+fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Result<()> {
     let started = Instant::now();
     let path = plan_path(kinematics, start, goal);
     let spent = started.elapsed();

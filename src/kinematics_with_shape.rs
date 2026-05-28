@@ -4,11 +4,11 @@
 
 use crate::collisions::{BaseBody, CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions, J6};
+use crate::kinematic_traits::{J6, Joints, Kinematics, Pose, Singularity, Solutions};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
+use crate::pose::Pose32;
 use crate::tool::{Base, Tool};
-use nalgebra::Isometry3;
 use parry3d::shape::TriMesh;
 use std::sync::Arc;
 
@@ -63,9 +63,9 @@ impl KinematicsWithShape {
         constraints: Constraints,
         joint_meshes: [TriMesh; 6],
         base_mesh: TriMesh,
-        base_transform: Isometry3<f64>,
+        base_transform: Pose,
         tool_mesh: TriMesh,
-        tool_transform: Isometry3<f64>,
+        tool_transform: Pose,
         collision_environment: Vec<CollisionBody>,
         first_collision_only: bool,
     ) -> Self {
@@ -80,16 +80,15 @@ impl KinematicsWithShape {
                 joint_meshes,
                 base: Some(BaseBody {
                     mesh: base_mesh,
-                    base_pose: base_transform.cast(),
+                    base_pose: base_transform.to_f32(),
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
-                safety: SafetyDistances::standard(
-                    if first_collision_only {
-                        CheckMode::FirstCollisionOnly
-                    } else {
-                        CheckMode::AllCollsions
-                    }),
+                safety: SafetyDistances::standard(if first_collision_only {
+                    CheckMode::FirstCollisionOnly
+                } else {
+                    CheckMode::AllCollsions
+                }),
             },
         }
     }
@@ -131,9 +130,9 @@ impl KinematicsWithShape {
         constraints: Constraints,
         joint_meshes: [TriMesh; 6],
         base_mesh: TriMesh,
-        base_transform: Isometry3<f64>,
+        base_transform: Pose,
         tool_mesh: TriMesh,
-        tool_transform: Isometry3<f64>,
+        tool_transform: Pose,
         collision_environment: Vec<CollisionBody>,
         safety: SafetyDistances,
     ) -> Self {
@@ -148,7 +147,7 @@ impl KinematicsWithShape {
                 joint_meshes,
                 base: Some(BaseBody {
                     mesh: base_mesh,
-                    base_pose: base_transform.cast(),
+                    base_pose: base_transform.to_f32(),
                 }),
                 tool: Some(tool_mesh),
                 collision_environment,
@@ -158,8 +157,8 @@ impl KinematicsWithShape {
     }
 
     fn create_robot_with_base_and_tool(
-        base_transform: Isometry3<f64>,
-        tool_transform: Isometry3<f64>,
+        base_transform: Pose,
+        tool_transform: Pose,
         opw_parameters: Parameters,
         constraints: Constraints,
     ) -> Tool {
@@ -198,9 +197,9 @@ pub struct PositionedJoint<'a> {
     /// A reference to the associated `JointBody` that defines the shapes and collision behavior of the joint.
     pub joint_body: &'a TriMesh,
 
-    /// The combined transformation matrix (Isometry3), representing the precomputed global position
+    /// The combined rigid transform representing the precomputed global position
     /// and orientation of the joint in the world space.
-    pub transform: Isometry3<f32>,
+    pub transform: Pose32,
 }
 
 impl KinematicsWithShape {
@@ -218,10 +217,10 @@ impl KinematicsWithShape {
     /// * A new instance of `PositionedRobot` containing the positioned joints with precomputed transforms.
     pub fn positioned_robot(&self, joint_positions: &Joints) -> PositionedRobot<'_> {
         // Compute the global transforms for each joint using forward kinematics
-        let global_transforms: [Isometry3<f32>; 6] = self
+        let global_transforms: [Pose32; 6] = self
             .kinematics
             .forward_with_joint_poses(joint_positions)
-            .map(|pose| pose.cast::<f32>());
+            .map(|pose| pose.to_f32());
 
         // Create a vector of PositionedJoints without mut
         let positioned_joints: Vec<PositionedJoint> = self
@@ -237,9 +236,9 @@ impl KinematicsWithShape {
 
         // Return the PositionedRobot with all the positioned joints
         let positioned_tool = self.body.tool.as_ref().map(|tool| PositionedJoint {
-                joint_body: tool,
-                transform: global_transforms[J6], // TCP pose
-            });
+            joint_body: tool,
+            transform: global_transforms[J6], // TCP pose
+        });
 
         // Convert to vector of references
         let referenced_environment = self.body.collision_environment.iter().collect();
@@ -269,7 +268,7 @@ impl KinematicsWithShape {
 
     /// Check for collisions for the given joint position. Both self-collisions and collisions
     /// with environment are checked. This method simply returns true (if collides) or false (if not)
-    // If safety distances are specified, also returns true for solutions where robot comes 
+    // If safety distances are specified, also returns true for solutions where robot comes
     // too close to collision rather than collides.
     pub fn collides(&self, joints: &Joints) -> bool {
         self.body.collides(joints, self.kinematics.as_ref())
@@ -278,8 +277,8 @@ impl KinematicsWithShape {
     /// Return non colliding offsets, tweaking each joint plus minus either side, either into
     /// 'to' or into 'from'. This is required for planning algorithms like A*. We can do
     ///  less collision checks as we only need to check the joint branch of the robot we moved.
-    // If safety distances are specified, also discards solutions where robot comes 
-    // too close to collision rather than collides. 
+    // If safety distances are specified, also discards solutions where robot comes
+    // too close to collision rather than collides.
     pub fn non_colliding_offsets(&self, joints: &Joints, from: &Joints, to: &Joints) -> Solutions {
         self.body
             .non_colliding_offsets(joints, from, to, self.kinematics.as_ref())

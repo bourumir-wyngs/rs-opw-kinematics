@@ -3,18 +3,19 @@ use anyhow::Result;
 use anyhow::anyhow;
 #[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 use {
-    nalgebra::{Isometry3, Translation3, UnitQuaternion},
+    glam::{DVec3, Vec3},
 
     rs_opw_kinematics::collisions::CollisionBody,
 
     rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
     rs_opw_kinematics::constraints::{BY_PREV, Constraints},
-    rs_opw_kinematics::kinematic_traits::Kinematics,
     rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
+    rs_opw_kinematics::kinematic_traits::{Kinematics, Pose},
     // This example only makes sense with collisions feature enabled
     // Visualization can optionally be disabled.
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
+    rs_opw_kinematics::pose::Pose32,
     rs_opw_kinematics::utils::dump_solutions,
 
     rs_read_trimesh::load_trimesh,
@@ -74,35 +75,29 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         // Base link mesh
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
         // Tool mesh. Load it from .ply file for feature demonstration
         load_trimesh("src/tests/data/flag.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. The point past this
         // transform is known as tool center point (TCP).
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         // Objects around the robot, with global transforms for them.
         vec![
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(-1., 0., 0.),
+                pose: Pose32::from_translation(Vec3::new(-1.0, 0.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., 1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, 1.0, 0.0)),
             },
             CollisionBody {
                 mesh: monolith.clone(),
-                pose: Isometry3::translation(0., -1., 0.),
+                pose: Pose32::from_translation(Vec3::new(0.0, -1.0, 0.0)),
             },
         ],
         SafetyDistances {
@@ -138,7 +133,7 @@ fn main() -> Result<()> {
     let robot = create_rx160_robot().map_err(|err| anyhow!(err))?;
 
     // Do some inverse kinematics to show the concept.
-    let pose = Isometry3::from_parts(Translation3::new(0.0, 0.0, 1.5), UnitQuaternion::identity());
+    let pose = Pose::from_translation(DVec3::new(0.0, 0.0, 1.5));
 
     let solutions = robot.inverse(&pose);
     dump_solutions(&solutions);
