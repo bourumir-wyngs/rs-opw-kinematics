@@ -27,8 +27,8 @@ jobs:
     - name: Install cargo-semver-checks
       uses: taiki-e/install-action@cargo-semver-checks
 
-    - name: Check semver compatibility against 1.8.0
-      run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev 1.8.0 --release-type patch --only-explicit-features
+    - name: Check semver compatibility against 2.0.0
+      run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev 2.0.0 --release-type patch --only-explicit-features
 
-    - name: Check semver compatibility against 1.8.0 with yaml-rust2
-      run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev 1.8.0 --release-type patch --only-explicit-features --features yaml-rust2
+    - name: Check semver compatibility against 2.0.0 with yaml-rust2
+      run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev 2.0.0 --release-type patch --only-explicit-features --features yaml-rust2
