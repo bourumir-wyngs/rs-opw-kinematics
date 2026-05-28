@@ -4,20 +4,34 @@ use glam::{DQuat, DVec3, Quat, Vec3};
 use std::ops::Mul;
 
 /// Rigid f64 pose used by kinematics.
+///
+/// Constructors normalize `rotation`, and all pose operations assume the rotation remains a
+/// finite unit quaternion. The fields are public for ergonomic access; if you mutate `rotation`
+/// directly, you must keep it normalized.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
     /// Translation component in meters.
     pub translation: DVec3,
     /// Unit quaternion rotation component.
+    ///
+    /// Direct mutation must preserve a finite, normalized quaternion. Use `Pose::from_parts` to
+    /// construct or re-normalize a pose from raw rotation data.
     pub rotation: DQuat,
 }
 
 /// Rigid f32 pose used by collision and visualization layers.
+///
+/// Constructors normalize `rotation`, and all pose operations assume the rotation remains a
+/// finite unit quaternion. The fields are public for ergonomic access; if you mutate `rotation`
+/// directly, you must keep it normalized.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose32 {
     /// Translation component in meters.
     pub translation: Vec3,
     /// Unit quaternion rotation component.
+    ///
+    /// Direct mutation must preserve a finite, normalized quaternion. Use `Pose32::from_parts` to
+    /// construct or re-normalize a pose from raw rotation data.
     pub rotation: Quat,
 }
 
@@ -59,7 +73,9 @@ impl Pose {
     /// Creates a pose from translation and rotation.
     ///
     /// The rotation is normalized so callers do not need to pre-normalize
-    /// quaternions loaded from files or intermediate calculations.
+    /// quaternions loaded from files or intermediate calculations. If the public
+    /// `rotation` field is later mutated directly, callers must preserve this normalized
+    /// quaternion invariant.
     pub fn from_parts(translation: DVec3, rotation: DQuat) -> Self {
         assert_finite_dvec3(translation, "pose translation");
         Pose {
@@ -134,6 +150,10 @@ impl Pose32 {
     }
 
     /// Creates a pose from translation and rotation.
+    ///
+    /// The rotation is normalized so callers do not need to pre-normalize raw data. If the public
+    /// `rotation` field is later mutated directly, callers must preserve this normalized
+    /// quaternion invariant.
     pub fn from_parts(translation: Vec3, rotation: Quat) -> Self {
         assert_finite_vec3(translation, "pose32 translation");
         Pose32 {
