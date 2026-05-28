@@ -1,27 +1,21 @@
 //! Defines traits for direct and inverse kinematics.
- 
-extern crate nalgebra as na;
 
-use na::{Isometry3};
 use crate::constraints::Constraints;
+pub use crate::pose::Pose;
 
-/// Pose is used a pose of the robot tcp. It contains both Cartesian position and rotation quaternion
+/// Pose of the robot TCP. It contains a Cartesian position and a unit rotation quaternion.
 /// ```
-/// extern crate nalgebra as na;
-/// use na::{Isometry3, Translation3, UnitQuaternion, Vector3};
+/// use glam::{DQuat, DVec3};
+/// use rs_opw_kinematics::kinematic_traits::Pose;
 ///
-/// type Pose = Isometry3<f64>;
-///
-/// let translation = Translation3::new(1.0, 0.0, 0.0);
-/// // The quaternion should be normalized to represent a valid rotation.
-/// let rotation = UnitQuaternion::from_quaternion(na::Quaternion::new(1.0, 0.0, 0.0, 1.0).normalize());
+/// let translation = DVec3::new(1.0, 0.0, 0.0);
+/// let rotation = DQuat::from_rotation_z(std::f64::consts::FRAC_PI_2);
 /// let transform = Pose::from_parts(translation, rotation);
 /// ```
-pub type Pose = Isometry3<f64>;
 
 /// Defines kinematic singularity. A is a singularity when J5 = 0 (this is possible with
 /// any robot). The structure is reserved for other possible singularies but these require
-/// b = 0 and a1 = a2 so not possible with most of the robots. 
+/// b = 0 and a1 = a2 so not possible with most of the robots.
 /// Joints are counted from 1 to 6 in this comment.
 #[derive(PartialEq, Debug)]
 pub enum Singularity {
@@ -29,7 +23,7 @@ pub enum Singularity {
     A,
 }
 
-/// Six rotary joints of the robot with angles in radians. 
+/// Six rotary joints of the robot with angles in radians.
 pub type Joints = [f64; 6];
 
 // Define indices for easier reading (numbering in array starts from 0 and this one-off is
@@ -63,25 +57,25 @@ pub const ENV_START_IDX: usize = 1000;
 pub const JOINTS_AT_ZERO: Joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
 /// Special value that can be used with inverse_continuing, indicating that there
-/// are not previous joint value, but returned joints must be sorted to be as 
+/// are not previous joint value, but returned joints must be sorted to be as
 /// close as possible to the centers of the constraints. If no constraitns are set,
 /// zeroes are assumed.
 pub const CONSTRAINT_CENTERED: Joints = [f64::NAN, 0.0, 0.0, 0.0, 0.0, 0.0];
 
-/// For providing solutions. As invalid solutions are discarded, 
-/// this is a variable length vector (may be empty if robot cannot reach the 
+/// For providing solutions. As invalid solutions are discarded,
+/// this is a variable length vector (may be empty if robot cannot reach the
 /// given point).
 pub type Solutions = Vec<Joints>;
 
 /// Defines agreed functionality of direct and inverse kinematics and singularity detection.
 pub trait Kinematics: Send + Sync {
-    /// Find inverse kinematics (joint position) for this pose
+    /// Find inverse kinematics (joint position) for this glam-backed f64 pose.
     /// This function is faster but does not handle the singularity J5 = 0 well.
     /// All returned solutions are cross-checked with forward kinematics and
-    /// valid. 
+    /// valid.
     fn inverse(&self, pose: &Pose) -> Solutions;
 
-    /// Find inverse kinematics (joint position) for this pose
+    /// Find inverse kinematics (joint position) for this glam-backed f64 pose.
     /// This function handles the singularity J5 = 0 by keeping the previous values
     /// the values J4 and J6 from the previous solution
     /// Use CONSTRAINT_CENTERED as previous if there is no previous position but we prefer
@@ -89,7 +83,7 @@ pub trait Kinematics: Send + Sync {
     /// possible. "Previous" can be in a wide range, say 90000 degrees.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
 
-    /// Find forward kinematics (pose from joint positions).
+    /// Find forward kinematics (glam-backed f64 pose from joint positions).
     /// For 5 DOF robot, the rotation of the joint 6 should normally be 0.0
     /// but some other value can be given, meaning the tool is mounted with
     /// fixed rotation offset.
@@ -102,7 +96,6 @@ pub trait Kinematics: Send + Sync {
     /// This method is significantly faster
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions;
 
-
     /// Calculates the inverse kinematics for a robot while ignoring the rotation
     /// around joint 6. The position of the tool center point remains precise,
     /// but the rotation is approximate (rotation around the tool axis is ignored).
@@ -114,7 +107,7 @@ pub trait Kinematics: Send + Sync {
     /// Constraints are remembered here and can be used for generating random
     /// joint angles needed by RRT, or say providing limits of sliders in GUI.
     fn constraints(&self) -> &Option<Constraints>;
-    
+
     /// Detect the singularity. Returns either A type singularity or None if
     /// no singularity detected.
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity>;
@@ -169,6 +162,4 @@ pub trait Kinematics: Send + Sync {
     ///   each joint's position and orientation relative to the base frame.
     /// - The final pose (Pose 6) includes the `c4` offset, which accounts for the wrist length.    
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6];
-    
 }
-

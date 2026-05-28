@@ -1,5 +1,4 @@
-use nalgebra::Isometry3;
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics};
+use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 
@@ -10,7 +9,7 @@ fn main() {
 
     // Joints are an alias of [f64; 6], given in radians here.
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5];
-    let pose: Isometry3<f64> = robot.forward(&joints);
+    let pose: Pose = robot.forward(&joints);
     let when_continuing_from: Joints = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
 
     let _solutions = robot.inverse_continuing(&pose, &when_continuing_from);

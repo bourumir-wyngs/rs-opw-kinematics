@@ -123,55 +123,55 @@ Phase 1 checkpoints:
 
 ## Phase 2: Core OPW Kinematics
 
-- [ ] Redefine `kinematic_traits::Pose` to the new crate-owned type.
-- [ ] Update `Kinematics` trait docs.
-- [ ] Port `OPWKinematics::forward`.
-- [ ] Port `OPWKinematics::forward_with_joint_poses`.
-- [ ] Port `OPWKinematics::inverse_intern`.
-- [ ] Port `OPWKinematics::inverse_intern_5_dof`.
-- [ ] Port `OPWKinematics::inverse_continuing`.
-- [ ] Port `compare_poses`.
-- [ ] Remove cached nalgebra `unit_z` storage.
-- [ ] Replace nalgebra `Matrix3` usage with `glam::DMat3` or focused helpers.
-- [ ] Add helper for matrix construction from rows.
-- [ ] Add helper for explicit `(row, col)` rotation matrix access.
-- [ ] Verify quaternion component ordering: nalgebra used `w/i/j/k`, glam uses
+- [x] Redefine `kinematic_traits::Pose` to the new crate-owned type.
+- [x] Update `Kinematics` trait docs.
+- [x] Port `OPWKinematics::forward`.
+- [x] Port `OPWKinematics::forward_with_joint_poses`.
+- [x] Port `OPWKinematics::inverse_intern`.
+- [x] Port `OPWKinematics::inverse_intern_5_dof`.
+- [x] Port `OPWKinematics::inverse_continuing`.
+- [x] Port `compare_poses`.
+- [x] Remove cached nalgebra `unit_z` storage.
+- [x] Replace nalgebra `Matrix3` usage with `glam::DMat3` or focused helpers.
+- [x] Add helper for matrix construction from rows.
+- [x] Add helper for explicit `(row, col)` rotation matrix access.
+- [x] Verify quaternion component ordering: nalgebra used `w/i/j/k`, glam uses
   `x/y/z/w`.
-- [ ] Keep inverse solutions cross-checked with forward kinematics.
+- [x] Keep inverse solutions cross-checked with forward kinematics.
 
 Phase 2 checkpoints:
 
-- [ ] Forward kinematics tests match previous translation expectations.
-- [ ] Forward kinematics tests match previous orientation expectations.
-- [ ] Inverse kinematics tests still return valid cross-checked solutions.
-- [ ] Singularity tests still pass.
-- [ ] 5-DOF tests still pass.
+- [x] Forward kinematics tests match previous translation expectations.
+- [x] Forward kinematics tests match previous orientation expectations.
+- [x] Inverse kinematics tests still return valid cross-checked solutions.
+- [x] Singularity tests still pass.
+- [x] 5-DOF tests still pass.
 
 ## Phase 3: Always-Compiled Core Modules
 
 These modules are exported without feature gates, so the no-default crate cannot
 compile until they are ported or temporarily gated.
 
-- [ ] Port `src/tool.rs`.
-- [ ] Port `Tool`.
-- [ ] Port `Base`.
-- [ ] Port `LinearAxis`.
-- [ ] Port `Gantry`.
-- [ ] Port `src/frame.rs`.
-- [ ] Replace `Point3` API with glam-native point/vector usage.
-- [ ] Keep frame transforms rigid.
-- [ ] Port `src/parallelogram.rs`.
+- [x] Port `src/tool.rs`.
+- [x] Port `Tool`.
+- [x] Port `Base`.
+- [x] Port `LinearAxis`.
+- [x] Port `Gantry`.
+- [x] Port `src/frame.rs`.
+- [x] Replace `Point3` API with glam-native point/vector usage.
+- [x] Keep frame transforms rigid.
+- [x] Port `src/parallelogram.rs`.
 - [ ] Port `src/utils/utils.rs`.
 - [ ] Port pose dumping helpers.
 - [ ] Port pose assertion helpers.
 - [ ] Replace nalgebra vector helpers or move them behind compatibility feature.
-- [ ] Keep `src/jacobian.rs` building, either by porting it in Phase 4 before
+- [x] Keep `src/jacobian.rs` building, either by porting it in Phase 4 before
   running the no-default checkpoint or by temporarily feature-gating it.
 
 Phase 3 checkpoints:
 
-- [ ] `cargo check --no-default-features`
-- [ ] `cargo test --no-default-features`
+- [x] `cargo check --no-default-features`
+- [x] `cargo test --no-default-features`
 - [ ] `rg -n "nalgebra|Isometry3|Translation3|UnitQuaternion" src/kinematic_traits.rs src/kinematics_impl.rs src/tool.rs src/frame.rs src/parallelogram.rs src/utils`
   shows no unintended core usage.
 
@@ -193,8 +193,8 @@ API migration:
 
 Implementation migration:
 
-- [ ] Compute linear deltas with `DVec3`.
-- [ ] Compute angular deltas with quaternion delta scaled axis.
+- [x] Compute linear deltas with `DVec3`.
+- [x] Compute angular deltas with quaternion delta scaled axis.
 - [ ] Replace direct matrix inverse.
 - [ ] Replace SVD/pseudoinverse fallback.
 - [ ] Decide Jacobian singular fallback strategy.
@@ -206,42 +206,42 @@ Implementation migration:
 
 Phase 4 checkpoints:
 
-- [ ] `src/jacobian.rs` unit tests cover forward, inverse, velocity, torque, and
+- [x] `src/jacobian.rs` unit tests cover forward, inverse, velocity, torque, and
   matrix computation.
-- [ ] `cargo test --no-default-features`
+- [x] `cargo test --no-default-features`
 - [ ] Public Jacobian docs no longer describe velocity or force as an isometry.
 
 ## Phase 5: Core Tests, Examples, and Docs
 
-- [ ] Port `src/tests/test_utils.rs`.
-- [ ] Port YAML pose conversion helpers.
-- [ ] Port integration tests that read `pose.translation`.
-- [ ] Port integration tests that read or mutate `pose.rotation`.
-- [ ] Port integration tests that construct nalgebra isometries.
-- [ ] Port `examples/basic.rs`.
-- [ ] Port `examples/basic_readme.rs`.
-- [ ] Port `examples/constraints.rs`.
-- [ ] Port `examples/frame.rs`.
+- [x] Port `src/tests/test_utils.rs`.
+- [x] Port YAML pose conversion helpers.
+- [x] Port integration tests that read `pose.translation`.
+- [x] Port integration tests that read or mutate `pose.rotation`.
+- [x] Port integration tests that construct nalgebra isometries.
+- [x] Port `examples/basic.rs`.
+- [x] Port `examples/basic_readme.rs`.
+- [x] Port `examples/constraints.rs`.
+- [x] Port `examples/frame.rs`.
 - [ ] Port `examples/jacobian.rs`.
-- [ ] Port `examples/parallelogram.rs`.
-- [ ] Port `examples/tool_and_base.rs`.
+- [x] Port `examples/parallelogram.rs`.
+- [x] Port `examples/tool_and_base.rs`.
 - [ ] Update README `Pose` section.
 - [ ] Update README Jacobian velocity/torque vector section.
 - [ ] Update README tool/base examples.
 - [ ] Update README frame examples.
-- [ ] Update doctests in `kinematic_traits`, `tool`, `frame`, and
+- [x] Update doctests in `kinematic_traits`, `tool`, `frame`, and
   `parallelogram`.
 
 Phase 5 checkpoints:
 
-- [ ] `cargo test --no-default-features`
-- [ ] `cargo test --no-default-features --features allow_filesystem`
-- [ ] `cargo check --example basic`
-- [ ] `cargo check --example constraints`
-- [ ] `cargo check --example frame`
-- [ ] `cargo check --example jacobian`
-- [ ] `cargo check --example parallelogram`
-- [ ] `cargo check --example tool_and_base`
+- [x] `cargo test --no-default-features`
+- [x] `cargo test --no-default-features --features allow_filesystem`
+- [x] `cargo check --no-default-features --example basic`
+- [x] `cargo check --no-default-features --example constraints`
+- [x] `cargo check --no-default-features --example frame`
+- [x] `cargo check --no-default-features --example jacobian`
+- [x] `cargo check --no-default-features --example parallelogram`
+- [x] `cargo check --no-default-features --example tool_and_base`
 
 ## Phase 6: Collision and Shape Layer
 

@@ -18,10 +18,10 @@
 
 extern crate nalgebra as na;
 
-use na::{Matrix6, Vector6, Isometry3};
-use na::linalg::SVD;
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::utils::vector6_to_joints;
+use na::linalg::SVD;
+use na::{Isometry3, Matrix6, Vector6};
 
 /// This structure holds Jacobian matrix and provides methods to
 /// extract velocity and torgue information from it.
@@ -93,15 +93,22 @@ impl Jacobian {
     /// This method extracts the linear and angular velocities from the provided Isometry3
     /// and combines them into a single 6D vector. It then computes the joint velocities required
     /// to achieve the desired end-effector velocity using the `velocities_from_vector` method.
-    pub fn velocities(&self, desired_end_effector_velocity: &Isometry3<f64>) -> Result<Joints, &'static str> {
+    pub fn velocities(
+        &self,
+        desired_end_effector_velocity: &Isometry3<f64>,
+    ) -> Result<Joints, &'static str> {
         // Extract the linear velocity (translation) and angular velocity (rotation)
         let linear_velocity = desired_end_effector_velocity.translation.vector;
         let angular_velocity = desired_end_effector_velocity.rotation.scaled_axis();
 
         // Combine into a single 6D vector
         let desired_velocity = Vector6::new(
-            linear_velocity.x, linear_velocity.y, linear_velocity.z,
-            angular_velocity.x, angular_velocity.y, angular_velocity.z,
+            linear_velocity.x,
+            linear_velocity.y,
+            linear_velocity.z,
+            angular_velocity.x,
+            angular_velocity.y,
+            angular_velocity.z,
         );
 
         // Compute the joint velocities from the 6D vector
@@ -125,12 +132,8 @@ impl Jacobian {
     /// `Result<Joints, &'static str>` - Joint positions, with values representing
     /// joint velocities rather than angles or an error message if the computation fails.
     pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
-
         // Combine into a single 6D vector with 0 rotational part
-        let desired_velocity = Vector6::new(
-            vx, vy, vz,
-            0.0, 0.0, 0.0,
-        );
+        let desired_velocity = Vector6::new(vx, vy, vz, 0.0, 0.0, 0.0);
 
         // Compute the joint velocities from the 6D vector
         self.velocities_from_vector(&desired_velocity)
@@ -196,15 +199,18 @@ impl Jacobian {
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
     pub fn torques(&self, desired_force_isometry: &Isometry3<f64>) -> Joints {
-
         // Extract the linear velocity (translation) and angular velocity (rotation)
         let linear_force = desired_force_isometry.translation.vector;
         let angular_torgue = desired_force_isometry.rotation.scaled_axis();
 
         // Combine into a single 6D vector
         let desired_force_torgue_vector = Vector6::new(
-            linear_force.x, linear_force.y, linear_force.z,
-            angular_torgue.x, angular_torgue.y, angular_torgue.z,
+            linear_force.x,
+            linear_force.y,
+            linear_force.z,
+            angular_torgue.x,
+            angular_torgue.y,
+            angular_torgue.z,
         );
 
         let joint_torques = self.matrix.transpose() * desired_force_torgue_vector;
@@ -251,29 +257,40 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6<f64> {
+pub(crate) fn compute_jacobian(
+    robot: &impl Kinematics,
+    joints: &Joints,
+    epsilon: f64,
+) -> Matrix6<f64> {
     let mut jacobian = Matrix6::zeros();
     let current_pose = robot.forward(joints);
-    let current_position = current_pose.translation.vector;
+    let current_position = current_pose.translation;
     let current_orientation = current_pose.rotation;
 
     // Parallelize the loop using rayon
-    let jacobian_columns: Vec<_> = (0..6).map(|i| {
-        let mut perturbed_qs = *joints;
-        perturbed_qs[i] += epsilon;
-        let perturbed_pose = robot.forward(&perturbed_qs);
-        let perturbed_position = perturbed_pose.translation.vector;
-        let perturbed_orientation = perturbed_pose.rotation;
+    let jacobian_columns: Vec<_> = (0..6)
+        .map(|i| {
+            let mut perturbed_qs = *joints;
+            perturbed_qs[i] += epsilon;
+            let perturbed_pose = robot.forward(&perturbed_qs);
+            let perturbed_position = perturbed_pose.translation;
+            let perturbed_orientation = perturbed_pose.rotation;
 
-        let delta_position = (perturbed_position - current_position) / epsilon;
-        let delta_orientation = (perturbed_orientation * current_orientation.inverse()).scaled_axis() / epsilon;
+            let delta_position = (perturbed_position - current_position) / epsilon;
+            let delta_orientation =
+                (perturbed_orientation * current_orientation.inverse()).to_scaled_axis() / epsilon;
 
-        (delta_position, delta_orientation)
-    }).collect();
+            (delta_position, delta_orientation)
+        })
+        .collect();
 
     for (i, (delta_position, delta_orientation)) in jacobian_columns.into_iter().enumerate() {
-        jacobian.fixed_view_mut::<3, 1>(0, i).copy_from(&delta_position);
-        jacobian.fixed_view_mut::<3, 1>(3, i).copy_from(&delta_orientation);
+        jacobian[(0, i)] = delta_position.x;
+        jacobian[(1, i)] = delta_position.y;
+        jacobian[(2, i)] = delta_position.z;
+        jacobian[(3, i)] = delta_orientation.x;
+        jacobian[(4, i)] = delta_orientation.y;
+        jacobian[(5, i)] = delta_orientation.z;
     }
 
     jacobian
@@ -281,10 +298,11 @@ pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::{Translation3, UnitQuaternion, Vector3};
+    use super::*;
     use crate::constraints::Constraints;
     use crate::kinematic_traits::{Pose, Singularity, Solutions};
-    use super::*;
+    use glam::{DQuat, DVec3};
+    use nalgebra::Vector3;
 
     const EPSILON: f64 = 1e-6;
 
@@ -310,20 +328,21 @@ mod tests {
 
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
             panic!() // Not used in this test
-        }        
+        }
 
         /// Simple inverse kinematics for a single rotary joint of the length 1.
         fn inverse_continuing(&self, pose: &Pose, _previous: &Joints) -> Solutions {
-            let angle = pose.translation.vector[1].atan2(pose.translation.vector[0]);
+            let angle = pose.translation.y.atan2(pose.translation.x);
             vec![[angle, 0.0, 0.0, 0.0, 0.0, 0.0]]
         }
 
         fn forward(&self, qs: &Joints) -> Pose {
             // Forward kinematics for a single rotary joint robot
             let angle = qs[0];
-            let rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, angle);
-            let translation = Translation3::new(angle.cos(), angle.sin(), 0.0);
-            Isometry3::from_parts(translation, rotation)
+            Pose::from_parts(
+                DVec3::new(angle.cos(), angle.sin(), 0.0),
+                DQuat::from_rotation_z(angle),
+            )
         }
 
         fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
@@ -335,11 +354,17 @@ mod tests {
         }
     }
 
-
     fn assert_matrix_approx_eq(left: &Matrix6<f64>, right: &Matrix6<f64>, epsilon: f64) {
         for i in 0..6 {
             for j in 0..6 {
-                assert!((left[(i, j)] - right[(i, j)]).abs() < epsilon, "left[{0},{1}] = {2} is not approximately equal to right[{0},{1}] = {3}", i, j, left[(i, j)], right[(i, j)]);
+                assert!(
+                    (left[(i, j)] - right[(i, j)]).abs() < epsilon,
+                    "left[{0},{1}] = {2} is not approximately equal to right[{0},{1}] = {3}",
+                    i,
+                    j,
+                    left[(i, j)],
+                    right[(i, j)]
+                );
             }
         }
     }
@@ -349,14 +374,14 @@ mod tests {
         let robot = SingleRotaryJointRobot;
         let joints: Joints = [std::f64::consts::FRAC_PI_2, 0.0, 0.0, 0.0, 0.0, 0.0];
         let pose = robot.forward(&joints);
-        assert!((pose.translation.vector[0] - 0.0).abs() < EPSILON);
-        assert!((pose.translation.vector[1] - 1.0).abs() < EPSILON);
+        assert!((pose.translation.x - 0.0).abs() < EPSILON);
+        assert!((pose.translation.y - 1.0).abs() < EPSILON);
     }
 
     #[test]
     fn test_inverse_kinematics() {
         let robot = SingleRotaryJointRobot;
-        let pose = Isometry3::new(Vector3::new(0.0, 1.0, 0.0), na::zero());
+        let pose = Pose::from_translation(DVec3::new(0.0, 1.0, 0.0));
         let previous: Joints = [0.0; 6];
         let solutions = robot.inverse_continuing(&pose, &previous);
         assert_eq!(solutions.len(), 1);
@@ -391,12 +416,11 @@ mod tests {
         let initial_qs = [0.0; 6];
         let jacobian = Jacobian::new(&robot, &initial_qs, EPSILON);
 
-        // Given an end effector located 1 meter away from the axis of rotation, 
+        // Given an end effector located 1 meter away from the axis of rotation,
         // with the joint rotating at a speed of 1 radian per second, the tip velocity is
         // one meter per second. Given we start from the angle 0, it all goes to the y component.
         let desired_velocity_isometry =
-            Isometry3::new(Vector3::new(0.0, 1.0, 0.0),
-                           Vector3::new(0.0, 0.0, 1.0));
+            Isometry3::new(Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
         let result = jacobian.velocities(&desired_velocity_isometry);
 
         assert!(result.is_ok());
@@ -420,8 +444,7 @@ mod tests {
 
         // For a single joint robot, that we want on the torgue is what we need to put
         let desired_force_torque =
-            Isometry3::new(Vector3::new(0.0, 0.0, 0.0),
-                           Vector3::new(0.0, 0.0, 1.234));
+            Isometry3::new(Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.234));
 
         let joint_torques = jacobian.torques(&desired_force_torque);
         println!("Computed joint torques: {:?}", joint_torques);
@@ -434,6 +457,3 @@ mod tests {
         assert_eq!(joint_torques[5], 0.0);
     }
 }
-
-
-

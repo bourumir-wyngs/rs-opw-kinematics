@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
-    use nalgebra::{UnitQuaternion, Vector3};
     use crate::kinematic_traits::{Kinematics, Singularity};
-    use crate::parameters::opw_kinematics::Parameters;
     use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
     use crate::tests::test_utils;
+    use glam::DQuat;
+    use std::f64::consts::PI;
 
     #[test]
     fn test_load_yaml() {
@@ -28,22 +28,29 @@ mod tests {
     fn test_forward_ik() {
         let filename = "src/tests/data/cases.yaml";
         let result = test_utils::load_yaml(filename);
-        assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Failed to load or parse the YAML file: {}",
+            result.unwrap_err()
+        );
         let cases = result.expect("Expected a valid Cases struct after parsing");
         let all_parameters = test_utils::create_parameter_map();
         println!("Forward IK: {} test cases", cases.len());
 
         for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
-                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+                panic!(
+                    "Parameters for the robot [{}] are unknown",
+                    &case.parameters
+                )
             });
             let kinematics = OPWKinematics::new(*parameters);
 
             // Try forward on the initial data set first.
             let ik = kinematics.forward(&case.joints_in_radians());
-            let pose = test_utils::Pose::from_isometry(&ik);
+            let pose = test_utils::Pose::from_pose(&ik);
 
-            if !test_utils::are_isometries_approx_equal(&ik, &case.pose.as_isometry(), 0.00001) {
+            if !test_utils::are_poses_approx_equal(&ik, &case.pose.as_pose(), 0.00001) {
                 println!("Seems not equal");
                 println!("joints: {:?} ", &case.joints);
                 println!("case: {:?} ", &pose);
@@ -59,34 +66,49 @@ mod tests {
     fn test_forward_ik_with_joint_poses() {
         let filename = "src/tests/data/cases.yaml";
         let result = test_utils::load_yaml(filename);
-        assert!(result.is_ok(), "Failed to load or parse the YAML file: {}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Failed to load or parse the YAML file: {}",
+            result.unwrap_err()
+        );
         let cases = result.expect("Expected a valid Cases struct after parsing");
         let all_parameters = test_utils::create_parameter_map();
         println!("Forward IK: {} test cases", cases.len());
 
         for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
-                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+                panic!(
+                    "Parameters for the robot [{}] are unknown",
+                    &case.parameters
+                )
             });
             let kinematics = OPWKinematics::new(*parameters);
 
             // This test only checks the final pose so far.
             let joints = case.joints_in_radians();
             let ik = kinematics.forward_with_joint_poses(&joints)[5];
-            let pose = test_utils::Pose::from_isometry(&ik);
+            let pose = test_utils::Pose::from_pose(&ik);
 
-            let case_pose = case.pose.as_isometry();
-            if !test_utils::are_isometries_approx_equal(&ik, &case_pose, 0.00001) {
+            let case_pose = case.pose.as_pose();
+            if !test_utils::are_poses_approx_equal(&ik, &case_pose, 0.00001) {
                 println!("Seems not equal for {}", &case.id);
                 println!("joints: {:?} ", &case.joints);
                 println!("case: {:?} ", &pose);
                 println!("IK  : {:?} ", &case.pose);
                 println!("{}", parameters.to_yaml());
-                
+
                 println!("Checking for tcp-only condition");
-                assert!(test_utils::are_isometries_approx_equal(&case_pose, &kinematics.forward(&joints),0.0001));
+                assert!(test_utils::are_poses_approx_equal(
+                    &case_pose,
+                    &kinematics.forward(&joints),
+                    0.0001
+                ));
                 println!("Passed, checking for tcp-only result");
-                assert!(test_utils::are_isometries_approx_equal(&ik, &kinematics.forward(&joints),0.0001));
+                assert!(test_utils::are_poses_approx_equal(
+                    &ik,
+                    &kinematics.forward(&joints),
+                    0.0001
+                ));
                 println!("Passed??!!");
 
                 panic!("Forward kinematics of the primary pose seems not equal");
@@ -105,18 +127,34 @@ mod tests {
 
         for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
-                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+                panic!(
+                    "Parameters for the robot [{}] are unknown",
+                    &case.parameters
+                )
             });
             let kinematics = OPWKinematics::new(*parameters);
 
             // Exclude singularity cases that are covered by another test
-            if kinematics.kinematic_singularity(&case.joints_in_radians()).is_none() {
+            if kinematics
+                .kinematic_singularity(&case.joints_in_radians())
+                .is_none()
+            {
                 // Try forward on the initial data set first.
-                let solutions = kinematics.inverse(&case.pose.as_isometry());
-                if test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
-                                                         0.001_f64.to_radians()).is_none() {
-                    println!("**** No valid solution for case {} on {} ****", case.id, case.parameters);
-                    let joints_str = &case.joints.iter()
+                let solutions = kinematics.inverse(&case.pose.as_pose());
+                if test_utils::found_joints_approx_equal(
+                    &solutions,
+                    &case.joints_in_radians(),
+                    0.001_f64.to_radians(),
+                )
+                .is_none()
+                {
+                    println!(
+                        "**** No valid solution for case {} on {} ****",
+                        case.id, case.parameters
+                    );
+                    let joints_str = &case
+                        .joints
+                        .iter()
                         .map(|&val| format!("{:5.2}", val))
                         .collect::<Vec<String>>()
                         .join(" ");
@@ -152,18 +190,27 @@ mod tests {
                 //continue;
             }
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
-                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+                panic!(
+                    "Parameters for the robot [{}] are unknown",
+                    &case.parameters
+                )
             });
             let kinematics = OPWKinematics::new(*parameters);
-            let solutions = kinematics.inverse_continuing(
-                &case.pose.as_isometry(), &case.joints_in_radians());
-            let found_matching =
-                test_utils::found_joints_approx_equal(&solutions, &case.joints_in_radians(),
-                                                      0.001_f64.to_radians());
+            let solutions =
+                kinematics.inverse_continuing(&case.pose.as_pose(), &case.joints_in_radians());
+            let found_matching = test_utils::found_joints_approx_equal(
+                &solutions,
+                &case.joints_in_radians(),
+                0.001_f64.to_radians(),
+            );
             if !matches!(found_matching, Some(0)) {
-                println!("**** No valid solution: {:?} for case {} on {} ****",
-                         found_matching, case.id, case.parameters);
-                let joints_str = &case.joints.iter()
+                println!(
+                    "**** No valid solution: {:?} for case {} on {} ****",
+                    found_matching, case.id, case.parameters
+                );
+                let joints_str = &case
+                    .joints
+                    .iter()
                     .map(|&val| format!("{:5.2}", val))
                     .collect::<Vec<String>>()
                     .join(" ");
@@ -180,9 +227,12 @@ mod tests {
 
                 println!("---");
             }
-            assert!(matches!(found_matching, Some(0)),
-                    "Fully matching joints must come first. At {}, Expected Some(0), got {:?}",
-                    case.id, found_matching);
+            assert!(
+                matches!(found_matching, Some(0)),
+                "Fully matching joints must come first. At {}, Expected Some(0), got {:?}",
+                case.id,
+                found_matching
+            );
         }
     }
 
@@ -197,25 +247,28 @@ mod tests {
 
         for case in cases.iter() {
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
-                panic!("Parameters for the robot [{}] are unknown", &case.parameters)
+                panic!(
+                    "Parameters for the robot [{}] are unknown",
+                    &case.parameters
+                )
             });
             let kinematics = OPWKinematics::new(*parameters);
 
             // Use translation instead of full pose
-            let isometry = case.pose.as_isometry();
-            let solutions = kinematics.inverse_continuing_5dof(
-                &isometry, &case.joints_in_radians());
+            let pose = case.pose.as_pose();
+            let solutions = kinematics.inverse_continuing_5dof(&pose, &case.joints_in_radians());
             assert!(!solutions.is_empty());
 
             for solution in solutions {
                 // Check if TCP stays in the same location
                 let reconstructed = kinematics.forward(&solution);
-                let reconstructed_translation: Vector3<f64> = reconstructed.translation.vector;
-                let expected_translation: Vector3<f64> = isometry.translation.vector;
-                let translation_diff = (reconstructed_translation - expected_translation).norm();
+                let reconstructed_translation = reconstructed.translation;
+                let expected_translation = pose.translation;
+                let translation_diff = (reconstructed_translation - expected_translation).length();
                 assert!(
                     translation_diff < 1E-6,
-                    "Reconstructed translation does not match. Diff: {}", translation_diff
+                    "Reconstructed translation does not match. Diff: {}",
+                    translation_diff
                 );
             }
         }
@@ -247,7 +300,8 @@ mod tests {
 
         println!();
         println!("**** Singularity case ****");
-        let joints_str = &joints.iter()
+        let joints_str = &joints
+            .iter()
             .map(|&val| format!("{:5}", val))
             .collect::<Vec<String>>()
             .join(" ");
@@ -263,24 +317,46 @@ mod tests {
         }
 
         // Make sure singularity is found and included
-        let found_matching =
-            test_utils::found_joints_approx_equal(&solutions, &joints_in_radians, 0.001_f64.to_radians());
-        assert!(matches!(found_matching, Some(0)),
-                "Fully matching joints must come first. Expected Some(0), got {:?}", found_matching);
+        let found_matching = test_utils::found_joints_approx_equal(
+            &solutions,
+            &joints_in_radians,
+            0.001_f64.to_radians(),
+        );
+        assert!(
+            matches!(found_matching, Some(0)),
+            "Fully matching joints must come first. Expected Some(0), got {:?}",
+            found_matching
+        );
     }
 
     #[test]
     fn test_singularity_a() {
         // Assuming joint[4] close to π triggers A type singularity
         let robot = OPWKinematics::new(Parameters::irb2400_10());
-        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, PI, 0.0]).unwrap(),
-                   Singularity::A);
-        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, -PI, 0.0]).unwrap(),
-                   Singularity::A);
-        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 0.0, PI]).unwrap(),
-                   Singularity::A);
-        assert_eq!(robot.kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 3. * PI, 0.0]).unwrap(),
-                   Singularity::A);
+        assert_eq!(
+            robot
+                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, PI, 0.0])
+                .unwrap(),
+            Singularity::A
+        );
+        assert_eq!(
+            robot
+                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, -PI, 0.0])
+                .unwrap(),
+            Singularity::A
+        );
+        assert_eq!(
+            robot
+                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 0.0, PI])
+                .unwrap(),
+            Singularity::A
+        );
+        assert_eq!(
+            robot
+                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 3. * PI, 0.0])
+                .unwrap(),
+            Singularity::A
+        );
     }
 
     #[test]
@@ -302,7 +378,7 @@ mod tests {
         let mut pose = kinematics.forward(&joints);
 
         // Wipe the rotation
-        pose.rotation = UnitQuaternion::identity();
+        pose.rotation = DQuat::IDENTITY;
 
         // As this is 5 DOF robot now, J6 comes from "previous"
         let solutions = kinematics.inverse_continuing(&pose, &previous);
@@ -311,12 +387,13 @@ mod tests {
             // J6 must be as we passed.
             assert!(f64::abs(0.55 - &solution[5]) < 1E-6);
             // Translation must match
-            let reconstructed_translation: Vector3<f64> = kinematics.forward(solution).translation.vector;
-            let expected_translation: Vector3<f64> = pose.translation.vector;
-            let translation_diff = (reconstructed_translation - expected_translation).norm();
+            let reconstructed_translation = kinematics.forward(solution).translation;
+            let expected_translation = pose.translation;
+            let translation_diff = (reconstructed_translation - expected_translation).length();
             assert!(
                 translation_diff < 1E-6,
-                "Reconstructed translation does not match. Diff: {}", translation_diff
+                "Reconstructed translation does not match. Diff: {}",
+                translation_diff
             );
         }
     }

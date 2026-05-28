@@ -11,41 +11,39 @@
 //! the new joint position, as they would be required after applying the frame. The Frame in
 //! this package also implements the Kinematics trait if such would be required.
 
-use nalgebra::{Isometry3, Point3, Rotation3, Translation3, UnitQuaternion};
+use crate::constraints::Constraints;
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use glam::{DMat3, DQuat, DVec3};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
-use crate::constraints::Constraints;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
-
 
 /// Defines the frame that transforms the robot working area, moving and rotating it
 /// (not stretching). The frame can be created from 3 pairs of points, one defining
 /// the points before transforming and another after, or alternatively 1 pair is enough
 /// if we assume there is no rotation.
 pub struct Frame {
-    pub robot: Arc<dyn Kinematics>,  // The robot
+    pub robot: Arc<dyn Kinematics>, // The robot
 
     /// The frame transform, normally computed with either Frame::translation or Frame::isometry
-    pub frame: Isometry3<f64>,
+    pub frame: Pose,
 }
 
 impl Frame {
     /// Compute the frame transform that may include only shift (but not rotation)
-    pub fn translation(p: Point3<f64>, q: Point3<f64>) -> Isometry3<f64> {
-        let translation = q - p;
-        Isometry3::from_parts(Translation3::from(translation), nalgebra::UnitQuaternion::identity())
+    pub fn translation(p: DVec3, q: DVec3) -> Pose {
+        Pose::from_translation(q - p)
     }
 
     /// Compute the frame transform that may include shift and rotation (but not stretching)
     pub fn frame(
-        p1: Point3<f64>,
-        p2: Point3<f64>,
-        p3: Point3<f64>,
-        q1: Point3<f64>,
-        q2: Point3<f64>,
-        q3: Point3<f64>,
-    ) -> Result<Isometry3<f64>, Box<dyn Error>> {
+        p1: DVec3,
+        p2: DVec3,
+        p3: DVec3,
+        q1: DVec3,
+        q2: DVec3,
+        q3: DVec3,
+    ) -> Result<Pose, Box<dyn Error>> {
         const NON_ISOMETRY_TOLERANCE: f64 = 0.005; // Tolerance how much the isometry can be actually not
         // an isometry (distance between points differs). 5 mm looks like a reasonable check.
         if !is_valid_isometry(&p1, &p2, &p3, &q1, &q2, &q3, NON_ISOMETRY_TOLERANCE) {
@@ -55,7 +53,7 @@ impl Frame {
         let v1 = p2 - p1;
         let v2 = p3 - p1;
 
-        if v1.cross(&v2).norm() == 0.0 {
+        if v1.cross(v2).length() == 0.0 {
             return Err(Box::new(ColinearPoints::new(p1, p2, p3, true)));
         }
 
@@ -63,30 +61,26 @@ impl Frame {
         let w1 = q2 - q1;
         let w2 = q3 - q1;
 
-        if w1.cross(&w2).norm() == 0.0 {
+        if w1.cross(w2).length() == 0.0 {
             return Err(Box::new(ColinearPoints::new(q1, q2, q3, false)));
         }
 
         // Create orthonormal bases
         let b1 = v1.normalize();
-        let b2 = v1.cross(&v2).normalize();
-        let b3 = b1.cross(&b2);
+        let b2 = v1.cross(v2).normalize();
+        let b3 = b1.cross(b2);
 
         let d1 = w1.normalize();
-        let d2 = w1.cross(&w2).normalize();
-        let d3 = d1.cross(&d2);
+        let d2 = w1.cross(w2).normalize();
+        let d3 = d1.cross(d2);
 
-        let rotation_matrix = nalgebra::Matrix3::from_columns(&[
-            d1, d2, d3,
-        ]) * nalgebra::Matrix3::from_columns(&[
-            b1, b2, b3,
-        ]).transpose();
+        let rotation_matrix =
+            DMat3::from_cols(d1, d2, d3) * DMat3::from_cols(b1, b2, b3).transpose();
 
-        let rotation_matrix = Rotation3::from_matrix_unchecked(rotation_matrix);
-        let rotation = UnitQuaternion::from_rotation_matrix(&rotation_matrix);
-        let translation = q1 - rotation.transform_point(&p1);
+        let rotation = DQuat::from_mat3(&rotation_matrix);
+        let translation = q1 - rotation * p1;
 
-        Ok(Isometry3::from_parts(translation.into(), rotation))
+        Ok(Pose::from_parts(translation, rotation))
     }
 
     /// This function calculates the required joint values for a robot after applying a transformation
@@ -112,14 +106,14 @@ impl Frame {
     ///
     /// ```
     /// use std::sync::Arc;
-    /// use nalgebra::Point3;
+    /// use glam::DVec3;
     /// use rs_opw_kinematics::frame::Frame;
     /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
     /// use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
     ///
     /// let robot = OPWKinematics::new(Parameters::irb2400_10());
     /// let frame_transform = Frame::translation(
-    ///   Point3::new(0.0, 0.0, 0.0), Point3::new(0.01, 0.00, 0.0));
+    ///   DVec3::new(0.0, 0.0, 0.0), DVec3::new(0.01, 0.00, 0.0));
     /// let framed = rs_opw_kinematics::frame::Frame {
     ///   robot: Arc::new(robot),
     ///   frame: frame_transform,
@@ -136,7 +130,7 @@ impl Frame {
         // Apply the frame transformation to the tool center point (TCP)
         let tcp_frame = self.frame * tcp_no_frame;
 
-        // Compute the transformed joint values based on the transformed TCP pose and 
+        // Compute the transformed joint values based on the transformed TCP pose and
         // previous joint positions
         let transformed_joints = self.robot.inverse_continuing(&tcp_frame, previous);
 
@@ -147,25 +141,27 @@ impl Frame {
 
 impl Kinematics for Frame {
     fn inverse(&self, tcp: &Pose) -> Solutions {
-        self.robot.inverse(&(tcp * self.frame.inverse()))
+        self.robot.inverse(&(*tcp * self.frame.inverse()))
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
-        self.robot.inverse_5dof(&(tcp * self.frame.inverse()), j6)
+        self.robot.inverse_5dof(&(*tcp * self.frame.inverse()), j6)
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing_5dof(&(tcp * self.frame.inverse()), previous)
+        self.robot
+            .inverse_continuing_5dof(&(*tcp * self.frame.inverse()), previous)
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        self.robot.inverse_continuing(&(tcp * self.frame.inverse()), previous)
+        self.robot
+            .inverse_continuing(&(*tcp * self.frame.inverse()), previous)
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
         // Calculate the pose of the tip joint using the robot's kinematics
         let tip_joint = self.robot.forward(qs);
-        
+
         tip_joint * self.frame
     }
 
@@ -174,10 +170,10 @@ impl Kinematics for Frame {
         let mut poses = self.robot.forward_with_joint_poses(joints);
 
         // Apply the frame transformation only to the last pose (TCP pose)
-        poses[5] *= self.frame;
+        poses[5] = poses[5] * self.frame;
 
         poses
-    }    
+    }
 
     fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
         self.robot.kinematic_singularity(qs)
@@ -188,49 +184,57 @@ impl Kinematics for Frame {
     }
 }
 
-
 /// Defines error when points specified as source or target for creating the frame are colinear (on the same line).
 /// Such points cannot be used to create the frame. The exact values of the points in question
 /// are included in the error structure and printed in the error message.
 #[derive(Debug)]
 pub struct ColinearPoints {
-    pub p1: Point3<f64>,
-    pub p2: Point3<f64>,
-    pub p3: Point3<f64>,
+    pub p1: DVec3,
+    pub p2: DVec3,
+    pub p3: DVec3,
     pub source: bool,
 }
 
 /// Struct to hold six points that still do not represent a valid isometry.
-/// It implements Error, containing at the same time six 3D points 
+/// It implements Error, containing at the same time six 3D points
 /// from whom the isometry cannot be constructed.
 #[derive(Debug)]
 pub struct NotIsometry {
-    pub a1: Point3<f64>,
-    pub a2: Point3<f64>,
-    pub a3: Point3<f64>,
-    pub b1: Point3<f64>,
-    pub b2: Point3<f64>,
-    pub b3: Point3<f64>,
+    pub a1: DVec3,
+    pub a2: DVec3,
+    pub a3: DVec3,
+    pub b1: DVec3,
+    pub b2: DVec3,
+    pub b3: DVec3,
 }
 
 impl NotIsometry {
     /// Creates a new NotIsometry instance, containing 6 points that do not
     /// represent a valid isometry.
-    pub fn new(a1: Point3<f64>, a2: Point3<f64>, a3: Point3<f64>,
-               b1: Point3<f64>, b2: Point3<f64>, b3: Point3<f64>) -> Self {
-        NotIsometry { a1, a2, a3, b1, b2, b3 }
+    pub fn new(a1: DVec3, a2: DVec3, a3: DVec3, b1: DVec3, b2: DVec3, b3: DVec3) -> Self {
+        NotIsometry {
+            a1,
+            a2,
+            a3,
+            b1,
+            b2,
+            b3,
+        }
     }
 }
 
 impl fmt::Display for NotIsometry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Not isometry: (  a1: {:?},  a2: {:?},  a3: {:?},  b1: {:?},  b2: {:?},  b3: {:?})",
-               self.a1, self.a2, self.a3, self.b1, self.b2, self.b3)
+        write!(
+            f,
+            "Not isometry: (  a1: {:?},  a2: {:?},  a3: {:?},  b1: {:?},  b2: {:?},  b3: {:?})",
+            self.a1, self.a2, self.a3, self.b1, self.b2, self.b3
+        )
     }
 }
 
 impl ColinearPoints {
-    pub fn new(p1: Point3<f64>, p2: Point3<f64>, p3: Point3<f64>, source: bool) -> Self {
+    pub fn new(p1: DVec3, p2: DVec3, p3: DVec3, source: bool) -> Self {
         Self { p1, p2, p3, source }
     }
 }
@@ -238,8 +242,12 @@ impl ColinearPoints {
 impl fmt::Display for ColinearPoints {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
-            f, "Cannot create a frame from colinear {} points: p1 = {:?}, p2 = {:?}, p3 = {:?}",
-            if self.source { "source" } else { "target" }, self.p1, self.p2, self.p3
+            f,
+            "Cannot create a frame from colinear {} points: p1 = {:?}, p2 = {:?}, p3 = {:?}",
+            if self.source { "source" } else { "target" },
+            self.p1,
+            self.p2,
+            self.p3
         )
     }
 }
@@ -248,33 +256,44 @@ impl Error for ColinearPoints {}
 
 impl Error for NotIsometry {}
 
-fn distances_match(a1: &Point3<f64>, a2: &Point3<f64>, a3: &Point3<f64>,
-                   b1: &Point3<f64>, b2: &Point3<f64>, b3: &Point3<f64>,
-                   tolerance: f64) -> bool {
-    let dist_a1_a2 = (a1 - a2).norm();
-    let dist_a1_a3 = (a1 - a3).norm();
-    let dist_a2_a3 = (a2 - a3).norm();
+fn distances_match(
+    a1: &DVec3,
+    a2: &DVec3,
+    a3: &DVec3,
+    b1: &DVec3,
+    b2: &DVec3,
+    b3: &DVec3,
+    tolerance: f64,
+) -> bool {
+    let dist_a1_a2 = (*a1 - *a2).length();
+    let dist_a1_a3 = (*a1 - *a3).length();
+    let dist_a2_a3 = (*a2 - *a3).length();
 
-    let dist_b1_b2 = (b1 - b2).norm();
-    let dist_b1_b3 = (b1 - b3).norm();
-    let dist_b2_b3 = (b2 - b3).norm();
+    let dist_b1_b2 = (*b1 - *b2).length();
+    let dist_b1_b3 = (*b1 - *b3).length();
+    let dist_b2_b3 = (*b2 - *b3).length();
 
-    (dist_a1_a2 - dist_b1_b2).abs() < tolerance &&
-        (dist_a1_a3 - dist_b1_b3).abs() < tolerance &&
-        (dist_a2_a3 - dist_b2_b3).abs() < tolerance
+    (dist_a1_a2 - dist_b1_b2).abs() < tolerance
+        && (dist_a1_a3 - dist_b1_b3).abs() < tolerance
+        && (dist_a2_a3 - dist_b2_b3).abs() < tolerance
 }
 
 /// Function to check if 3 pairs of points define a valid isometry.
-pub fn is_valid_isometry(a1: &Point3<f64>, a2: &Point3<f64>, a3: &Point3<f64>,
-                         b1: &Point3<f64>, b2: &Point3<f64>, b3: &Point3<f64>,
-                         tolerance: f64) -> bool {
+pub fn is_valid_isometry(
+    a1: &DVec3,
+    a2: &DVec3,
+    a3: &DVec3,
+    b1: &DVec3,
+    b2: &DVec3,
+    b3: &DVec3,
+    tolerance: f64,
+) -> bool {
     distances_match(a1, a2, a3, b1, b2, b3, tolerance)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Translation3, Vector3};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::utils::{dump_joints, dump_solutions};
@@ -282,69 +301,63 @@ mod tests {
     #[test]
     fn test_find_isometry3_rotation_translation() {
         // Define points before transformation
-        let p1 = Point3::new(0.0, 0.0, 0.0);
-        let p2 = Point3::new(1.0, 0.0, 0.0);
-        let p3 = Point3::new(0.0, 1.0, 0.0);
+        let p1 = DVec3::new(0.0, 0.0, 0.0);
+        let p2 = DVec3::new(1.0, 0.0, 0.0);
+        let p3 = DVec3::new(0.0, 1.0, 0.0);
 
         // Define points after 90-degree rotation around Z axis and translation by (1, 2, 0)
-        let q1 = Point3::new(1.0, 2.0, 0.0);
-        let q2 = Point3::new(1.0, 3.0, 0.0);
-        let q3 = Point3::new(0.0, 2.0, 0.0);
+        let q1 = DVec3::new(1.0, 2.0, 0.0);
+        let q2 = DVec3::new(1.0, 3.0, 0.0);
+        let q3 = DVec3::new(0.0, 2.0, 0.0);
 
         // Define additional points before transformation
-        let p4 = Point3::new(1.0, 1.0, 0.0);
-        let p5 = Point3::new(2.0, 1.0, 0.0);
-        let p6 = Point3::new(1.0, 2.0, 0.0);
+        let p4 = DVec3::new(1.0, 1.0, 0.0);
+        let p5 = DVec3::new(2.0, 1.0, 0.0);
+        let p6 = DVec3::new(1.0, 2.0, 0.0);
 
         // Define expected points after transformation
-        let q4 = Point3::new(0.0, 3.0, 0.0); // p4 rotated 90 degrees and translated
-        let q5 = Point3::new(0.0, 4.0, 0.0); // p5 rotated 90 degrees and translated
-        let q6 = Point3::new(-1.0, 3.0, 0.0); // p6 rotated 90 degrees and translated
+        let q4 = DVec3::new(0.0, 3.0, 0.0); // p4 rotated 90 degrees and translated
+        let q5 = DVec3::new(0.0, 4.0, 0.0); // p5 rotated 90 degrees and translated
+        let q6 = DVec3::new(-1.0, 3.0, 0.0); // p6 rotated 90 degrees and translated
 
         // Find the isometry using our function
         let result = Frame::frame(p1, p2, p3, q1, q2, q3)
             .expect("These points are not colinear and must be ok");
 
         // Expected translation
-        let expected_translation = Translation3::new(1.0, 2.0, 0.0);
+        let expected_translation = DVec3::new(1.0, 2.0, 0.0);
 
         // Expected rotation (90 degrees around the Z axis)
-        let expected_rotation =
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
+        let expected_rotation = DQuat::from_axis_angle(DVec3::Z, std::f64::consts::FRAC_PI_2);
 
         // Compare the result with the expected translation and rotation
-        assert!((result.translation.vector - expected_translation.vector).norm() < 1e-6);
+        assert!((result.translation - expected_translation).length() < 1e-6);
 
-        // Convert Unit<Vector3<f64>> to Vector3<f64> for comparison
-        let result_axis = result.rotation.axis().unwrap().into_inner();
-        let expected_axis = expected_rotation.axis().unwrap().into_inner();
-        assert!((result_axis - expected_axis).norm() < 1e-6);
-        assert!((result.rotation.angle() - expected_rotation.angle()).abs() < 1e-6);
+        assert!(result.rotation.angle_between(expected_rotation) < 1e-6);
 
         // Check if the additional points are transformed correctly
-        assert!((result.transform_point(&p4) - q4).norm() < 1e-6);
-        assert!((result.transform_point(&p5) - q5).norm() < 1e-6);
-        assert!((result.transform_point(&p6) - q6).norm() < 1e-6);
+        assert!((result.transform_point(p4) - q4).length() < 1e-6);
+        assert!((result.transform_point(p5) - q5).length() < 1e-6);
+        assert!((result.transform_point(p6) - q6).length() < 1e-6);
     }
 
     #[test]
     fn test_find_translation() {
         // Define points
-        let p = Point3::new(1.0, 2.0, 3.0);
-        let q = Point3::new(4.0, 5.0, 6.0);
+        let p = DVec3::new(1.0, 2.0, 3.0);
+        let q = DVec3::new(4.0, 5.0, 6.0);
 
         // Expected translation vector
-        let expected_translation = Translation3::new(3.0, 3.0, 3.0);
+        let expected_translation = DVec3::new(3.0, 3.0, 3.0);
 
         // Get the isometry
         let isometry = Frame::translation(p, q);
 
         // Check if the translation part is correct
-        assert!((isometry.translation.vector - expected_translation.vector).norm() < 1e-6);
+        assert!((isometry.translation - expected_translation).length() < 1e-6);
 
         // Check if the rotation part is identity
-        let identity_rotation = UnitQuaternion::identity();
-        assert!((isometry.rotation.quaternion() - identity_rotation.quaternion()).norm() < 1e-6);
+        assert!(isometry.rotation.angle_between(DQuat::IDENTITY) < 1e-6);
     }
 
     #[test]
@@ -358,9 +371,7 @@ mod tests {
         let dz = 0.033;
 
         // Shift not too much to have values close to previous
-        let frame_transform = Frame::translation(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(dx, dy, dz));
+        let frame_transform = Frame::translation(DVec3::new(0.0, 0.0, 0.0), DVec3::new(dx, dy, dz));
 
         let framed = Frame {
             robot: Arc::new(robot),
@@ -372,23 +383,39 @@ mod tests {
         dump_joints(&joints_no_frame);
 
         println!("Possible joint values after the frame transform:");
-        let (solutions, _transformed_pose) = framed.forward_transformed(
-            &joints_no_frame, &joints_no_frame);
+        let (solutions, _transformed_pose) =
+            framed.forward_transformed(&joints_no_frame, &joints_no_frame);
         dump_solutions(&solutions);
 
         let framed = robot.forward(&solutions[0]).translation;
         let unframed = robot.forward(&joints_no_frame).translation;
 
-        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3}",
-                 framed.x - unframed.x, framed.y - unframed.y, framed.z - unframed.z);
+        println!(
+            "Distance between framed and not framed pose {:.3} {:.3} {:.3}",
+            framed.x - unframed.x,
+            framed.y - unframed.y,
+            framed.z - unframed.z
+        );
 
         let actual_dx = framed.x - unframed.x;
         let actual_dy = framed.y - unframed.y;
         let actual_dz = framed.z - unframed.z;
 
-        assert!((actual_dx - dx).abs() < 1e-6, "dx should be approximately {:.6}", dx);
-        assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
-        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);
+        assert!(
+            (actual_dx - dx).abs() < 1e-6,
+            "dx should be approximately {:.6}",
+            dx
+        );
+        assert!(
+            (actual_dy - dy).abs() < 1e-6,
+            "dy should be approximately {:.6}",
+            dy
+        );
+        assert!(
+            (actual_dz - dz).abs() < 1e-6,
+            "dz should be approximately {:.6}",
+            dz
+        );
     }
 
     #[test]
@@ -402,17 +429,16 @@ mod tests {
         let dz = 0.033;
 
         let angle = 0.0_f64.to_radians();
-        let axis = Vector3::z_axis();
-        let quaternion = UnitQuaternion::from_axis_angle(&axis, angle);
+        let quaternion = DQuat::from_axis_angle(DVec3::Z, angle);
 
         // Shift not too much to have values close to previous. Rotate 30 degrees.
         let frame_transform = Frame::frame(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 1.1, 1.2),
-            Point3::new(2.0, 2.2, 2.3),
-            quaternion * Point3::new(0.0 + dx, 0.0 + dy, 0.0 + dz),
-            quaternion * Point3::new(1.0 + dx, 1.1 + dy, 1.2 + dz),
-            quaternion * Point3::new(2.0 + dx, 2.2 + dy, 2.3 + dz),
+            DVec3::new(0.0, 0.0, 0.0),
+            DVec3::new(1.0, 1.1, 1.2),
+            DVec3::new(2.0, 2.2, 2.3),
+            quaternion * DVec3::new(0.0 + dx, 0.0 + dy, 0.0 + dz),
+            quaternion * DVec3::new(1.0 + dx, 1.1 + dy, 1.2 + dz),
+            quaternion * DVec3::new(2.0 + dx, 2.2 + dy, 2.3 + dz),
         )?;
 
         let framed = Frame {
@@ -425,23 +451,39 @@ mod tests {
         dump_joints(&joints_no_frame);
 
         println!("Possible joint values after the frame transform:");
-        let (solutions, _transformed_pose) = framed.forward_transformed(
-            &joints_no_frame, &joints_no_frame);
+        let (solutions, _transformed_pose) =
+            framed.forward_transformed(&joints_no_frame, &joints_no_frame);
         dump_solutions(&solutions);
 
         let framed = robot.forward(&solutions[0]).translation;
         let unframed = robot.forward(&joints_no_frame).translation;
 
-        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3}",
-                 framed.x - unframed.x, framed.y - unframed.y, framed.z - unframed.z);
+        println!(
+            "Distance between framed and not framed pose {:.3} {:.3} {:.3}",
+            framed.x - unframed.x,
+            framed.y - unframed.y,
+            framed.z - unframed.z
+        );
 
         let actual_dx = framed.x - unframed.x;
         let actual_dy = framed.y - unframed.y;
         let actual_dz = framed.z - unframed.z;
 
-        assert!((actual_dx - dx).abs() < 1e-6, "dx should be approximately {:.6}", dx);
-        assert!((actual_dy - dy).abs() < 1e-6, "dy should be approximately {:.6}", dy);
-        assert!((actual_dz - dz).abs() < 1e-6, "dz should be approximately {:.6}", dz);
+        assert!(
+            (actual_dx - dx).abs() < 1e-6,
+            "dx should be approximately {:.6}",
+            dx
+        );
+        assert!(
+            (actual_dy - dy).abs() < 1e-6,
+            "dy should be approximately {:.6}",
+            dy
+        );
+        assert!(
+            (actual_dz - dz).abs() < 1e-6,
+            "dz should be approximately {:.6}",
+            dz
+        );
 
         Ok(())
     }
@@ -451,16 +493,19 @@ mod tests {
         let robot = OPWKinematics::new(Parameters::irb2400_10());
 
         let angle = 90_f64.to_radians(); // We will rotate 90 degrees around z axis.
-        let axis = Vector3::z_axis();
-        let quaternion = UnitQuaternion::from_axis_angle(&axis, angle);
+        let quaternion = DQuat::from_axis_angle(DVec3::Z, angle);
 
         // Shift not too much to have values close to previous. Rotate 30 degrees.
-        let p1 = Point3::new(0.0, 0.0, 0.0);
-        let p2 = Point3::new(1.0, 1.1, 1.2);
-        let p3 = Point3::new(2.0, 2.2, 2.3);
+        let p1 = DVec3::new(0.0, 0.0, 0.0);
+        let p2 = DVec3::new(1.0, 1.1, 1.2);
+        let p3 = DVec3::new(2.0, 2.2, 2.3);
         let frame_transform = Frame::frame(
-            p1, p2, p3,
-            quaternion * p1, quaternion * p2, quaternion * p3,
+            p1,
+            p2,
+            p3,
+            quaternion * p1,
+            quaternion * p2,
+            quaternion * p3,
         )?;
 
         let framed = Frame {
@@ -473,23 +518,37 @@ mod tests {
         dump_joints(&joints_no_frame);
 
         println!("Possible joint values after the frame transform:");
-        let (solutions, _transformed_pose) = framed.forward_transformed(
-            &joints_no_frame, &joints_no_frame);
+        let (solutions, _transformed_pose) =
+            framed.forward_transformed(&joints_no_frame, &joints_no_frame);
         dump_solutions(&solutions);
 
         let framed = robot.forward(&solutions[0]).translation;
         let unframed = robot.forward(&joints_no_frame).translation;
 
-        println!("Distance between framed and not framed pose {:.3} {:.3} {:.3} vs {:.3} {:.3} {:.3}",
-                 framed.x, framed.y, framed.z, unframed.x, unframed.y, unframed.z, );
+        println!(
+            "Distance between framed and not framed pose {:.3} {:.3} {:.3} vs {:.3} {:.3} {:.3}",
+            framed.x, framed.y, framed.z, unframed.x, unframed.y, unframed.z,
+        );
 
         let actual_dx = framed.x - -unframed.y; // x becomes -y
         let actual_dy = framed.y - unframed.x; // y becomes x
         let actual_dz = framed.z - unframed.z; // z does not change as we rotate around z.
 
-        assert!((actual_dx - 0.0).abs() < 1e-6, "dx should be approximately {:.6}", 0.0);
-        assert!((actual_dy - 0.0).abs() < 1e-6, "dy should be approximately {:.6}", 0.0);
-        assert!((actual_dz - 0.0).abs() < 1e-6, "dz should be approximately {:.6}", 0.0);
+        assert!(
+            (actual_dx - 0.0).abs() < 1e-6,
+            "dx should be approximately {:.6}",
+            0.0
+        );
+        assert!(
+            (actual_dy - 0.0).abs() < 1e-6,
+            "dy should be approximately {:.6}",
+            0.0
+        );
+        assert!(
+            (actual_dz - 0.0).abs() < 1e-6,
+            "dz should be approximately {:.6}",
+            0.0
+        );
 
         Ok(())
     }

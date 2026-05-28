@@ -1,31 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use crate::kinematic_traits::{Joints, Kinematics, Pose, J2, J3};
+    use crate::kinematic_traits::{J2, J3, Joints, Kinematics, Pose};
     use crate::kinematics_impl::OPWKinematics;
+    use crate::parallelogram::Parallelogram;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::utils::dump_joints;
-    use crate::parallelogram::Parallelogram;
-
-    fn euler_angles_in_degrees(pose: &Pose) -> (f64, f64, f64) {
-        let euler_angles = pose.rotation.euler_angles();
-        (
-            euler_angles.0.to_degrees(), // roll
-            euler_angles.1.to_degrees(), // pitch
-            euler_angles.2.to_degrees()  // yaw
-        )
-    }
-
-    fn orientation_change(
-        initial: (f64, f64, f64),
-        modified: (f64, f64, f64)
-    ) -> (f64, f64, f64) {
-        let roll_change = modified.0 - initial.0;
-        let pitch_change = modified.1 - initial.1;
-        let yaw_change = modified.2 - initial.2;
-
-        (roll_change, pitch_change, yaw_change)
-    }
+    use std::sync::Arc;
 
     #[test]
     fn test_parallelogram_orientation_changes() {
@@ -37,7 +17,7 @@ mod tests {
             robot: Arc::new(OPWKinematics::new(Parameters::irb2400_10())),
             driven: J2,
             coupled: J3,
-            scaling: 1.0
+            scaling: 1.0,
         };
 
         // Initial joint positions in degrees
@@ -52,10 +32,6 @@ mod tests {
         let pose_no_parallelogram: Pose = robot_no_parallelogram.forward(&joints);
         let pose_with_parallelogram: Pose = robot_with_parallelogram.forward(&joints);
 
-        // Get initial orientation in degrees for both robots
-        let initial_orientation_no_parallelogram = euler_angles_in_degrees(&pose_no_parallelogram);
-        let initial_orientation_with_parallelogram = euler_angles_in_degrees(&pose_with_parallelogram);
-
         // Apply change to joint 2 (this will show the difference in behavior between the two robots)
         let mut modified_joints = joints;
         modified_joints[1] += 10_f64.to_radians();
@@ -64,47 +40,32 @@ mod tests {
 
         // Forward kinematics after modifying joints for both robots
         let modified_pose_no_parallelogram: Pose = robot_no_parallelogram.forward(&modified_joints);
-        let modified_pose_with_parallelogram: Pose = robot_with_parallelogram.forward(&modified_joints);
-
-        // Get modified orientation in degrees for both robots
-        let modified_orientation_no_parallelogram = euler_angles_in_degrees(&modified_pose_no_parallelogram);
-        let modified_orientation_with_parallelogram = euler_angles_in_degrees(&modified_pose_with_parallelogram);
+        let modified_pose_with_parallelogram: Pose =
+            robot_with_parallelogram.forward(&modified_joints);
 
         // Calculate orientation changes for both robots
-        let orientation_change_no_parallelogram = orientation_change(
-            initial_orientation_no_parallelogram,
-            modified_orientation_no_parallelogram
-        );
-        let orientation_change_with_parallelogram = orientation_change(
-            initial_orientation_with_parallelogram,
-            modified_orientation_with_parallelogram
-        );
+        let orientation_change_no_parallelogram = pose_no_parallelogram
+            .angular_distance(modified_pose_no_parallelogram)
+            .to_degrees();
+        let orientation_change_with_parallelogram = pose_with_parallelogram
+            .angular_distance(modified_pose_with_parallelogram)
+            .to_degrees();
 
         // Print orientation changes for both robots
         println!("\nOrientation changes after joint change:");
         println!(
-            "Robot without parallelogram: roll = {:.3}, pitch = {:.3}, yaw = {:.3}",
-            orientation_change_no_parallelogram.0,
-            orientation_change_no_parallelogram.1,
-            orientation_change_no_parallelogram.2
+            "Robot without parallelogram: angle = {:.3}",
+            orientation_change_no_parallelogram
         );
         println!(
-            "Robot with parallelogram: roll = {:.3}, pitch = {:.3}, yaw = {:.3}",
-            orientation_change_with_parallelogram.0,
-            orientation_change_with_parallelogram.1,
-            orientation_change_with_parallelogram.2
+            "Robot with parallelogram: angle = {:.3}",
+            orientation_change_with_parallelogram
         );
 
-        // Assertions: 
-        // For robot without parallelogram, orientation change should be above the threshold (0.001)
-        assert!(orientation_change_no_parallelogram.0.abs() > 0.001);
-        assert!(orientation_change_no_parallelogram.1.abs() > 0.001);
-        assert!(orientation_change_no_parallelogram.2.abs() > 0.001);
+        // For robot without parallelogram, orientation change should be above the threshold (0.001 degrees)
+        assert!(orientation_change_no_parallelogram > 0.001);
 
-        // For robot with parallelogram, orientation change should be below the threshold (0.001)
-        assert!(orientation_change_with_parallelogram.0.abs() < 0.001);
-        assert!(orientation_change_with_parallelogram.1.abs() < 0.001);
-        assert!(orientation_change_with_parallelogram.2.abs() < 0.001);
+        // For robot with parallelogram, orientation change should be below the threshold (0.001 degrees)
+        assert!(orientation_change_with_parallelogram < 0.001);
     }
 }
-
