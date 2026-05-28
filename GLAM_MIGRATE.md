@@ -93,32 +93,32 @@ Phase 0 checkpoints:
 
 ## Phase 1: Pose Foundation
 
-- [ ] Create crate-owned `Pose`.
-- [ ] Store `Pose::translation` as `glam::DVec3`.
-- [ ] Store `Pose::rotation` as `glam::DQuat`.
-- [ ] Derive or implement `Copy`, `Clone`, `Debug`, and `PartialEq` as
+- [x] Create crate-owned `Pose`.
+- [x] Store `Pose::translation` as `glam::DVec3`.
+- [x] Store `Pose::rotation` as `glam::DQuat`.
+- [x] Derive or implement `Copy`, `Clone`, `Debug`, and `PartialEq` as
   appropriate.
-- [ ] Add `Pose::identity`.
-- [ ] Add translation-only constructor.
-- [ ] Add constructor from translation plus rotation.
-- [ ] Normalize or validate quaternions at construction boundaries.
-- [ ] Add `Pose::inverse`.
-- [ ] Add pose composition.
-- [ ] Add vector transform.
-- [ ] Add point transform.
-- [ ] Add f64 to f32 conversion for visualization/collision layers.
-- [ ] Add angular distance helper.
-- [ ] Add debug-friendly translation and rotation accessors if direct fields are
-  not public.
-- [ ] Add `Twist` for linear plus angular velocity.
-- [ ] Add `Wrench` for force plus torque.
-- [ ] Add tests for pose identity, inverse, composition, transform, and angular
+- [x] Add `Pose::identity`.
+- [x] Add translation-only constructor.
+- [x] Add constructor from translation plus rotation.
+- [x] Normalize or validate quaternions at construction boundaries.
+- [x] Add `Pose::inverse`.
+- [x] Add pose composition.
+- [x] Add vector transform.
+- [x] Add point transform.
+- [x] Add f64 to f32 conversion for visualization/collision layers.
+- [x] Add angular distance helper.
+- [x] Expose public `translation` and `rotation` fields, so separate
+  debug-friendly accessors are not needed.
+- [x] Add `Twist` for linear plus angular velocity.
+- [x] Add `Wrench` for force plus torque.
+- [x] Add tests for pose identity, inverse, composition, transform, and angular
   distance.
 
 Phase 1 checkpoints:
 
-- [ ] New pose tests pass.
-- [ ] No solver behavior has changed yet, or changes are isolated behind unused
+- [x] New pose tests pass.
+- [x] No solver behavior has changed yet, or changes are isolated behind unused
   helpers.
 
 ## Phase 2: Core OPW Kinematics

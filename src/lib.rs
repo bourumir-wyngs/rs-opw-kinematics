@@ -57,6 +57,7 @@ pub mod parameters_from_file;
 
 #[path = "utils/utils.rs"]
 pub mod utils;
+pub mod pose;
 pub mod kinematic_traits;
 pub mod kinematics_impl;
 
@@ -112,7 +113,6 @@ mod rrt_to;
 #[cfg(test)]
 #[cfg(feature = "allow_filesystem")]
 mod tests;
-
 
 
 
