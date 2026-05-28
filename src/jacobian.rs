@@ -22,6 +22,8 @@ use std::ops::{Index, IndexMut};
 
 const SIZE: usize = 6;
 const SINGULAR_EPS: f64 = 1.0e-15;
+// Treat numerically unstable direct solves as singular so DLS handles wrist singularities.
+const ILL_CONDITIONED_EPS: f64 = 1.0e-9;
 
 /// Fixed 6x6 Jacobian matrix.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,7 +66,11 @@ impl Matrix6 {
     fn mul_vector(self, vector: &Joints) -> Joints {
         let mut result = [0.0; SIZE];
         for (out, row) in result.iter_mut().zip(self.rows.iter()) {
-            *out = row.iter().zip(vector.iter()).map(|(left, right)| left * right).sum();
+            *out = row
+                .iter()
+                .zip(vector.iter())
+                .map(|(left, right)| left * right)
+                .sum();
         }
         result
     }
@@ -88,7 +94,7 @@ impl Matrix6 {
     }
 
     fn try_solve(self, rhs: &Joints) -> Option<Joints> {
-        solve_linear_system(self.rows, *rhs)
+        solve_linear_system(self.rows, *rhs, ILL_CONDITIONED_EPS)
     }
 
     fn damped_least_squares_solve(self, rhs: &Joints, damping: f64) -> Option<Joints> {
@@ -97,7 +103,7 @@ impl Matrix6 {
         for i in 0..SIZE {
             normal[(i, i)] += damping * damping;
         }
-        let y = normal.try_solve(rhs)?;
+        let y = solve_linear_system(normal.rows, *rhs, SINGULAR_EPS)?;
         Some(self.transpose_mul_vector(&y))
     }
 }
@@ -116,12 +122,23 @@ impl IndexMut<(usize, usize)> for Matrix6 {
     }
 }
 
-fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Option<Joints> {
+fn solve_linear_system(
+    mut matrix: [[f64; SIZE]; SIZE],
+    mut rhs: Joints,
+    pivot_tolerance: f64,
+) -> Option<Joints> {
     for (row, rhs_value) in matrix.iter().zip(rhs.iter()) {
         if row.iter().any(|value| !value.is_finite()) || !rhs_value.is_finite() {
             return None;
         }
     }
+
+    let matrix_scale = matrix
+        .iter()
+        .flatten()
+        .map(|value| value.abs())
+        .fold(0.0, f64::max);
+    let pivot_threshold = pivot_tolerance * matrix_scale.max(1.0);
 
     for pivot_col in 0..SIZE {
         let mut pivot_row = pivot_col;
@@ -134,7 +151,7 @@ fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Opti
             }
         }
 
-        if pivot_abs <= SINGULAR_EPS {
+        if pivot_abs <= pivot_threshold {
             return None;
         }
 
@@ -164,7 +181,7 @@ fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Opti
         }
 
         let diagonal = matrix[row][row];
-        if diagonal.abs() <= SINGULAR_EPS {
+        if diagonal.abs() <= pivot_threshold {
             return None;
         }
         solution[row] = value / diagonal;
@@ -311,8 +328,8 @@ impl Jacobian {
     /// `Result<Joints, &'static str>` - Joint positions, with values representing joint velocities rather than angles,
     /// or an error message if the computation fails.
     ///
-    /// This method first tries to solve the Jacobian system directly. If the Jacobian is singular,
-    /// it falls back to damped least squares.
+    /// This method first tries to solve the Jacobian system directly. If the Jacobian is singular
+    /// or ill-conditioned, it falls back to damped least squares.
     #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name
     pub fn velocities_from_vector(&self, X: &Joints) -> Result<Joints, &'static str> {
         if let Some(joint_velocities) = self.matrix.try_solve(X) {
@@ -436,6 +453,8 @@ mod tests {
     use super::*;
     use crate::constraints::Constraints;
     use crate::kinematic_traits::{Pose, Singularity, Solutions};
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
     use glam::{DQuat, DVec3};
 
     const EPSILON: f64 = 1e-6;
@@ -501,6 +520,36 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn assert_joints_approx_eq(left: &Joints, right: &Joints, epsilon: f64) {
+        for i in 0..6 {
+            assert!(
+                (left[i] - right[i]).abs() < epsilon,
+                "left[{0}] = {1} is not approximately equal to right[{0}] = {2}",
+                i,
+                left[i],
+                right[i]
+            );
+        }
+    }
+
+    fn assert_joints_finite(joints: &Joints) {
+        for (i, value) in joints.iter().enumerate() {
+            assert!(value.is_finite(), "joint {i} is not finite: {value}");
+        }
+    }
+
+    fn max_abs(joints: &Joints) -> f64 {
+        joints.iter().map(|value| value.abs()).fold(0.0, f64::max)
+    }
+
+    fn l2_error(left: &Joints, right: &Joints) -> f64 {
+        left.iter()
+            .zip(right.iter())
+            .map(|(left, right)| (left - right).powi(2))
+            .sum::<f64>()
+            .sqrt()
     }
 
     #[test]
@@ -588,5 +637,69 @@ mod tests {
         assert_eq!(joint_torques[3], 0.0);
         assert_eq!(joint_torques[4], 0.0);
         assert_eq!(joint_torques[5], 0.0);
+    }
+
+    #[test]
+    fn jacobian_velocity_solution_reconstructs_requested_twist_on_real_robot() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        let joints: Joints = [0.35, -0.42, 0.64, 0.31, 0.73, -0.29];
+        let jacobian = Jacobian::new(&robot, &joints, EPSILON);
+        let requested_twist =
+            Twist::new(DVec3::new(0.03, -0.02, 0.04), DVec3::new(0.11, -0.07, 0.05));
+        let requested_vector = [
+            requested_twist.linear.x,
+            requested_twist.linear.y,
+            requested_twist.linear.z,
+            requested_twist.angular.x,
+            requested_twist.angular.y,
+            requested_twist.angular.z,
+        ];
+
+        assert!(jacobian.matrix.try_solve(&requested_vector).is_some());
+
+        let joint_velocities = jacobian.velocities(&requested_twist).unwrap();
+        assert_joints_finite(&joint_velocities);
+
+        let reconstructed_twist = jacobian.matrix.mul_vector(&joint_velocities);
+        assert_joints_approx_eq(&reconstructed_twist, &requested_vector, 1.0e-9);
+    }
+
+    #[test]
+    fn jacobian_velocity_solution_uses_damped_least_squares_at_wrist_singularity() {
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+        let joints: Joints = [0.35, -0.42, 0.64, 0.31, 0.0, -0.29];
+        let jacobian = Jacobian::new(&robot, &joints, EPSILON);
+        let requested_twist =
+            Twist::new(DVec3::new(0.03, -0.02, 0.04), DVec3::new(0.11, -0.07, 0.05));
+        let requested_vector = [
+            requested_twist.linear.x,
+            requested_twist.linear.y,
+            requested_twist.linear.z,
+            requested_twist.angular.x,
+            requested_twist.angular.y,
+            requested_twist.angular.z,
+        ];
+
+        assert!(jacobian.matrix.try_solve(&requested_vector).is_none());
+
+        let expected_joint_velocities = jacobian
+            .matrix
+            .damped_least_squares_solve(&requested_vector, EPSILON)
+            .unwrap();
+        let joint_velocities = jacobian.velocities(&requested_twist).unwrap();
+
+        assert_joints_finite(&joint_velocities);
+        assert_joints_approx_eq(&joint_velocities, &expected_joint_velocities, 1.0e-12);
+        assert!(
+            max_abs(&joint_velocities) < 2.0,
+            "DLS fallback should keep singular joint velocities bounded: {joint_velocities:?}"
+        );
+
+        let reconstructed_twist = jacobian.matrix.mul_vector(&joint_velocities);
+        let residual = l2_error(&reconstructed_twist, &requested_vector);
+        assert!(
+            residual < 0.1,
+            "DLS fallback residual is too large: {residual}"
+        );
     }
 }
