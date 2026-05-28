@@ -178,39 +178,35 @@ Phase 3 checkpoints:
 
 ## Phase 4: Jacobian
 
-`src/jacobian.rs` is core-adjacent and currently always compiled. It cannot stay
-nalgebra-based in the final glam-native core.
+`src/jacobian.rs` is core-adjacent and currently always compiled. Its public
+geometry API is now glam-native; nalgebra is no longer used in this module.
 
 API migration:
 
-- [ ] Replace `velocities(&Isometry3<f64>)` with `velocities(&Twist)`.
-- [ ] Replace `torques(&Isometry3<f64>)` with `torques(&Wrench)`.
-- [ ] Replace public `Vector6<f64>` usage.
-- [ ] Decide whether six-element vectors are represented as `Joints`, `[f64; 6]`,
-  or a crate-owned `Vector6` newtype.
-- [ ] Replace public `Matrix6<f64>` usage.
-- [ ] Decide whether the Jacobian matrix remains publicly inspectable.
-- [ ] If inspectable, add a crate-owned `Matrix6` type.
+- [x] Replace `velocities(&Isometry3<f64>)` with `velocities(&Twist)`.
+- [x] Replace `torques(&Isometry3<f64>)` with `torques(&Wrench)`.
+- [x] Replace public `Vector6<f64>` usage.
+- [x] Six-element vectors are still represented as `Joints`, `[f64; 6]`
+- [x] Replace public `Matrix6<f64>` usage.
+- [x] Jacobian matrix remains publicly inspectable.
+- [x] Add a crate-owned `Matrix6` type.
 
 Implementation migration:
 
 - [x] Compute linear deltas with `DVec3`.
 - [x] Compute angular deltas with quaternion delta scaled axis.
-- [ ] Replace direct matrix inverse.
-- [ ] Replace SVD/pseudoinverse fallback.
-- [ ] Decide Jacobian singular fallback strategy.
-- [ ] Option A: implement small dense 6x6 inverse/solve plus damped least
+- [x] Replace direct matrix inverse.
+- [x] Replace SVD/pseudoinverse fallback.
+- [x] Decide Jacobian singular fallback strategy.
+- [x] Option A: implement small dense 6x6 inverse/solve plus damped least
   squares.
-- [ ] Option B: add a focused linear algebra dependency for SVD/solves while
-  keeping geometry glam-native.
-- [ ] Option C: temporarily gate `jacobian` only as a short-lived branch tactic.
 
 Phase 4 checkpoints:
 
 - [x] `src/jacobian.rs` unit tests cover forward, inverse, velocity, torque, and
   matrix computation.
 - [x] `cargo test --no-default-features`
-- [ ] Public Jacobian docs no longer describe velocity or force as an isometry.
+- [x] Public Jacobian docs no longer describe velocity or force as an isometry.
 
 ## Phase 5: Core Tests, Examples, and Docs
 
@@ -223,7 +219,7 @@ Phase 4 checkpoints:
 - [x] Port `examples/basic_readme.rs`.
 - [x] Port `examples/constraints.rs`.
 - [x] Port `examples/frame.rs`.
-- [ ] Port `examples/jacobian.rs`.
+- [x] Port `examples/jacobian.rs`.
 - [x] Port `examples/parallelogram.rs`.
 - [x] Port `examples/tool_and_base.rs`.
 - [ ] Update README `Pose` section.

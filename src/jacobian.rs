@@ -16,14 +16,165 @@
 //!  θ₁, θ₂, θ₃, θ₄, θ₅, θ₆ are the joint angles.
 //!  ∂ denotes a partial derivative.
 
-extern crate nalgebra as na;
-
 use crate::kinematic_traits::{Joints, Kinematics};
-use na::linalg::SVD;
-use na::{Isometry3, Matrix6, Vector6};
+use crate::pose::{Twist, Wrench};
+use std::ops::{Index, IndexMut};
 
-fn vector6_to_joints(v: Vector6<f64>) -> Joints {
-    [v[0], v[1], v[2], v[3], v[4], v[5]]
+const SIZE: usize = 6;
+const SINGULAR_EPS: f64 = 1.0e-15;
+
+/// Fixed 6x6 Jacobian matrix.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Matrix6 {
+    rows: [[f64; SIZE]; SIZE],
+}
+
+impl Matrix6 {
+    /// Creates a zero matrix.
+    pub const fn zeros() -> Self {
+        Self {
+            rows: [[0.0; SIZE]; SIZE],
+        }
+    }
+
+    /// Creates a matrix from row-major data.
+    pub const fn from_rows(rows: [[f64; SIZE]; SIZE]) -> Self {
+        Self { rows }
+    }
+
+    /// Returns the row-major matrix data.
+    pub const fn rows(&self) -> &[[f64; SIZE]; SIZE] {
+        &self.rows
+    }
+
+    fn transpose(self) -> Self {
+        let mut rows = [[0.0; SIZE]; SIZE];
+        let mut r = 0;
+        while r < SIZE {
+            let mut c = 0;
+            while c < SIZE {
+                rows[r][c] = self.rows[c][r];
+                c += 1;
+            }
+            r += 1;
+        }
+        Self { rows }
+    }
+
+    fn mul_vector(self, vector: &Joints) -> Joints {
+        let mut result = [0.0; SIZE];
+        for r in 0..SIZE {
+            for c in 0..SIZE {
+                result[r] += self.rows[r][c] * vector[c];
+            }
+        }
+        result
+    }
+
+    fn transpose_mul_vector(self, vector: &Joints) -> Joints {
+        self.transpose().mul_vector(vector)
+    }
+
+    fn mul_self_transpose(self) -> Self {
+        let mut rows = [[0.0; SIZE]; SIZE];
+        for r in 0..SIZE {
+            for c in 0..SIZE {
+                let mut value = 0.0;
+                for k in 0..SIZE {
+                    value += self.rows[r][k] * self.rows[c][k];
+                }
+                rows[r][c] = value;
+            }
+        }
+        Self { rows }
+    }
+
+    fn try_solve(self, rhs: &Joints) -> Option<Joints> {
+        solve_linear_system(self.rows, *rhs)
+    }
+
+    fn damped_least_squares_solve(self, rhs: &Joints, damping: f64) -> Option<Joints> {
+        let damping = damping.abs().max(1.0e-6);
+        let mut normal = self.mul_self_transpose();
+        for i in 0..SIZE {
+            normal[(i, i)] += damping * damping;
+        }
+        let y = normal.try_solve(rhs)?;
+        Some(self.transpose_mul_vector(&y))
+    }
+}
+
+impl Index<(usize, usize)> for Matrix6 {
+    type Output = f64;
+
+    fn index(&self, (row, col): (usize, usize)) -> &Self::Output {
+        &self.rows[row][col]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Matrix6 {
+    fn index_mut(&mut self, (row, col): (usize, usize)) -> &mut Self::Output {
+        &mut self.rows[row][col]
+    }
+}
+
+fn solve_linear_system(mut matrix: [[f64; SIZE]; SIZE], mut rhs: Joints) -> Option<Joints> {
+    for row in 0..SIZE {
+        for col in 0..SIZE {
+            if !matrix[row][col].is_finite() {
+                return None;
+            }
+        }
+        if !rhs[row].is_finite() {
+            return None;
+        }
+    }
+
+    for pivot_col in 0..SIZE {
+        let mut pivot_row = pivot_col;
+        let mut pivot_abs = matrix[pivot_col][pivot_col].abs();
+        for row in (pivot_col + 1)..SIZE {
+            let value_abs = matrix[row][pivot_col].abs();
+            if value_abs > pivot_abs {
+                pivot_abs = value_abs;
+                pivot_row = row;
+            }
+        }
+
+        if pivot_abs <= SINGULAR_EPS {
+            return None;
+        }
+
+        if pivot_row != pivot_col {
+            matrix.swap(pivot_col, pivot_row);
+            rhs.swap(pivot_col, pivot_row);
+        }
+
+        for row in (pivot_col + 1)..SIZE {
+            let factor = matrix[row][pivot_col] / matrix[pivot_col][pivot_col];
+            matrix[row][pivot_col] = 0.0;
+            for col in (pivot_col + 1)..SIZE {
+                matrix[row][col] -= factor * matrix[pivot_col][col];
+            }
+            rhs[row] -= factor * rhs[pivot_col];
+        }
+    }
+
+    let mut solution = [0.0; SIZE];
+    for row in (0..SIZE).rev() {
+        let mut value = rhs[row];
+        for col in (row + 1)..SIZE {
+            value -= matrix[row][col] * solution[col];
+        }
+
+        let diagonal = matrix[row][row];
+        if diagonal.abs() <= SINGULAR_EPS {
+            return None;
+        }
+        solution[row] = value / diagonal;
+    }
+
+    Some(solution)
 }
 
 /// This structure holds Jacobian matrix and provides methods to
@@ -52,7 +203,7 @@ pub struct Jacobian {
     /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
     /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
     /// of the end-effector (linear and angular velocities).    
-    matrix: Matrix6<f64>,
+    matrix: Matrix6,
 
     /// The disturbance value used for computing the Jacobian
     epsilon: f64,
@@ -75,6 +226,11 @@ impl Jacobian {
         Self { matrix, epsilon }
     }
 
+    /// Returns the computed Jacobian matrix.
+    pub fn matrix(&self) -> &Matrix6 {
+        &self.matrix
+    }
+
     /// Computes the joint velocities required to achieve a desired end-effector velocity:
     ///
     /// Q' = J⁻¹ x'
@@ -85,34 +241,32 @@ impl Jacobian {
     ///
     /// # Arguments
     ///
-    /// * `desired_end_effector_velocity` - An Isometry3 representing the desired linear and
-    ///   angular velocity of the end-effector. The x' vector is extracted from the isometry.
+    /// * `desired_end_effector_velocity` - Linear and angular velocity of the end-effector.
     ///
     /// # Returns
     ///
     /// `Result<Joints, &'static str>` - Joint positions, with values representing joint velocities rather than angles,
     /// or an error message if the computation fails.
     ///
-    /// This method extracts the linear and angular velocities from the provided Isometry3
-    /// and combines them into a single 6D vector. It then computes the joint velocities required
-    /// to achieve the desired end-effector velocity using the `velocities_from_vector` method.
+    /// This method combines linear and angular velocity into a 6D vector. It then computes the
+    /// joint velocities required to achieve the desired end-effector velocity using the
+    /// `velocities_from_vector` method.
     pub fn velocities(
         &self,
-        desired_end_effector_velocity: &Isometry3<f64>,
+        desired_end_effector_velocity: &Twist,
     ) -> Result<Joints, &'static str> {
-        // Extract the linear velocity (translation) and angular velocity (rotation)
-        let linear_velocity = desired_end_effector_velocity.translation.vector;
-        let angular_velocity = desired_end_effector_velocity.rotation.scaled_axis();
+        let linear_velocity = desired_end_effector_velocity.linear;
+        let angular_velocity = desired_end_effector_velocity.angular;
 
         // Combine into a single 6D vector
-        let desired_velocity = Vector6::new(
+        let desired_velocity = [
             linear_velocity.x,
             linear_velocity.y,
             linear_velocity.z,
             angular_velocity.x,
             angular_velocity.y,
             angular_velocity.z,
-        );
+        ];
 
         // Compute the joint velocities from the 6D vector
         self.velocities_from_vector(&desired_velocity)
@@ -136,7 +290,7 @@ impl Jacobian {
     /// joint velocities rather than angles or an error message if the computation fails.
     pub fn velocities_fixed(&self, vx: f64, vy: f64, vz: f64) -> Result<Joints, &'static str> {
         // Combine into a single 6D vector with 0 rotational part
-        let desired_velocity = Vector6::new(vx, vy, vz, 0.0, 0.0, 0.0);
+        let desired_velocity = [vx, vy, vz, 0.0, 0.0, 0.0];
 
         // Compute the joint velocities from the 6D vector
         self.velocities_from_vector(&desired_velocity)
@@ -153,35 +307,25 @@ impl Jacobian {
     /// # Arguments
     ///
     /// * `X'` - A 6D vector representing the desired linear and angular velocity of the
-    ///   end-effector as defined above.
+    ///   end-effector as defined above. The first 3 elements are linear velocity and the
+    ///   last 3 elements are angular velocity.
     ///
     /// # Returns
     ///
     /// `Result<Joints, &'static str>` - Joint positions, with values representing joint velocities rather than angles,
     /// or an error message if the computation fails.
     ///
-    /// This method tries to compute the joint velocities using the inverse of the Jacobian matrix.
-    /// If the Jacobian matrix is not invertible, it falls back to using the pseudoinverse.
+    /// This method first tries to solve the Jacobian system directly. If the Jacobian is singular,
+    /// it falls back to damped least squares.
     #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name
-    pub fn velocities_from_vector(&self, X: &Vector6<f64>) -> Result<Joints, &'static str> {
-        // Try to calculate the joint velocities using the inverse of the Jacobian matrix
-        let joint_velocities: Vector6<f64>;
-        if let Some(jacobian_inverse) = self.matrix.try_inverse() {
-            joint_velocities = jacobian_inverse * X;
-        } else {
-            // If the inverse does not exist, use the pseudoinverse
-            let svd = SVD::new(self.matrix, true, true);
-            match svd.pseudo_inverse(self.epsilon) {
-                Ok(jacobian_pseudoinverse) => {
-                    joint_velocities = jacobian_pseudoinverse * X;
-                }
-                Err(_) => {
-                    return Err("Unable to compute the pseudoinverse of the Jacobian matrix");
-                }
-            }
+    pub fn velocities_from_vector(&self, X: &Joints) -> Result<Joints, &'static str> {
+        if let Some(joint_velocities) = self.matrix.try_solve(X) {
+            return Ok(joint_velocities);
         }
-        // Convert the resulting Vector6 to Joints
-        Ok(vector6_to_joints(joint_velocities))
+
+        self.matrix
+            .damped_least_squares_solve(X, self.epsilon)
+            .ok_or("Unable to solve Jacobian system")
     }
 
     /// Computes the joint torques required to achieve a desired end-effector force/torque
@@ -189,35 +333,32 @@ impl Jacobian {
     ///
     /// t = JᵀF
     ///
-    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force vector that
-    /// is extracted from the passed Isometry3.
+    /// where Jᵀ is transposed Jacobian as defined above and f is the desired force vector.
     ///
     /// # Arguments
     ///
-    /// * `desired_force_torque` - isometry structure representing forces (in Newtons, N) and torgues
-    ///   (in Newton - meters, Nm) rather than dimensions and angles.
+    /// * `desired_force_torque` - force in Newtons and torque in Newton-meters.
     ///
     /// # Returns
     ///
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
-    pub fn torques(&self, desired_force_isometry: &Isometry3<f64>) -> Joints {
-        // Extract the linear velocity (translation) and angular velocity (rotation)
-        let linear_force = desired_force_isometry.translation.vector;
-        let angular_torgue = desired_force_isometry.rotation.scaled_axis();
+    pub fn torques(&self, desired_force_torque: &Wrench) -> Joints {
+        let linear_force = desired_force_torque.force;
+        let angular_torque = desired_force_torque.torque;
 
         // Combine into a single 6D vector
-        let desired_force_torgue_vector = Vector6::new(
+        let desired_force_torque_vector = [
             linear_force.x,
             linear_force.y,
             linear_force.z,
-            angular_torgue.x,
-            angular_torgue.y,
-            angular_torgue.z,
-        );
+            angular_torque.x,
+            angular_torque.y,
+            angular_torque.z,
+        ];
 
-        let joint_torques = self.matrix.transpose() * desired_force_torgue_vector;
-        vector6_to_joints(joint_torques)
+        self.matrix
+            .transpose_mul_vector(&desired_force_torque_vector)
     }
 
     /// Computes the joint torques required to achieve a desired end-effector force/torque
@@ -239,9 +380,8 @@ impl Jacobian {
     /// Joint positions, with values representing joint torques,
     /// or an error message if the computation fails.
     #[allow(non_snake_case)] // Standard Math notation calls for single uppercase name
-    pub fn torques_from_vector(&self, F: &Vector6<f64>) -> Joints {
-        let joint_torques = self.matrix.transpose() * F;
-        vector6_to_joints(joint_torques)
+    pub fn torques_from_vector(&self, F: &Joints) -> Joints {
+        self.matrix.transpose_mul_vector(F)
     }
 }
 
@@ -260,11 +400,7 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub(crate) fn compute_jacobian(
-    robot: &impl Kinematics,
-    joints: &Joints,
-    epsilon: f64,
-) -> Matrix6<f64> {
+pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6 {
     let mut jacobian = Matrix6::zeros();
     let current_pose = robot.forward(joints);
     let current_position = current_pose.translation;
@@ -305,7 +441,6 @@ mod tests {
     use crate::constraints::Constraints;
     use crate::kinematic_traits::{Pose, Singularity, Solutions};
     use glam::{DQuat, DVec3};
-    use nalgebra::Vector3;
 
     const EPSILON: f64 = 1e-6;
 
@@ -357,7 +492,7 @@ mod tests {
         }
     }
 
-    fn assert_matrix_approx_eq(left: &Matrix6<f64>, right: &Matrix6<f64>, epsilon: f64) {
+    fn assert_matrix_approx_eq(left: &Matrix6, right: &Matrix6, epsilon: f64) {
         for i in 0..6 {
             for j in 0..6 {
                 assert!(
@@ -414,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_velocities_from_iso() {
+    fn test_velocities_from_twist() {
         let robot = SingleRotaryJointRobot;
         let initial_qs = [0.0; 6];
         let jacobian = Jacobian::new(&robot, &initial_qs, EPSILON);
@@ -422,9 +557,8 @@ mod tests {
         // Given an end effector located 1 meter away from the axis of rotation,
         // with the joint rotating at a speed of 1 radian per second, the tip velocity is
         // one meter per second. Given we start from the angle 0, it all goes to the y component.
-        let desired_velocity_isometry =
-            Isometry3::new(Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
-        let result = jacobian.velocities(&desired_velocity_isometry);
+        let desired_velocity = Twist::new(DVec3::new(0.0, 1.0, 0.0), DVec3::new(0.0, 0.0, 1.0));
+        let result = jacobian.velocities(&desired_velocity);
 
         assert!(result.is_ok());
         let joint_velocities = result.unwrap();
@@ -447,7 +581,7 @@ mod tests {
 
         // For a single joint robot, that we want on the torgue is what we need to put
         let desired_force_torque =
-            Isometry3::new(Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.234));
+            Wrench::new(DVec3::new(0.0, 0.0, 0.0), DVec3::new(0.0, 0.0, 1.234));
 
         let joint_torques = jacobian.torques(&desired_force_torque);
         println!("Computed joint torques: {:?}", joint_torques);

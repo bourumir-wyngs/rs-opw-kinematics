@@ -1,9 +1,9 @@
 use glam::DVec3;
-use nalgebra::{Isometry3, Vector3};
 use rs_opw_kinematics::constraints::{BY_CONSTRAINS, Constraints};
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::pose::{Twist, Wrench};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -20,13 +20,11 @@ fn main() {
 
     let joints: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.5]; // Joints are alias of [f64; 6]
     let jakobian = rs_opw_kinematics::jacobian::Jacobian::new(&robot, &joints, 1E-6);
-    let desired_velocity_isometry =
-        Isometry3::new(Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
-    let joint_velocities = jakobian.velocities(&desired_velocity_isometry);
+    let desired_velocity = Twist::new(DVec3::new(0.0, 1.0, 0.0), DVec3::new(0.0, 0.0, 1.0));
+    let joint_velocities = jakobian.velocities(&desired_velocity);
     println!("Computed joint velocities: {:?}", joint_velocities.unwrap());
 
-    let desired_force_torque =
-        Isometry3::new(Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.234));
+    let desired_force_torque = Wrench::new(DVec3::new(0.0, 0.0, 0.0), DVec3::new(0.0, 0.0, 1.234));
 
     let joint_torques = jakobian.torques(&desired_force_torque);
     println!("Computed joint torques: {:?}", joint_torques);
