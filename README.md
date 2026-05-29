@@ -146,6 +146,9 @@ The public kinematics API uses a crate-owned
 [Pose](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Pose.html)
 type backed by `glam::DVec3` translation and `glam::DQuat` rotation. Forward kinematics returns this pose,
 and inverse kinematics accepts the same type.
+`Pose::from_parts` normalizes the rotation. The `translation` and `rotation` fields are public for
+direct access, but callers that mutate `pose.rotation` directly must keep it as a finite, normalized
+quaternion.
 
 ```rust
 use glam::{DQuat, DVec3};

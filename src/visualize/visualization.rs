@@ -204,25 +204,25 @@ struct RobotControls {
 
 impl RobotControls {
     fn set_tcp_from_pose(&mut self, pose: &Pose) {
-        let (roll, pitch, yaw) = pose.rotation.to_euler(EulerRot::ZYX);
+        let (z_angle, y_angle, x_angle) = pose.rotation.to_euler(EulerRot::ZYX);
         self.tcp = [
             pose.translation.x,
             pose.translation.y,
             pose.translation.z,
-            roll.to_degrees(),
-            pitch.to_degrees(),
-            yaw.to_degrees(),
+            z_angle.to_degrees(),
+            y_angle.to_degrees(),
+            x_angle.to_degrees(),
         ];
     }
 
     fn pose(&self) -> Pose {
         fn quat_from_euler(this: &RobotControls) -> DQuat {
-            let roll = this.tcp[3].to_radians();
-            let pitch = this.tcp[4].to_radians();
-            let yaw = this.tcp[5].to_radians();
+            let z_angle = this.tcp[3].to_radians();
+            let y_angle = this.tcp[4].to_radians();
+            let x_angle = this.tcp[5].to_radians();
 
             // Preserve the existing UI angle order: Z, then Y, then X.
-            DQuat::from_euler(EulerRot::ZYX, roll, pitch, yaw)
+            DQuat::from_euler(EulerRot::ZYX, z_angle, y_angle, x_angle)
         }
 
         Pose::from_parts(
@@ -675,7 +675,7 @@ fn update_robot(
             controls.joint_angles = utils::to_degrees(&angles);
         } else {
             println!(
-                "  no solution for pose {:.1} {:.1} {:.1} rotation {:.1} {:.1} {:.1}",
+                "  no solution for pose {:.1} {:.1} {:.1} rotation Z/Y/X {:.1} {:.1} {:.1}",
                 controls.tcp[0],
                 controls.tcp[1],
                 controls.tcp[2],
@@ -729,15 +729,15 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
             .changed();
 
         ui.add_space(10.0);
-        ui.label("TCP Euler angles");
+        ui.label("TCP Euler angles (ZYX)");
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Roll"))
+            .add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Z rotation"))
             .changed();
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Pitch"))
+            .add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Y rotation"))
             .changed();
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("Yaw"))
+            .add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("X rotation"))
             .changed();
         if tcp_changed {
             controls.tcp_changed = true;

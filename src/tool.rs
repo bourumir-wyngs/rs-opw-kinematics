@@ -79,7 +79,7 @@ impl Kinematics for Tool {
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         self.robot
-            .inverse_continuing(&(*tcp * self.tool.inverse()), previous)
+            .inverse_continuing_5dof(&(*tcp * self.tool.inverse()), previous)
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
@@ -210,6 +210,49 @@ mod tests {
     use crate::parameters::opw_kinematics::Parameters;
     use std::f64::consts::PI;
 
+    struct DelegationRobot;
+
+    impl Kinematics for DelegationRobot {
+        fn inverse(&self, _pose: &Pose) -> Solutions {
+            panic!("not used")
+        }
+
+        fn inverse_continuing(&self, _pose: &Pose, _previous: &Joints) -> Solutions {
+            panic!("Tool::inverse_continuing_5dof must not call inverse_continuing")
+        }
+
+        fn forward(&self, _qs: &Joints) -> Pose {
+            panic!("not used")
+        }
+
+        fn inverse_5dof(&self, _pose: &Pose, _j6: f64) -> Solutions {
+            panic!("not used")
+        }
+
+        fn inverse_continuing_5dof(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            assert_eq!(*previous, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+            assert_diff(
+                &pose.translation,
+                &DVec3::new(2.0, 2.0, 3.0),
+                [0.0, 0.0, 0.0],
+                1.0e-12,
+            );
+            vec![[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]]
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            &None
+        }
+
+        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
+            None
+        }
+
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            panic!("not used")
+        }
+    }
+
     pub(crate) fn assert_diff(a: &DVec3, b: &DVec3, expected_diff: [f64; 3], epsilon: f64) {
         let actual_diff = *a - *b;
 
@@ -336,6 +379,20 @@ mod tests {
             [0.5, 0.5, 2.0_f64.sqrt() / 2.0],
             1E-6,
         );
+    }
+
+    #[test]
+    fn tool_inverse_continuing_5dof_delegates_to_wrapped_5dof_solver() {
+        let robot_with_tool = Tool {
+            robot: Arc::new(DelegationRobot),
+            tool: Pose::from_translation(DVec3::new(1.0, 0.0, 0.0)),
+        };
+        let tcp = Pose::from_translation(DVec3::new(3.0, 2.0, 3.0));
+        let previous = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+
+        let solutions = robot_with_tool.inverse_continuing_5dof(&tcp, &previous);
+
+        assert_eq!(solutions, vec![[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]]);
     }
 
     #[test]

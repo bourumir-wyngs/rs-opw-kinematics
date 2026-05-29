@@ -21,8 +21,8 @@ Observed on 2026-05-28 before implementation work:
 - [x] `cargo check --no-default-features` passes.
 - [x] `cargo test --no-default-features` passes: 30 unit tests and 6 doctests.
 - [x] `cargo check --no-default-features --features collisions` passes.
-- [x] `cargo check --no-default-features --features rrt` passes.
-- [x] `cargo test --no-default-features --features rrt` passes: 34 unit tests
+- [x] `cargo check --no-default-features --features stroke_planning` passes.
+- [x] `cargo test --no-default-features --features stroke_planning` passes: 34 unit tests
   and 7 doctests.
 - [x] `cargo test --no-default-features --features allow_filesystem,collisions`
   passes: 86 unit tests and 9 doctests.
@@ -89,7 +89,7 @@ Phase 0 checkpoints:
 - [x] `cargo test --no-default-features`
 - [x] `cargo test --no-default-features --features allow_filesystem`
 - [x] `cargo test --no-default-features --features collisions`
-- [x] `cargo test --no-default-features --features rrt`
+- [x] `cargo test --no-default-features --features stroke_planning`
 - [x] `cargo check`
 
 ## Phase 1: Pose Foundation
@@ -277,10 +277,10 @@ Phase 6 checkpoints:
 
 Phase 7 checkpoints:
 
-- [x] `cargo test --no-default-features --features rrt`
-- [x] `cargo check --no-default-features --features rrt --example path_planning_rrt`
-- [x] `cargo check --no-default-features --features rrt,allow_filesystem --example cartesian_stroke`
-- [x] Extra check: `cargo check --no-default-features --features rrt,allow_filesystem --example path_planning_rrt`
+- [x] `cargo test --no-default-features --features stroke_planning`
+- [x] `cargo check --no-default-features --features stroke_planning --example path_planning_rrt`
+- [x] `cargo check --no-default-features --features stroke_planning,allow_filesystem --example cartesian_stroke`
+- [x] Extra check: `cargo check --no-default-features --features stroke_planning,allow_filesystem --example path_planning_rrt`
 
 ## Phase 8: Visualization
 
@@ -329,7 +329,7 @@ Final checkpoint matrix:
 - [x] `cargo test --no-default-features`
 - [x] `cargo test --no-default-features --features allow_filesystem`
 - [x] `cargo test --no-default-features --features collisions`
-- [x] `cargo test --no-default-features --features rrt`
+- [x] `cargo test --no-default-features --features stroke_planning`
 - [x] `cargo test --no-default-features --features allow_filesystem,collisions`
 - [x] `cargo check --no-default-features --features visualization`
 - [x] `cargo check`
