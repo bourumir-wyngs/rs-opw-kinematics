@@ -40,9 +40,9 @@
 //!     collision would occur).
 //!   - **Forward Kinematics**: Collisions are permitted, but colliding robot joints and environment objects are highlighted.
 
-use crate::camera_controller::{CameraController, camera_controller_system};
+use crate::camera_controller::{camera_controller_system, CameraController};
 use crate::collisions::SafetyDistances;
-use crate::kinematic_traits::{ENV_START_IDX, J_BASE, J_TOOL, Joints, Kinematics, Pose};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::pose::Pose32;
 use crate::utils;
@@ -50,7 +50,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy::winit::WinitPlugin;
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use glam::{DQuat, DVec3, EulerRot};
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
@@ -326,7 +327,14 @@ pub fn visualize_robot_with_safety_async(
     let safety_distances = safety_distances.clone();
     let join_handle = thread::spawn(move || {
         App::new()
-            .add_plugins((DefaultPlugins, EguiPlugin::default()))
+            .add_plugins((
+                DefaultPlugins.set(WinitPlugin {
+                    // The async visualizer intentionally runs Bevy off the
+                    // caller's thread; winit requires this explicit opt-in.
+                    run_on_any_thread: true,
+                }),
+                EguiPlugin::default(),
+            ))
             .insert_resource(RobotControls {
                 initial_joint_angles: initial_angles,
                 joint_angles: initial_angles,
@@ -533,7 +541,7 @@ fn visualize_robot_joints(
     robot.safety.to_environment = safety_distance;
     robot.safety.to_robot_default = safety_distance;
     let collisions = robot.kinematics.near(angles, &robot.safety);
-    println!("Time for collision check: {:?}", start.elapsed());
+    // println!("Time for collision check: {:?}", start.elapsed());
 
     let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
 
