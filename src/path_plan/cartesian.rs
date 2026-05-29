@@ -8,8 +8,8 @@ use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -199,6 +199,13 @@ struct Transition {
     solutions: Solutions,
 }
 
+fn same_joints(left: &Joints, right: &Joints) -> bool {
+    const EPSILON: f64 = 1e-12;
+    left.iter()
+        .zip(right.iter())
+        .all(|(left, right)| (left - right).abs() <= EPSILON)
+}
+
 impl Cartesian<'_> {
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
@@ -224,7 +231,7 @@ impl Cartesian<'_> {
         strategies
             .par_iter()
             .find_map_any(|strategy| {
-                match self.probe_strategy(strategy, &poses, &stop) {
+                match self.probe_strategy(from, strategy, &poses, &stop) {
                     Ok(outcome) => {
                         println!("Strategy worked out: {:?}", strategy);
                         stop.store(true, Ordering::Relaxed);
@@ -249,6 +256,7 @@ impl Cartesian<'_> {
     /// Probe the given strategy
     fn probe_strategy(
         &self,
+        onboarding_start: &Joints,
         work_path_start: &Joints,
         poses: &[AnnotatedPose],
         stop: &AtomicBool,
@@ -257,11 +265,7 @@ impl Cartesian<'_> {
 
         let started = Instant::now();
         let mut trace = Vec::with_capacity(100 + poses.len() + 10);
-        // Push the strategy point, from here the move must be already CARTESIAN
-        trace.push(AnnotatedJoints {
-            joints: *work_path_start,
-            flags: PathFlags::LAND,
-        });
+        self.append_onboarding(onboarding_start, work_path_start, stop, &mut trace)?;
 
         let mut step = 1;
 
@@ -329,6 +333,34 @@ impl Cartesian<'_> {
         }
 
         Ok(trace)
+    }
+
+    fn append_onboarding(
+        &self,
+        start: &Joints,
+        land: &Joints,
+        stop: &AtomicBool,
+        trace: &mut Vec<AnnotatedJoints>,
+    ) -> Result<(), String> {
+        if same_joints(start, land) {
+            trace.push(AnnotatedJoints {
+                joints: *start,
+                flags: PathFlags::LAND,
+            });
+            return Ok(());
+        }
+
+        let onboarding_path = self.rrt.plan_rrt(start, land, self.robot, stop)?;
+        let last_index = onboarding_path.len().saturating_sub(1);
+        for (index, joints) in onboarding_path.into_iter().enumerate() {
+            let flags = if index == last_index {
+                PathFlags::ONBOARDING | PathFlags::LAND
+            } else {
+                PathFlags::ONBOARDING
+            };
+            trace.push(AnnotatedJoints { joints, flags });
+        }
+        Ok(())
     }
 
     /// Transition cartesian way from 'from' into 'to' while assuming 'from'
