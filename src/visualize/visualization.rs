@@ -40,9 +40,9 @@
 //!     collision would occur).
 //!   - **Forward Kinematics**: Collisions are permitted, but colliding robot joints and environment objects are highlighted.
 
-use crate::camera_controller::{camera_controller_system, CameraController};
+use crate::camera_controller::{CameraController, camera_controller_system};
 use crate::collisions::SafetyDistances;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
+use crate::kinematic_traits::{ENV_START_IDX, J_BASE, J_TOOL, Joints, Kinematics, Pose};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::pose::Pose32;
 use crate::utils;
@@ -50,11 +50,14 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use glam::{DQuat, DVec3, EulerRot};
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
@@ -122,6 +125,66 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
 
 #[derive(Component)]
 struct RenderedRobotPart;
+
+enum VisualizationCommand {
+    SetJointAngles([f32; 6]),
+    Close,
+}
+
+#[derive(Resource)]
+struct VisualizationCommands {
+    receiver: Mutex<Receiver<VisualizationCommand>>,
+}
+
+/// Handle for a non-blocking visualization window.
+///
+/// The handle can update the displayed robot joint angles and request that the
+/// Bevy window closes. Dropping the handle also sends a close request.
+pub struct VisualizationHandle {
+    sender: Sender<VisualizationCommand>,
+    join_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+impl VisualizationHandle {
+    /// Set the displayed robot joint angles. Angles are degrees, matching the
+    /// visualization UI sliders.
+    pub fn set_joint_angles(&self, joint_angles: [f32; 6]) -> Result<(), String> {
+        self.sender
+            .send(VisualizationCommand::SetJointAngles(joint_angles))
+            .map_err(|_| "visualization window is not running".to_string())
+    }
+
+    /// Request the visualization window to close and wait for its thread to exit.
+    pub fn close(&self) -> Result<(), String> {
+        let _ = self.sender.send(VisualizationCommand::Close);
+        let mut join_handle = self
+            .join_handle
+            .lock()
+            .map_err(|_| "visualization handle lock is poisoned".to_string())?;
+        if let Some(join_handle) = join_handle.take() {
+            join_handle
+                .join()
+                .map_err(|_| "visualization thread panicked".to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Returns false after the visualization thread has finished.
+    pub fn is_running(&self) -> bool {
+        match self.join_handle.lock() {
+            Ok(join_handle) => join_handle
+                .as_ref()
+                .is_some_and(|join_handle| !join_handle.is_finished()),
+            Err(_) => false,
+        }
+    }
+}
+
+impl Drop for VisualizationHandle {
+    fn drop(&mut self) {
+        let _ = self.sender.send(VisualizationCommand::Close);
+    }
+}
 
 /// Data to store the current joint angles and TCP as they are shown in control panel
 #[derive(Resource)]
@@ -235,6 +298,82 @@ pub fn visualize_robot_with_safety(
         .add_systems(Update, (update_robot, camera_controller_system)) // Add systems without .system()
         .add_systems(EguiPrimaryContextPass, control_panel)
         .run();
+}
+
+/// Start visualization on a background thread and return a control handle.
+///
+/// Joint angles are degrees, matching the visualization UI sliders.
+pub fn visualize_robot_async(
+    robot: KinematicsWithShape,
+    initial_angles: [f32; 6],
+    tcp_box: [RangeInclusive<f64>; 3],
+) -> VisualizationHandle {
+    let safety = robot.body.safety.clone();
+    visualize_robot_with_safety_async(robot, initial_angles, tcp_box, &safety)
+}
+
+/// Start visualization on a background thread with custom safety distances and
+/// return a control handle.
+///
+/// Joint angles are degrees, matching the visualization UI sliders.
+pub fn visualize_robot_with_safety_async(
+    robot: KinematicsWithShape,
+    initial_angles: [f32; 6],
+    tcp_box: [RangeInclusive<f64>; 3],
+    safety_distances: &SafetyDistances,
+) -> VisualizationHandle {
+    let (sender, receiver) = mpsc::channel();
+    let safety_distances = safety_distances.clone();
+    let join_handle = thread::spawn(move || {
+        App::new()
+            .add_plugins((DefaultPlugins, EguiPlugin::default()))
+            .insert_resource(RobotControls {
+                initial_joint_angles: initial_angles,
+                joint_angles: initial_angles,
+                tcp: [0.0; 6],
+                tcp_box,
+                previous_joint_angles: initial_angles,
+                previous_tcp: [0.0; 6],
+                safety_distance: 0.05,
+                previous_safety_distance: 0.0,
+                joint_angles_changed: false,
+                tcp_changed: false,
+                safety_distance_changed: false,
+            })
+            .insert_resource(Robot {
+                kinematics: robot,
+                safety: safety_distances,
+                joint_meshes: None,
+                tool: None,
+                base: None,
+                environment: Vec::new(),
+                material: None,
+                tool_material: None,
+                base_material: None,
+                environment_material: None,
+                colliding_material: None,
+            })
+            .insert_resource(VisualizationCommands {
+                receiver: Mutex::new(receiver),
+            })
+            .add_systems(Startup, setup)
+            .add_systems(
+                Update,
+                (
+                    process_visualization_commands,
+                    update_robot,
+                    camera_controller_system,
+                )
+                    .chain(),
+            )
+            .add_systems(EguiPrimaryContextPass, control_panel)
+            .run();
+    });
+
+    VisualizationHandle {
+        sender,
+        join_handle: Arc::new(Mutex::new(Some(join_handle))),
+    }
 }
 
 fn setup(
@@ -461,6 +600,31 @@ fn maybe_colliding_material(
 }
 
 // Update the robot when joint angles change
+fn process_visualization_commands(
+    mut controls: ResMut<RobotControls>,
+    command_receiver: Option<Res<VisualizationCommands>>,
+    mut app_exit_writer: MessageWriter<AppExit>,
+) {
+    let Some(command_receiver) = command_receiver else {
+        return;
+    };
+    let Ok(receiver) = command_receiver.receiver.lock() else {
+        return;
+    };
+
+    while let Ok(command) = receiver.try_recv() {
+        match command {
+            VisualizationCommand::SetJointAngles(joint_angles) => {
+                controls.joint_angles = joint_angles;
+                controls.joint_angles_changed = true;
+            }
+            VisualizationCommand::Close => {
+                app_exit_writer.write(AppExit::Success);
+            }
+        }
+    }
+}
+
 fn update_robot(
     mut commands: Commands,
     mut controls: ResMut<RobotControls>,
