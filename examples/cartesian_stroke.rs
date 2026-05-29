@@ -22,7 +22,7 @@ use {
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
-    let monolith = load_trimesh("src/tests/data/object.stl", 0.)?;
+    let monolith = load_trimesh("src/tests/data/object.stl", 1.)?;
 
     Ok(KinematicsWithShape::with_safety(
         Parameters {
@@ -56,9 +56,9 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
             load_trimesh("src/tests/data/staubli/rx160/link_5.stl", 1.)?,
             load_trimesh("src/tests/data/staubli/rx160/link_6.stl", 1.)?,
         ],
-        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 0.)?,
+        load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.)?,
         Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
-        load_trimesh("src/tests/data/flag.stl", 0.)?,
+        load_trimesh("src/tests/data/flag.stl", 1.)?,
         Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         vec![
             CollisionBody {
@@ -139,7 +139,7 @@ fn main() -> Result<()> {
         // RRT planner that computes the non-Cartesian path from starting position to landing pose
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
-            max_try: 1000,
+            max_try: 100,
             debug: true,
         },
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
