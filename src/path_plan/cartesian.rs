@@ -8,8 +8,8 @@ use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -44,9 +44,16 @@ pub struct Cartesian<'a> {
     /// Cartesian (linear) movement.
     pub rrt: RRTPlanner,
 
+    /// If set, failed Cartesian stroke segments may be reconfigured through
+    /// joint-space RRT movement and marked with [`PathFlags::RECONFIGURING`].
+    /// If false, such segments fail the current strategy instead. Default is true
+    /// in higher-level constructors.
+    pub allow_reconfigure: bool,
+
     /// If set, linear interpolated poses are included in the output.
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
-    /// much better on they own
+    /// much better on their own. They are still checked internally; disable this
+    /// only when the downstream robot executes retained poses as Cartesian moves.
     pub include_linear_interpolation: bool,
 
     /// Debug mode for logging
@@ -96,8 +103,8 @@ bitflags! {
         /// Used with raster projector, indicates the movement considered "backwards"
         const BACKWARDS =            1 << 9;
 
-        /// Mildly altered to make the stroke possible
-        const ALTERED =              1 << 10;
+        /// Reconfiguring joint movement used when Cartesian stroke cannot be followed directly.
+        const RECONFIGURING =        1 << 10;
 
         /// Combined flag representing the "original" position, so the one that was
         /// given in the input.
@@ -106,9 +113,6 @@ bitflags! {
         /// Special flag used in debugging to mark out anything of interest. Largest can be stored
         /// in u32
         const DEBUG = 1 << 31;
-
-        // The movement INTO this pose is Cartesian stroke
-        const CARTESIAN = Self::LIN_INTERP.bits() | Self::LAND.bits() | Self::PARK.bits();
     }
 }
 
@@ -118,11 +122,27 @@ pub(crate) struct AnnotatedPose {
     pub(crate) flags: PathFlags,
 }
 
-/// Annotated joints specifying if it is joint-joint or Cartesian move (to this joint, not from)
+/// Movement type used to reach an [`AnnotatedJoints`] position from the previous output position.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MoveKind {
+    Joint,
+    Cartesian,
+}
+
+/// Annotated joints specifying the position flags and movement type into this position.
 #[derive(Clone, Copy)]
 pub struct AnnotatedJoints {
     pub joints: Joints,
     pub flags: PathFlags,
+    pub move_into: MoveKind,
+}
+
+fn should_emit_output_state(include_linear_interpolation: bool, flags: PathFlags) -> bool {
+    include_linear_interpolation || !flags.contains(PathFlags::LIN_INTERP)
+}
+
+fn reconfiguring_output_flags(flags: PathFlags) -> PathFlags {
+    (flags & !PathFlags::LIN_INTERP) | PathFlags::RECONFIGURING
 }
 
 impl AnnotatedPose {
@@ -145,7 +165,7 @@ fn flag_representation(flags: &PathFlags) -> String {
         (PathFlags::LAND, "LAND"),
         (PathFlags::PARK, "PARK"),
         (PathFlags::TRACE, "TRACE"),
-        (PathFlags::CARTESIAN, "CARTESIAN"),
+        (PathFlags::RECONFIGURING, "RECONFIGURING"),
         (PathFlags::ONBOARDING, "ONBOARDING"),
     ];
 
@@ -180,7 +200,8 @@ impl fmt::Debug for AnnotatedJoints {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{}: {:.2}, {:.2}, {:.2}, {:.2}, {:.2}, {:.2} ",
+            "{:?} into {}: {:.2}, {:.2}, {:.2}, {:.2}, {:.2}, {:.2} ",
+            self.move_into,
             flag_representation(&self.flags),
             self.joints[0].to_degrees(),
             self.joints[1].to_degrees(),
@@ -207,6 +228,10 @@ fn same_joints(left: &Joints, right: &Joints) -> bool {
 }
 
 impl Cartesian<'_> {
+    fn should_emit_output_state(&self, flags: PathFlags) -> bool {
+        should_emit_output_state(self.include_linear_interpolation, flags)
+    }
+
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
     pub fn plan(
@@ -266,49 +291,64 @@ impl Cartesian<'_> {
         let started = Instant::now();
         let mut trace = Vec::with_capacity(100 + poses.len() + 10);
         self.append_onboarding(onboarding_start, work_path_start, stop, &mut trace)?;
+        let mut previous_joints = trace
+            .last()
+            .expect("Should have start and strategy points")
+            .joints;
 
         let mut step = 1;
 
         let mut pairs_iterator = poses.windows(2);
 
         while let Some([from, to]) = pairs_iterator.next() {
-            let prev = *trace.last().expect("Should have start and strategy points");
-
-            let transition = self.step_adaptive_linear_transition(&prev.joints, from, to, 0);
+            let transition = self.step_adaptive_linear_transition(&previous_joints, from, to, 0);
             match transition {
                 Ok(extension) => {
-                    for (p, step) in extension.iter().enumerate() {
+                    for (p, joints) in extension.iter().enumerate() {
                         let flags = if p < extension.len() - 1 {
                             (to.flags | PathFlags::LIN_INTERP)
                                 & !(PathFlags::TRACE | PathFlags::PARK)
                         } else {
                             to.flags
                         };
-                        trace.push(AnnotatedJoints {
-                            joints: *step,
-                            flags,
-                        });
+                        if self.should_emit_output_state(flags) {
+                            trace.push(AnnotatedJoints {
+                                joints: *joints,
+                                flags,
+                                move_into: MoveKind::Cartesian,
+                            });
+                        }
+                        previous_joints = *joints;
                     }
                 }
 
                 Err(failed_transition) => {
                     let mut success = false;
-                    // Try with altered pose
-                    println!("Closing step {:?} with RRT", step);
-                    let solutions = self.robot.inverse_continuing(&to.pose, &prev.joints);
-                    for next in solutions {
-                        let path = self.rrt.plan_rrt(&prev.joints, &next, self.robot, stop);
-                        if let Ok(path) = path {
-                            println!("  ... closed with RRT {} steps", path.len());
-                            for step in path {
-                                trace.push(AnnotatedJoints {
-                                    joints: step,
-                                    flags: to.flags & !PathFlags::LIN_INTERP,
-                                });
+                    if self.allow_reconfigure {
+                        // Reconfigure through joint-space movement when Cartesian stroke fails.
+                        println!("Closing step {:?} with RRT", step);
+                        let solutions = self.robot.inverse_continuing(&to.pose, &previous_joints);
+                        for next in solutions {
+                            let path = self.rrt.plan_rrt(&previous_joints, &next, self.robot, stop);
+                            if let Ok(path) = path {
+                                println!("  ... closed with RRT {} steps", path.len());
+                                for joints in path {
+                                    let flags = reconfiguring_output_flags(to.flags);
+                                    if self.should_emit_output_state(flags) {
+                                        trace.push(AnnotatedJoints {
+                                            joints,
+                                            flags,
+                                            move_into: MoveKind::Joint,
+                                        });
+                                    }
+                                    previous_joints = joints;
+                                }
+                                success = true;
+                                break;
                             }
-                            success = true;
-                            break;
                         }
+                    } else if self.debug {
+                        println!("Reconfiguration disabled at step {:?}", step);
                     }
 
                     if !success {
@@ -346,6 +386,7 @@ impl Cartesian<'_> {
             trace.push(AnnotatedJoints {
                 joints: *start,
                 flags: PathFlags::LAND,
+                move_into: MoveKind::Joint,
             });
             return Ok(());
         }
@@ -358,7 +399,11 @@ impl Cartesian<'_> {
             } else {
                 PathFlags::ONBOARDING
             };
-            trace.push(AnnotatedJoints { joints, flags });
+            trace.push(AnnotatedJoints {
+                joints,
+                flags,
+                move_into: MoveKind::Joint,
+            });
         }
         Ok(())
     }
@@ -532,5 +577,54 @@ impl Cartesian<'_> {
                 flags: PathFlags::LIN_INTERP,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AnnotatedJoints, MoveKind, PathFlags, reconfiguring_output_flags, should_emit_output_state,
+    };
+
+    #[test]
+    fn output_filter_honors_linear_interpolation_flag() {
+        assert!(!should_emit_output_state(false, PathFlags::LIN_INTERP));
+        assert!(!should_emit_output_state(
+            false,
+            PathFlags::LIN_INTERP | PathFlags::TRACE
+        ));
+        assert!(should_emit_output_state(false, PathFlags::TRACE));
+        assert!(should_emit_output_state(true, PathFlags::LIN_INTERP));
+    }
+
+    #[test]
+    fn movement_type_is_independent_from_node_flags() {
+        let landing_from_joint = AnnotatedJoints {
+            joints: [0.0; 6],
+            flags: PathFlags::ONBOARDING | PathFlags::LAND,
+            move_into: MoveKind::Joint,
+        };
+        let trace_from_cartesian = AnnotatedJoints {
+            joints: [0.0; 6],
+            flags: PathFlags::TRACE,
+            move_into: MoveKind::Cartesian,
+        };
+
+        assert!(landing_from_joint.flags.contains(PathFlags::LAND));
+        assert_eq!(landing_from_joint.move_into, MoveKind::Joint);
+        assert!(trace_from_cartesian.flags.contains(PathFlags::TRACE));
+        assert_eq!(trace_from_cartesian.move_into, MoveKind::Cartesian);
+    }
+
+    #[test]
+    fn reconfiguring_output_flags_mark_rrt_fallback_steps() {
+        let interpolated_fallback = reconfiguring_output_flags(PathFlags::LIN_INTERP);
+        assert!(interpolated_fallback.contains(PathFlags::RECONFIGURING));
+        assert!(!interpolated_fallback.contains(PathFlags::LIN_INTERP));
+        assert!(should_emit_output_state(false, interpolated_fallback));
+
+        let trace_fallback = reconfiguring_output_flags(PathFlags::TRACE);
+        assert!(trace_fallback.contains(PathFlags::TRACE));
+        assert!(trace_fallback.contains(PathFlags::RECONFIGURING));
     }
 }

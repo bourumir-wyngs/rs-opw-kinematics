@@ -507,6 +507,8 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
             max_try: 1000,
             debug: true,
         },
+        allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
+        // reconfigured through RRT joint-space movement.
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
 

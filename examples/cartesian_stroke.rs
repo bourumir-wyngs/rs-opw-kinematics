@@ -1,14 +1,14 @@
+use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
-use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     glam::{DQuat, DVec3, Vec3},
     rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
     rs_opw_kinematics::collisions::CollisionBody,
-    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
-    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
-    rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
+    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
+    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
+    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::pose::Pose32,
@@ -143,6 +143,8 @@ fn main() -> Result<()> {
             max_try: 100,
             debug: false,
         },
+        allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
+        // reconfigured through RRT joint-space movement.
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
         debug: false,
