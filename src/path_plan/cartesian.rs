@@ -8,7 +8,7 @@ use bitflags::bitflags;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -17,6 +17,12 @@ pub const DEFAULT_TRANSITION_COSTS: [f64; 6] = [1.2, 1.1, 1.1, 0.9, 0.9, 0.8];
 
 /// Default number of Cartesian graph prefix states to try for RRT reconfiguration.
 pub const DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES: usize = 3;
+
+/// Default number of Cartesian-feasible suffixes to try for onboarding RRT.
+pub const DEFAULT_ONBOARDING_SUFFIX_CANDIDATES: usize = 3;
+
+/// Default maximum number of states retained per Cartesian graph layer.
+pub const DEFAULT_CARTESIAN_LAYER_STATES: usize = 32;
 
 const JOINT_DEDUP_EPSILON_RAD: f64 = 1e-6;
 
@@ -57,6 +63,15 @@ pub struct Cartesian<'a> {
     /// reconfiguration starts, ordered by increasing prefix cost.
     /// A value of 0 uses [`DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES`].
     pub max_reconfiguration_prefix_candidates: usize,
+
+    /// Maximum number of Cartesian-feasible suffix candidates to try for
+    /// onboarding RRT, ordered by suffix rank. A value of 0 uses
+    /// [`DEFAULT_ONBOARDING_SUFFIX_CANDIDATES`].
+    pub max_onboarding_suffix_candidates: usize,
+
+    /// Maximum number of dynamic-programming states retained in each Cartesian
+    /// graph layer. A value of 0 uses [`DEFAULT_CARTESIAN_LAYER_STATES`].
+    pub max_cartesian_layer_states: usize,
 
     /// If set, linear interpolated poses are included in the output.
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
@@ -294,6 +309,28 @@ impl PlanningOutcome {
     }
 }
 
+#[derive(Clone)]
+struct SuffixPlanningOutcome {
+    work_path_start: Joints,
+    suffix: Vec<AnnotatedJoints>,
+    rank: PlanRank,
+}
+
+impl SuffixPlanningOutcome {
+    fn new(
+        work_path_start: Joints,
+        suffix: Vec<AnnotatedJoints>,
+        transition_coefficients: &Joints,
+    ) -> Self {
+        let rank = PlanRank::from_path(&suffix, transition_coefficients);
+        Self {
+            work_path_start,
+            suffix,
+            rank,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PlanRank {
     stroke_reconfigurations: usize,
@@ -382,11 +419,46 @@ fn best_state_index(states: &[LayerState]) -> usize {
 
 fn best_state_indices_by_cost(states: &[LayerState], limit: usize) -> Vec<usize> {
     let mut indices = (0..states.len()).collect::<Vec<_>>();
-    indices
-        .sort_by(|&left, &right| states[left].total_cost.total_cmp(&states[right].total_cost));
+    indices.sort_by(|&left, &right| states[left].total_cost.total_cmp(&states[right].total_cost));
     let truncated_len = limit.min(indices.len());
     indices.truncate(truncated_len);
     indices
+}
+
+fn limit_layer_states_by_cost(states: &mut Vec<LayerState>, limit: usize) {
+    states.sort_by(|left, right| left.total_cost.total_cmp(&right.total_cost));
+    states.truncate(limit);
+}
+
+fn canceled_cartesian_graph_failure(
+    starting: &Joints,
+    from: &AnnotatedPose,
+    target: &AnnotatedPose,
+) -> CartesianGraphFailure {
+    CartesianGraphFailure {
+        candidates: vec![CartesianGraphFailureCandidate {
+            planned_prefix: Vec::new(),
+            transition: Transition {
+                from: *from,
+                to: *target,
+                previous: *starting,
+                solutions: Vec::new(),
+            },
+            prefix_cost: 0.0,
+        }],
+    }
+}
+
+fn sort_suffix_candidates_by_rank(candidates: &mut [SuffixPlanningOutcome]) {
+    candidates.sort_by(|left, right| {
+        if left.rank.is_better_than(&right.rank) {
+            std::cmp::Ordering::Less
+        } else if right.rank.is_better_than(&left.rank) {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
 }
 
 fn add_or_update_state(
@@ -443,6 +515,22 @@ impl Cartesian<'_> {
         }
     }
 
+    fn onboarding_suffix_candidate_limit(&self) -> usize {
+        if self.max_onboarding_suffix_candidates == 0 {
+            DEFAULT_ONBOARDING_SUFFIX_CANDIDATES
+        } else {
+            self.max_onboarding_suffix_candidates
+        }
+    }
+
+    fn cartesian_layer_state_limit(&self) -> usize {
+        if self.max_cartesian_layer_states == 0 {
+            DEFAULT_CARTESIAN_LAYER_STATES
+        } else {
+            self.max_cartesian_layer_states
+        }
+    }
+
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
     pub fn plan(
@@ -463,82 +551,127 @@ impl Cartesian<'_> {
         println!("Probing {} strategies", strategies.len());
 
         let stop = Arc::new(AtomicBool::new(false));
-        let best_fallback = Arc::new(Mutex::new(None::<PlanningOutcome>));
 
-        let good_enough = strategies.par_iter().find_map_any(|strategy| {
-            if stop.load(Ordering::Relaxed) {
-                return None;
-            }
+        let mut suffix_candidates = strategies
+            .par_iter()
+            .filter_map(|strategy| {
+                if stop.load(Ordering::Relaxed) {
+                    return None;
+                }
 
-            match self.probe_strategy(from, strategy, &poses, &stop) {
-                Ok(path) => {
-                    let outcome = PlanningOutcome::new(path, &self.transition_coefficients);
-                    println!(
-                        "Strategy worked out: {:?}, rank {:?}",
-                        strategy, outcome.rank
-                    );
-
-                    if outcome.is_good_enough() {
-                        stop.store(true, Ordering::Relaxed);
-                        Some(Ok(outcome.path))
-                    } else {
-                        let mut best = best_fallback
-                            .lock()
-                            .expect("Best fallback planner outcome mutex should not be poisoned");
-                        if best
-                            .as_ref()
-                            .map_or(true, |current| outcome.rank.is_better_than(&current.rank))
-                        {
-                            *best = Some(outcome);
+                match self.probe_cartesian_suffix(strategy, &poses, &stop) {
+                    Ok(suffix) => {
+                        let outcome = SuffixPlanningOutcome::new(
+                            *strategy,
+                            suffix,
+                            &self.transition_coefficients,
+                        );
+                        println!(
+                            "Cartesian suffix worked out: {:?}, rank {:?}",
+                            strategy, outcome.rank
+                        );
+                        Some(outcome)
+                    }
+                    Err(msg) => {
+                        if self.debug {
+                            println!("Cartesian suffix failed: {:?}, {}", strategy, msg);
                         }
                         None
                     }
                 }
-                Err(msg) => {
-                    if self.debug {
-                        println!("Strategy failed: {:?}, {}", strategy, msg);
-                    }
-                    None // Continue searching
-                }
-            }
-        });
+            })
+            .collect::<Vec<_>>();
 
-        if let Some(outcome) = good_enough {
-            return outcome;
+        if suffix_candidates.is_empty() {
+            return Err(format!(
+                "No Cartesian suffix worked out of {} strategies",
+                strategies.len()
+            ));
         }
 
-        if let Some(outcome) = best_fallback
-            .lock()
-            .expect("Best fallback planner outcome mutex should not be poisoned")
-            .clone()
-        {
+        sort_suffix_candidates_by_rank(&mut suffix_candidates);
+
+        let onboarding_limit = self
+            .onboarding_suffix_candidate_limit()
+            .min(suffix_candidates.len());
+        if self.debug {
+            println!(
+                "Trying onboarding RRT for {} of {} Cartesian-feasible suffixes",
+                onboarding_limit,
+                suffix_candidates.len()
+            );
+        }
+
+        let mut best_fallback = None::<PlanningOutcome>;
+        for suffix_candidate in suffix_candidates.into_iter().take(onboarding_limit) {
+            let work_path_start = suffix_candidate.work_path_start;
+            match self.attach_onboarding(from, suffix_candidate, &stop) {
+                Ok(path) => {
+                    let outcome = PlanningOutcome::new(path, &self.transition_coefficients);
+                    println!(
+                        "Strategy worked out after onboarding: {:?}, rank {:?}",
+                        work_path_start, outcome.rank
+                    );
+
+                    if outcome.is_good_enough() {
+                        return Ok(outcome.path);
+                    }
+
+                    if best_fallback
+                        .as_ref()
+                        .map_or(true, |current| outcome.rank.is_better_than(&current.rank))
+                    {
+                        best_fallback = Some(outcome);
+                    }
+                }
+                Err(msg) => {
+                    if self.debug {
+                        println!("Onboarding failed: {}", msg);
+                    }
+                }
+            }
+        }
+
+        if let Some(outcome) = best_fallback {
             Ok(outcome.path)
         } else {
             Err(format!(
-                "No strategy worked out of {} tried",
-                strategies.len()
+                "No onboarding RRT worked out for {} Cartesian-feasible suffixes tried",
+                onboarding_limit
             ))
         }
     }
 
-    /// Probe the given strategy
-    fn probe_strategy(
+    fn attach_onboarding(
         &self,
         onboarding_start: &Joints,
+        suffix_candidate: SuffixPlanningOutcome,
+        stop: &AtomicBool,
+    ) -> Result<Vec<AnnotatedJoints>, String> {
+        let mut trace = Vec::with_capacity(100 + suffix_candidate.suffix.len());
+        self.append_onboarding(
+            onboarding_start,
+            &suffix_candidate.work_path_start,
+            stop,
+            &mut trace,
+        )?;
+        trace.extend(suffix_candidate.suffix);
+        Ok(trace)
+    }
+
+    /// Probe the Cartesian suffix for the given landing strategy before onboarding RRT.
+    fn probe_cartesian_suffix(
+        &self,
         work_path_start: &Joints,
         poses: &[AnnotatedPose],
         stop: &AtomicBool,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        println!("Cartesian planning started, computing strategy {work_path_start:?}");
+        println!("Cartesian suffix planning started, computing strategy {work_path_start:?}");
 
         let started = Instant::now();
         let mut poses = poses.to_vec();
         let mut trace = Vec::with_capacity(100 + poses.len() + 10);
-        self.append_onboarding(onboarding_start, work_path_start, stop, &mut trace)?;
-        let mut previous_joints = trace
-            .last()
-            .expect("Should have start and strategy points")
-            .joints;
+        let mut previous_joints = *work_path_start;
 
         let mut step = 1;
         let mut pose_index = 1;
@@ -548,6 +681,7 @@ impl Cartesian<'_> {
                 &previous_joints,
                 &poses[pose_index - 1],
                 &poses[pose_index..],
+                stop,
             ) {
                 Ok(extension) => {
                     self.append_cartesian_extension(
@@ -560,6 +694,10 @@ impl Cartesian<'_> {
                     break;
                 }
                 Err(failure) => {
+                    if stop.load(Ordering::Relaxed) {
+                        return Err("Stopped".into());
+                    }
+
                     let first_candidate = failure
                         .candidates
                         .first()
@@ -797,6 +935,7 @@ impl Cartesian<'_> {
         starting: &Joints,
         from: &AnnotatedPose,
         targets: &[AnnotatedPose],
+        stop: &AtomicBool,
     ) -> Result<Vec<Joints>, CartesianGraphFailure> {
         if targets.is_empty() {
             return Ok(Vec::new());
@@ -809,11 +948,21 @@ impl Cartesian<'_> {
         }]];
 
         for (target_index, target) in targets.iter().enumerate() {
+            if stop.load(Ordering::Relaxed) {
+                return Err(canceled_cartesian_graph_failure(starting, from, target));
+            }
+
             let previous_layer = layers.last().expect("Start layer should be available");
             let mut next_layer = Vec::new();
 
             for (previous_index, previous) in previous_layer.iter().enumerate() {
-                let solutions = self.robot.inverse_continuing(&target.pose, &previous.joints);
+                if stop.load(Ordering::Relaxed) {
+                    return Err(canceled_cartesian_graph_failure(starting, from, target));
+                }
+
+                let solutions = self
+                    .robot
+                    .inverse_continuing(&target.pose, &previous.joints);
                 for candidate in &solutions {
                     let edge_cost = transition_costs(
                         &previous.joints,
@@ -844,11 +993,8 @@ impl Cartesian<'_> {
                     .into_iter()
                     .map(|previous_state_index| {
                         let previous_state = previous_layer[previous_state_index];
-                        let planned_prefix = reconstruct_path(
-                            &layers,
-                            previous_layer_index,
-                            previous_state_index,
-                        );
+                        let planned_prefix =
+                            reconstruct_path(&layers, previous_layer_index, previous_state_index);
                         let previous = previous_state.joints;
                         let solutions = self.robot.inverse_continuing(&target.pose, &previous);
 
@@ -868,6 +1014,7 @@ impl Cartesian<'_> {
                 return Err(CartesianGraphFailure { candidates });
             }
 
+            limit_layer_states_by_cost(&mut next_layer, self.cartesian_layer_state_limit());
             layers.push(next_layer);
         }
 
@@ -1021,10 +1168,13 @@ impl Cartesian<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AnnotatedJoints, DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank,
-        add_or_update_state, best_state_indices_by_cost, flag_representation,
-        interpolation_flags_for_edge, reconfiguring_output_flags, should_emit_output_state,
+        add_or_update_state, best_state_indices_by_cost, canceled_cartesian_graph_failure,
+        flag_representation, interpolation_flags_for_edge, limit_layer_states_by_cost,
+        reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
+        AnnotatedJoints, AnnotatedPose, LayerState, MoveKind, PathFlags, PlanRank,
+        SuffixPlanningOutcome, DEFAULT_TRANSITION_COSTS,
     };
+    use crate::kinematic_traits::Pose;
 
     #[test]
     fn output_filter_honors_linear_interpolation_flag() {
@@ -1209,11 +1359,79 @@ mod tests {
         assert!(best_state_indices_by_cost(&states, 0).is_empty());
     }
 
+    #[test]
+    fn layer_states_are_limited_by_cost() {
+        let mut states = vec![
+            layer_state(0.0, 30.0),
+            layer_state(1.0, 10.0),
+            layer_state(2.0, 20.0),
+        ];
+
+        limit_layer_states_by_cost(&mut states, 2);
+
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].joints, [1.0; 6]);
+        assert_eq!(states[1].joints, [2.0; 6]);
+    }
+
+    #[test]
+    fn canceled_graph_failure_uses_empty_prefix_and_start_state() {
+        let starting = [1.0; 6];
+        let from = annotated_pose(PathFlags::LAND);
+        let target = annotated_pose(PathFlags::TRACE);
+
+        let failure = canceled_cartesian_graph_failure(&starting, &from, &target);
+
+        assert_eq!(failure.candidates.len(), 1);
+        let candidate = &failure.candidates[0];
+        assert!(candidate.planned_prefix.is_empty());
+        assert_eq!(candidate.prefix_cost, 0.0);
+        assert_eq!(candidate.transition.previous, starting);
+        assert!(candidate.transition.from.flags.contains(PathFlags::LAND));
+        assert!(candidate.transition.to.flags.contains(PathFlags::TRACE));
+        assert!(candidate.transition.solutions.is_empty());
+    }
+
+    #[test]
+    fn suffix_candidates_are_sorted_by_rank() {
+        let mut candidates = vec![
+            suffix_candidate(
+                2.0,
+                vec![joint_step(
+                    0.0,
+                    PathFlags::TRACE | PathFlags::RECONFIGURING,
+                    MoveKind::Joint,
+                )],
+            ),
+            suffix_candidate(
+                1.0,
+                vec![joint_step(0.0, PathFlags::TRACE, MoveKind::Cartesian)],
+            ),
+        ];
+
+        sort_suffix_candidates_by_rank(&mut candidates);
+
+        assert_eq!(candidates[0].work_path_start, [1.0; 6]);
+        assert_eq!(candidates[1].work_path_start, [2.0; 6]);
+    }
+
     fn layer_state(value: f64, total_cost: f64) -> LayerState {
         LayerState {
             joints: [value; 6],
             total_cost,
             predecessor: None,
+        }
+    }
+
+    fn suffix_candidate(value: f64, suffix: Vec<AnnotatedJoints>) -> SuffixPlanningOutcome {
+        SuffixPlanningOutcome::new([value; 6], suffix, &DEFAULT_TRANSITION_COSTS)
+    }
+
+    fn annotated_pose(flags: PathFlags) -> AnnotatedPose {
+        AnnotatedPose {
+            pose: Pose::identity(),
+            flags,
+            split_depth: 0,
         }
     }
 

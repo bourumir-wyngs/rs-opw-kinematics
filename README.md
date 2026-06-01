@@ -510,6 +510,8 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
         // reconfigured through RRT joint-space movement.
         max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+        max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
 
