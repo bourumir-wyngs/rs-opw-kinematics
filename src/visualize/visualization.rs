@@ -537,11 +537,9 @@ fn visualize_robot_joints(
     }
 
     // Detect collisions between joints
-    let start = Instant::now();
     robot.safety.to_environment = safety_distance;
     robot.safety.to_robot_default = safety_distance;
     let collisions = robot.kinematics.near(angles, &robot.safety);
-    // println!("Time for collision check: {:?}", start.elapsed());
 
     let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
 
