@@ -125,7 +125,15 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
 }
 
 #[derive(Component)]
-struct RenderedRobotPart;
+struct RenderedRobotPart {
+    collision_index: usize,
+}
+
+struct RobotPartRenderState {
+    collision_index: usize,
+    transform: Transform,
+    material: Handle<StandardMaterial>,
+}
 
 enum VisualizationCommand {
     SetJointAngles([f32; 6]),
@@ -513,80 +521,44 @@ fn visualize_robot_joints(
     angles: &Joints,
     safety_distance: f32,
 ) {
-    fn transform_from_pose(pose: &Pose32) -> Transform {
-        Transform {
-            translation: pose.translation,
-            rotation: pose.rotation,
-            ..default()
-        }
-    }
-
     /// Spawns a `PbrBundle` entity for a joint, with specified mesh, material, translation, and rotation.
-    fn spawn_joint(
-        commands: &mut Commands,
-        mesh: &Handle<Mesh>,
-        material: Handle<StandardMaterial>,
-        pose: &Pose32,
-    ) {
+    fn spawn_joint(commands: &mut Commands, mesh: &Handle<Mesh>, state: RobotPartRenderState) {
         commands.spawn((
             Mesh3d(mesh.clone()),
-            MeshMaterial3d(material),
-            transform_from_pose(pose),
-            RenderedRobotPart,
+            MeshMaterial3d(state.material),
+            state.transform,
+            RenderedRobotPart {
+                collision_index: state.collision_index,
+            },
         ));
     }
 
-    // Detect collisions between joints
-    robot.safety.to_environment = safety_distance;
-    robot.safety.to_robot_default = safety_distance;
-    let collisions = robot.kinematics.near(angles, &robot.safety);
-
-    let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
-
-    // Visualize each joint in the robot
-    let positioned_robot = robot.kinematics.positioned_robot(angles);
-    for (j, positioned_joint) in positioned_robot.joints.iter().enumerate() {
-        spawn_joint(
-            commands,
-            &robot.joint_meshes.as_ref().unwrap()[j],
-            maybe_colliding_material(robot, &robot.material, &colliding_segments, &j),
-            &positioned_joint.transform,
-        );
+    for state in robot_part_render_states(robot, angles, safety_distance) {
+        if let Some(mesh) = mesh_for_rendered_part(robot, state.collision_index) {
+            spawn_joint(commands, &mesh, state);
+        }
     }
+}
 
-    // Visualize the tool if present
-    if let (Some(tool), Some(tool_joint)) = (&robot.tool, positioned_robot.tool.as_ref()) {
-        spawn_joint(
-            commands,
-            tool,
-            maybe_colliding_material(robot, &robot.tool_material, &colliding_segments, &J_TOOL),
-            &tool_joint.transform,
-        );
-    }
-
-    // Visualize the base if present
-    if let (Some(base), Some(base_joint)) = (&robot.base, robot.kinematics.body.base.as_ref()) {
-        spawn_joint(
-            commands,
-            base,
-            maybe_colliding_material(robot, &robot.base_material, &colliding_segments, &J_BASE),
-            &base_joint.base_pose,
-        );
-    }
-
-    // Add environment objects
-    for (i, environment_joint) in positioned_robot.environment.iter().enumerate() {
-        spawn_joint(
-            commands,
-            &robot.environment[i],
-            maybe_colliding_material(
-                robot,
-                &robot.environment_material,
-                &colliding_segments,
-                &(ENV_START_IDX + i),
-            ),
-            &environment_joint.pose,
-        );
+fn update_rendered_robot_joints(
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+    query: &mut Query<(
+        &RenderedRobotPart,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
+) {
+    let states = robot_part_render_states(robot, angles, safety_distance);
+    for (part, mut transform, mut material) in query.iter_mut() {
+        if let Some(state) = states
+            .iter()
+            .find(|state| state.collision_index == part.collision_index)
+        {
+            *transform = state.transform;
+            *material = MeshMaterial3d(state.material.clone());
+        }
     }
 }
 
@@ -603,6 +575,101 @@ fn maybe_colliding_material(
         material
     };
     selected_material.as_ref().unwrap().clone()
+}
+
+fn transform_from_pose(pose: &Pose32) -> Transform {
+    Transform {
+        translation: pose.translation,
+        rotation: pose.rotation,
+        ..default()
+    }
+}
+
+fn robot_part_render_states(
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+) -> Vec<RobotPartRenderState> {
+    robot.safety.to_environment = safety_distance;
+    robot.safety.to_robot_default = safety_distance;
+    let collisions = robot.kinematics.near(angles, &robot.safety);
+    let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
+    let positioned_robot = robot.kinematics.positioned_robot(angles);
+
+    let mut states = Vec::with_capacity(
+        positioned_robot.joints.len()
+            + usize::from(positioned_robot.tool.is_some())
+            + usize::from(robot.kinematics.body.base.is_some())
+            + positioned_robot.environment.len(),
+    );
+
+    for (joint_index, positioned_joint) in positioned_robot.joints.iter().enumerate() {
+        states.push(RobotPartRenderState {
+            collision_index: joint_index,
+            transform: transform_from_pose(&positioned_joint.transform),
+            material: maybe_colliding_material(
+                robot,
+                &robot.material,
+                &colliding_segments,
+                &joint_index,
+            ),
+        });
+    }
+
+    if let Some(tool_joint) = positioned_robot.tool.as_ref() {
+        states.push(RobotPartRenderState {
+            collision_index: J_TOOL,
+            transform: transform_from_pose(&tool_joint.transform),
+            material: maybe_colliding_material(
+                robot,
+                &robot.tool_material,
+                &colliding_segments,
+                &J_TOOL,
+            ),
+        });
+    }
+
+    if let Some(base_joint) = robot.kinematics.body.base.as_ref() {
+        states.push(RobotPartRenderState {
+            collision_index: J_BASE,
+            transform: transform_from_pose(&base_joint.base_pose),
+            material: maybe_colliding_material(
+                robot,
+                &robot.base_material,
+                &colliding_segments,
+                &J_BASE,
+            ),
+        });
+    }
+
+    for (environment_index, environment_joint) in positioned_robot.environment.iter().enumerate() {
+        let collision_index = ENV_START_IDX + environment_index;
+        states.push(RobotPartRenderState {
+            collision_index,
+            transform: transform_from_pose(&environment_joint.pose),
+            material: maybe_colliding_material(
+                robot,
+                &robot.environment_material,
+                &colliding_segments,
+                &collision_index,
+            ),
+        });
+    }
+
+    states
+}
+
+fn mesh_for_rendered_part(robot: &ResMut<Robot>, collision_index: usize) -> Option<Handle<Mesh>> {
+    match collision_index {
+        0..=5 => robot
+            .joint_meshes
+            .as_ref()
+            .map(|joint_meshes| joint_meshes[collision_index].clone()),
+        J_TOOL => robot.tool.clone(),
+        J_BASE => robot.base.clone(),
+        index if index >= ENV_START_IDX => robot.environment.get(index - ENV_START_IDX).cloned(),
+        _ => None,
+    }
 }
 
 // Update the robot when joint angles change
@@ -632,10 +699,13 @@ fn process_visualization_commands(
 }
 
 fn update_robot(
-    mut commands: Commands,
     mut controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
-    query: Query<Entity, With<RenderedRobotPart>>,
+    mut query: Query<(
+        &RenderedRobotPart,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
 ) {
     let joint_angles_changed = controls.joint_angles_changed;
     let tcp_changed = controls.tcp_changed;
@@ -646,12 +716,8 @@ fn update_robot(
     controls.safety_distance_changed = false;
 
     if joint_angles_changed {
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
-
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
         controls.previous_joint_angles = controls.joint_angles;
 
         // A joint slider edit is forward kinematics only. Update the displayed TCP,
@@ -671,11 +737,8 @@ fn update_robot(
         let ik = robot.kinematics.inverse_continuing(&pose, &angles);
         println!("Time for inverse kinematics: {:?}", start.elapsed());
         if !ik.is_empty() {
-            for entity in query.iter() {
-                commands.entity(entity).despawn();
-            }
             let angles = ik[0];
-            visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+            update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
 
             // Update joint angles to match the current TCP position.
             controls.joint_angles = utils::to_degrees(&angles);
@@ -694,11 +757,8 @@ fn update_robot(
         controls.previous_joint_angles = controls.joint_angles;
         controls.previous_safety_distance = controls.safety_distance;
     } else if safety_distance_changed {
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
         controls.previous_safety_distance = controls.safety_distance;
     }
 }

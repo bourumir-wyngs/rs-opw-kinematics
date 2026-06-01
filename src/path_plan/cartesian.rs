@@ -1787,6 +1787,7 @@ mod tests {
             rrt: RRTPlanner {
                 step_size_joint_space: 0.1,
                 max_try: 1,
+                smooth: 0,
                 debug: false,
             },
             allow_reconfigure: false,

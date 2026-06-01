@@ -145,6 +145,7 @@ fn main() -> Result<()> {
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 100,
+            smooth: 0,
             debug: false,
         },
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be

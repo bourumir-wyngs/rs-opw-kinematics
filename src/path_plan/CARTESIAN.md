@@ -127,7 +127,9 @@ RRT uses:
 - `constraints()` from the robot model to sample valid random joint states,
 - `kinematics.collides()` to reject colliding states,
 - `step_size_joint_space` to control joint-space expansion resolution,
-- `max_try` to limit search effort.
+- `max_try` to limit search effort,
+- `smooth` to spend a bounded number of shortcut checks simplifying a successful raw RRT path. A value of `0`
+  disables this post-processing.
 
 Only the best `max_onboarding_suffix_candidates` suffixes are tried for onboarding, and the feasible suffix pool is
 itself capped by `max_solutions_await`. This keeps a large set of feasible suffixes from causing many expensive RRT

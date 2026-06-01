@@ -505,6 +505,7 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 1000,
+            smooth: 0,
             debug: true,
         },
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
