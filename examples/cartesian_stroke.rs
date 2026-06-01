@@ -4,7 +4,9 @@ use anyhow::anyhow;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     glam::{DQuat, DVec3, Vec3},
-    rs_opw_kinematics::cartesian::{Cartesian, DEFAULT_TRANSITION_COSTS},
+    rs_opw_kinematics::cartesian::{
+        Cartesian, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES, DEFAULT_TRANSITION_COSTS,
+    },
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
     rs_opw_kinematics::constraints::{BY_PREV, Constraints},
@@ -145,6 +147,7 @@ fn main() -> Result<()> {
         },
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
         // reconfigured through RRT joint-space movement.
+        max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
         debug: false,

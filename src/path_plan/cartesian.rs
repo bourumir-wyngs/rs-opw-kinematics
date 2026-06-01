@@ -3,7 +3,6 @@
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
-use crate::utils;
 use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -15,6 +14,11 @@ use std::time::Instant;
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
 /// The sum of all weights is 6.0
 pub const DEFAULT_TRANSITION_COSTS: [f64; 6] = [1.2, 1.1, 1.1, 0.9, 0.9, 0.8];
+
+/// Default number of Cartesian graph prefix states to try for RRT reconfiguration.
+pub const DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES: usize = 3;
+
+const JOINT_DEDUP_EPSILON_RAD: f64 = 1e-6;
 
 /// Class doing Cartesian planning
 pub struct Cartesian<'a> {
@@ -48,6 +52,11 @@ pub struct Cartesian<'a> {
     /// If false, such segments fail the current strategy instead. Default is true
     /// in higher-level constructors.
     pub allow_reconfigure: bool,
+
+    /// Maximum number of failed Cartesian graph prefix states to try as RRT
+    /// reconfiguration starts, ordered by increasing prefix cost.
+    /// A value of 0 uses [`DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES`].
+    pub max_reconfiguration_prefix_candidates: usize,
 
     /// If set, linear interpolated poses are included in the output.
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
@@ -145,6 +154,26 @@ fn reconfiguring_output_flags(flags: PathFlags) -> PathFlags {
     (flags & !PathFlags::LIN_INTERP) | PathFlags::RECONFIGURING
 }
 
+fn interpolation_flags_for_edge(from: PathFlags, to: PathFlags) -> PathFlags {
+    let mut flags = PathFlags::LIN_INTERP;
+
+    if from.intersects(PathFlags::LAND | PathFlags::LANDING)
+        && to.intersects(PathFlags::TRACE | PathFlags::LANDING)
+    {
+        flags |= PathFlags::LANDING;
+    }
+
+    if from.intersects(PathFlags::TRACE | PathFlags::PARKING)
+        && to.intersects(PathFlags::PARK | PathFlags::PARKING)
+    {
+        flags |= PathFlags::PARKING;
+    }
+
+    flags |= (from | to) & (PathFlags::FORWARDS | PathFlags::BACKWARDS);
+
+    flags
+}
+
 impl AnnotatedPose {
     fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
@@ -154,7 +183,7 @@ impl AnnotatedPose {
 
         AnnotatedPose {
             pose: Pose::from_parts(translation, rotation),
-            flags: PathFlags::LIN_INTERP,
+            flags: interpolation_flags_for_edge(self.flags, other.flags),
             split_depth: self.split_depth.max(other.split_depth) + 1,
         }
     }
@@ -170,14 +199,22 @@ fn flag_representation(flags: &PathFlags) -> String {
         (PathFlags::TRACE, "TRACE"),
         (PathFlags::RECONFIGURING, "RECONFIGURING"),
         (PathFlags::ONBOARDING, "ONBOARDING"),
+        (PathFlags::FORWARDS, "FORWARDS"),
+        (PathFlags::BACKWARDS, "BACKWARDS"),
+        (PathFlags::DEBUG, "DEBUG"),
     ];
 
-    FLAG_MAP
+    let mut names = FLAG_MAP
         .iter()
         .filter(|(flag, _)| flags.contains(*flag))
         .map(|(_, name)| *name)
-        .collect::<Vec<_>>()
-        .join(" | ")
+        .collect::<Vec<_>>();
+
+    if flags.intersects(PathFlags::ORIGINAL) {
+        names.push("ORIGINAL");
+    }
+
+    names.join(" | ")
 }
 
 impl fmt::Debug for AnnotatedPose {
@@ -230,9 +267,14 @@ struct LayerState {
     predecessor: Option<usize>,
 }
 
-struct CartesianGraphFailure {
+struct CartesianGraphFailureCandidate {
     planned_prefix: Vec<Joints>,
     transition: Transition,
+    prefix_cost: f64,
+}
+
+struct CartesianGraphFailure {
+    candidates: Vec<CartesianGraphFailureCandidate>,
 }
 
 #[derive(Clone)]
@@ -324,10 +366,9 @@ fn is_stroke_interrupting_reconfiguration(flags: PathFlags) -> bool {
 }
 
 fn same_joints(left: &Joints, right: &Joints) -> bool {
-    const EPSILON: f64 = 1e-12;
     left.iter()
         .zip(right.iter())
-        .all(|(left, right)| (left - right).abs() <= EPSILON)
+        .all(|(left, right)| (left - right).abs() <= JOINT_DEDUP_EPSILON_RAD)
 }
 
 fn best_state_index(states: &[LayerState]) -> usize {
@@ -337,6 +378,15 @@ fn best_state_index(states: &[LayerState]) -> usize {
         .min_by(|(_, left), (_, right)| left.total_cost.total_cmp(&right.total_cost))
         .map(|(index, _)| index)
         .expect("Layer should not be empty")
+}
+
+fn best_state_indices_by_cost(states: &[LayerState], limit: usize) -> Vec<usize> {
+    let mut indices = (0..states.len()).collect::<Vec<_>>();
+    indices
+        .sort_by(|&left, &right| states[left].total_cost.total_cmp(&states[right].total_cost));
+    let truncated_len = limit.min(indices.len());
+    indices.truncate(truncated_len);
+    indices
 }
 
 fn add_or_update_state(
@@ -385,6 +435,14 @@ impl Cartesian<'_> {
         should_emit_output_state(self.include_linear_interpolation, flags)
     }
 
+    fn reconfiguration_prefix_candidate_limit(&self) -> usize {
+        if self.max_reconfiguration_prefix_candidates == 0 {
+            DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES
+        } else {
+            self.max_reconfiguration_prefix_candidates
+        }
+    }
+
     /// Path plan for the given vector of poses. The returned path must be transitionable
     /// and collision free.
     pub fn plan(
@@ -429,7 +487,7 @@ impl Cartesian<'_> {
                             .expect("Best fallback planner outcome mutex should not be poisoned");
                         if best
                             .as_ref()
-                            .is_none_or(|current| outcome.rank.is_better_than(&current.rank))
+                            .map_or(true, |current| outcome.rank.is_better_than(&current.rank))
                         {
                             *best = Some(outcome);
                         }
@@ -502,17 +560,21 @@ impl Cartesian<'_> {
                     break;
                 }
                 Err(failure) => {
-                    let prefix_len = failure.planned_prefix.len();
-                    self.append_cartesian_extension(
-                        &failure.planned_prefix,
-                        &poses[pose_index..pose_index + prefix_len],
-                        &mut trace,
-                        &mut previous_joints,
-                        &mut step,
-                    );
+                    let first_candidate = failure
+                        .candidates
+                        .first()
+                        .expect("Cartesian graph failure should include candidates");
 
+                    let prefix_len = first_candidate.planned_prefix.len();
                     let failed_pose_index = pose_index + prefix_len;
                     if self.refine_transition(&mut poses, failed_pose_index) {
+                        self.append_cartesian_extension(
+                            &first_candidate.planned_prefix,
+                            &poses[pose_index..failed_pose_index],
+                            &mut trace,
+                            &mut previous_joints,
+                            &mut step,
+                        );
                         pose_index = failed_pose_index;
                         continue;
                     }
@@ -523,18 +585,20 @@ impl Cartesian<'_> {
                         if self.debug {
                             println!("Reconfiguration disabled at step {:?}", step);
                         }
-                        self.log_failed_transition(&failure.transition, step);
+                        self.log_failed_transition(&failure, step);
                         return Err(format!("Failed to transition at step {}", step));
                     }
 
-                    if !self.append_reconfiguration(
-                        &previous_joints,
+                    if !self.append_reconfiguration_candidates(
+                        &failure.candidates,
+                        &poses[pose_index..failed_pose_index],
                         failed_pose,
-                        &failure.transition,
                         stop,
                         &mut trace,
+                        &mut previous_joints,
+                        &mut step,
                     ) {
-                        self.log_failed_transition(&failure.transition, step);
+                        self.log_failed_transition(&failure, step);
                         return Err(format!("Failed to transition at step {}", step));
                     }
 
@@ -586,6 +650,12 @@ impl Cartesian<'_> {
         previous_joints: &mut Joints,
         step: &mut i32,
     ) {
+        debug_assert_eq!(
+            extension.len(),
+            poses.len(),
+            "Cartesian extension and pose slice lengths must match"
+        );
+
         for (joints, pose) in extension.iter().zip(poses) {
             if self.should_emit_output_state(pose.flags) {
                 trace.push(AnnotatedJoints {
@@ -599,6 +669,63 @@ impl Cartesian<'_> {
                 *step += 1;
             }
         }
+    }
+
+    fn append_reconfiguration_candidates(
+        &self,
+        candidates: &[CartesianGraphFailureCandidate],
+        prefix_poses: &[AnnotatedPose],
+        failed_pose: &AnnotatedPose,
+        stop: &AtomicBool,
+        trace: &mut Vec<AnnotatedJoints>,
+        previous_joints: &mut Joints,
+        step: &mut i32,
+    ) -> bool {
+        let base_trace_len = trace.len();
+        let base_previous_joints = *previous_joints;
+        let base_step = *step;
+
+        for (candidate_index, candidate) in candidates.iter().enumerate() {
+            trace.truncate(base_trace_len);
+            *previous_joints = base_previous_joints;
+            *step = base_step;
+
+            if self.debug {
+                println!(
+                    "Trying reconfiguration prefix candidate {} with cost {:.6}",
+                    candidate_index + 1,
+                    candidate.prefix_cost
+                );
+            }
+
+            self.append_cartesian_extension(
+                &candidate.planned_prefix,
+                prefix_poses,
+                trace,
+                previous_joints,
+                step,
+            );
+
+            debug_assert!(
+                same_joints(previous_joints, &candidate.transition.previous),
+                "Reconfiguration candidate prefix should end at its transition start"
+            );
+
+            if self.append_reconfiguration(
+                previous_joints,
+                failed_pose,
+                &candidate.transition,
+                stop,
+                trace,
+            ) {
+                return true;
+            }
+        }
+
+        trace.truncate(base_trace_len);
+        *previous_joints = base_previous_joints;
+        *step = base_step;
+        false
     }
 
     fn append_reconfiguration(
@@ -706,26 +833,39 @@ impl Cartesian<'_> {
 
             if next_layer.is_empty() {
                 let previous_layer_index = layers.len() - 1;
-                let previous_state_index = best_state_index(&layers[previous_layer_index]);
-                let planned_prefix =
-                    reconstruct_path(&layers, previous_layer_index, previous_state_index);
-                let previous = layers[previous_layer_index][previous_state_index].joints;
-                let solutions = self.robot.inverse_continuing(&target.pose, &previous);
                 let from_pose = if target_index == 0 {
                     *from
                 } else {
                     targets[target_index - 1]
                 };
+                let previous_layer = &layers[previous_layer_index];
+                let candidate_limit = self.reconfiguration_prefix_candidate_limit();
+                let candidates = best_state_indices_by_cost(previous_layer, candidate_limit)
+                    .into_iter()
+                    .map(|previous_state_index| {
+                        let previous_state = previous_layer[previous_state_index];
+                        let planned_prefix = reconstruct_path(
+                            &layers,
+                            previous_layer_index,
+                            previous_state_index,
+                        );
+                        let previous = previous_state.joints;
+                        let solutions = self.robot.inverse_continuing(&target.pose, &previous);
 
-                return Err(CartesianGraphFailure {
-                    planned_prefix,
-                    transition: Transition {
-                        from: from_pose,
-                        to: *target,
-                        previous,
-                        solutions,
-                    },
-                });
+                        CartesianGraphFailureCandidate {
+                            planned_prefix,
+                            transition: Transition {
+                                from: from_pose,
+                                to: *target,
+                                previous,
+                                solutions,
+                            },
+                            prefix_cost: previous_state.total_cost,
+                        }
+                    })
+                    .collect();
+
+                return Err(CartesianGraphFailure { candidates });
             }
 
             layers.push(next_layer);
@@ -740,31 +880,39 @@ impl Cartesian<'_> {
         ))
     }
 
-    fn log_failed_transition(&self, transition: &Transition, step: i32) {
+    fn log_failed_transition(&self, failure: &CartesianGraphFailure, step: i32) {
         if !self.debug {
             return;
         }
         println!("Step {} from [1..n] failed", step);
         println!(
-            "No transition with cost below {}:",
-            self.max_transition_cost.to_degrees()
+            "No transition with weighted cost below {:.6}:",
+            self.max_transition_cost
         );
-        println!(
-            "   from: {:?} collides {}",
-            transition.from,
-            self.robot.collides(&transition.previous)
-        );
-        dump_joints(&transition.previous);
-        println!("   to: {:?}", transition.to);
-        println!("   Possible transitions:");
-        for s in &transition.solutions {
-            dump_joints(s);
+
+        for (candidate_index, candidate) in failure.candidates.iter().enumerate() {
+            let transition = &candidate.transition;
             println!(
-                "   transition {} collides: {}",
-                utils::transition_costs(&transition.previous, s, &DEFAULT_TRANSITION_COSTS)
-                    .to_degrees(),
-                self.robot.collides(s)
+                "   Candidate {} prefix cost {:.6}",
+                candidate_index + 1,
+                candidate.prefix_cost
             );
+            println!(
+                "   from: {:?} collides {}",
+                transition.from,
+                self.robot.collides(&transition.previous)
+            );
+            dump_joints(&transition.previous);
+            println!("   to: {:?}", transition.to);
+            println!("   Possible transitions:");
+            for s in &transition.solutions {
+                dump_joints(s);
+                println!(
+                    "   transition weighted cost {:.6} collides: {}",
+                    transition_costs(&transition.previous, s, &self.transition_coefficients),
+                    self.robot.collides(s)
+                );
+            }
         }
     }
 
@@ -873,8 +1021,9 @@ impl Cartesian<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AnnotatedJoints, DEFAULT_TRANSITION_COSTS, MoveKind, PathFlags, PlanRank,
-        add_or_update_state, reconfiguring_output_flags, should_emit_output_state,
+        AnnotatedJoints, DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank,
+        add_or_update_state, best_state_indices_by_cost, flag_representation,
+        interpolation_flags_for_edge, reconfiguring_output_flags, should_emit_output_state,
     };
 
     #[test]
@@ -886,6 +1035,19 @@ mod tests {
         ));
         assert!(should_emit_output_state(false, PathFlags::TRACE));
         assert!(should_emit_output_state(true, PathFlags::LIN_INTERP));
+    }
+
+    #[test]
+    fn flag_representation_includes_direction_and_diagnostic_flags() {
+        let representation = flag_representation(
+            &(PathFlags::TRACE | PathFlags::FORWARDS | PathFlags::BACKWARDS | PathFlags::DEBUG),
+        );
+
+        assert!(representation.contains("TRACE"));
+        assert!(representation.contains("FORWARDS"));
+        assert!(representation.contains("BACKWARDS"));
+        assert!(representation.contains("DEBUG"));
+        assert!(representation.contains("ORIGINAL"));
     }
 
     #[test]
@@ -917,6 +1079,42 @@ mod tests {
         let trace_fallback = reconfiguring_output_flags(PathFlags::TRACE);
         assert!(trace_fallback.contains(PathFlags::TRACE));
         assert!(trace_fallback.contains(PathFlags::RECONFIGURING));
+    }
+
+    #[test]
+    fn interpolation_flags_preserve_edge_semantics() {
+        let landing = interpolation_flags_for_edge(
+            PathFlags::LAND | PathFlags::FORWARDS,
+            PathFlags::TRACE | PathFlags::BACKWARDS,
+        );
+
+        assert!(landing.contains(PathFlags::LIN_INTERP));
+        assert!(landing.contains(PathFlags::LANDING));
+        assert!(landing.contains(PathFlags::FORWARDS));
+        assert!(landing.contains(PathFlags::BACKWARDS));
+        assert!(!landing.contains(PathFlags::LAND));
+
+        let parking = interpolation_flags_for_edge(
+            PathFlags::TRACE | PathFlags::FORWARDS,
+            PathFlags::PARK | PathFlags::BACKWARDS,
+        );
+
+        assert!(parking.contains(PathFlags::LIN_INTERP));
+        assert!(parking.contains(PathFlags::PARKING));
+        assert!(parking.contains(PathFlags::FORWARDS));
+        assert!(parking.contains(PathFlags::BACKWARDS));
+        assert!(!parking.contains(PathFlags::TRACE));
+        assert!(!parking.contains(PathFlags::PARK));
+
+        let landing_reconfiguration = reconfiguring_output_flags(landing);
+        assert!(landing_reconfiguration.contains(PathFlags::LANDING));
+        assert!(landing_reconfiguration.contains(PathFlags::RECONFIGURING));
+        assert!(!landing_reconfiguration.contains(PathFlags::LIN_INTERP));
+
+        let parking_reconfiguration = reconfiguring_output_flags(parking);
+        assert!(parking_reconfiguration.contains(PathFlags::PARKING));
+        assert!(parking_reconfiguration.contains(PathFlags::RECONFIGURING));
+        assert!(!parking_reconfiguration.contains(PathFlags::LIN_INTERP));
     }
 
     #[test]
@@ -985,6 +1183,38 @@ mod tests {
         assert_eq!(layer.len(), 1);
         assert_eq!(layer[0].total_cost, 5.0);
         assert_eq!(layer[0].predecessor, Some(2));
+    }
+
+    #[test]
+    fn dynamic_programming_layer_deduplicates_nearby_joint_states() {
+        let mut layer = Vec::new();
+        add_or_update_state(&mut layer, [1.0; 6], 10.0, 0);
+        add_or_update_state(&mut layer, [1.0 + 0.5e-6; 6], 5.0, 2);
+
+        assert_eq!(layer.len(), 1);
+        assert_eq!(layer[0].total_cost, 5.0);
+        assert_eq!(layer[0].predecessor, Some(2));
+    }
+
+    #[test]
+    fn best_state_indices_by_cost_returns_limited_sorted_prefixes() {
+        let states = vec![
+            layer_state(0.0, 30.0),
+            layer_state(1.0, 10.0),
+            layer_state(2.0, 20.0),
+        ];
+
+        assert_eq!(best_state_indices_by_cost(&states, 2), vec![1, 2]);
+        assert_eq!(best_state_indices_by_cost(&states, 10), vec![1, 2, 0]);
+        assert!(best_state_indices_by_cost(&states, 0).is_empty());
+    }
+
+    fn layer_state(value: f64, total_cost: f64) -> LayerState {
+        LayerState {
+            joints: [value; 6],
+            total_cost,
+            predecessor: None,
+        }
     }
 
     fn joint_step(value: f64, flags: PathFlags, move_into: MoveKind) -> AnnotatedJoints {
