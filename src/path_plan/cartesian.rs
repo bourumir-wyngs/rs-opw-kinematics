@@ -1,4 +1,8 @@
-//! Cartesian stroke
+//! Cartesian stroke path planning.
+//!
+//! This module plans a collision-free path that enters a Cartesian stroke,
+//! follows the requested TCP poses, optionally bridges infeasible stroke
+//! segments with joint-space RRT reconfiguration, and exits at the park pose.
 
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
@@ -7,7 +11,7 @@ use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -24,10 +28,15 @@ pub const DEFAULT_ONBOARDING_SUFFIX_CANDIDATES: usize = 3;
 /// Default maximum number of states retained per Cartesian graph layer.
 pub const DEFAULT_CARTESIAN_LAYER_STATES: usize = 32;
 
+/// Default number of Cartesian suffix solutions to await before cancelling extra probes.
+pub const DEFAULT_MAX_SOLUTIONS_AWAIT: usize = 3;
+
+/// Joint-space tolerance used to merge numerically equivalent IK states in DP layers.
 const JOINT_DEDUP_EPSILON_RAD: f64 = 1e-6;
 
-/// Class doing Cartesian planning
+/// Configurable Cartesian stroke planner for a robot with collision geometry.
 pub struct Cartesian<'a> {
+    /// Robot model used for inverse kinematics and collision checks.
     pub robot: &'a KinematicsWithShape,
 
     /// Check step size in meters. Objects and features of the robotic cell smaller
@@ -72,6 +81,10 @@ pub struct Cartesian<'a> {
     /// Maximum number of dynamic-programming states retained in each Cartesian
     /// graph layer. A value of 0 uses [`DEFAULT_CARTESIAN_LAYER_STATES`].
     pub max_cartesian_layer_states: usize,
+
+    /// Maximum number of Cartesian suffix solutions to collect before cancelling
+    /// still-running suffix probes. A value of 0 uses [`DEFAULT_MAX_SOLUTIONS_AWAIT`].
+    pub max_solutions_await: usize,
 
     /// If set, linear interpolated poses are included in the output.
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
@@ -139,36 +152,53 @@ bitflags! {
     }
 }
 
+/// Input pose plus semantic flags used while refining and planning the stroke.
 #[derive(Clone, Copy)]
 pub(crate) struct AnnotatedPose {
+    /// TCP pose to reach.
     pub(crate) pose: Pose,
+
+    /// Semantic role of the pose in the path.
     pub(crate) flags: PathFlags,
+
+    /// Adaptive refinement depth used to avoid endlessly splitting a failed edge.
     pub(crate) split_depth: usize,
 }
 
 /// Movement type used to reach an [`AnnotatedJoints`] position from the previous output position.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveKind {
+    /// Joint-space motion is used to enter this state.
     Joint,
+
+    /// Cartesian motion is expected to enter this state.
     Cartesian,
 }
 
 /// Annotated joints specifying the position flags and movement type into this position.
 #[derive(Clone, Copy)]
 pub struct AnnotatedJoints {
+    /// Joint angles for this output waypoint.
     pub joints: Joints,
+
+    /// Semantic role of this waypoint in the output path.
     pub flags: PathFlags,
+
+    /// Motion mode expected between the previous output waypoint and this waypoint.
     pub move_into: MoveKind,
 }
 
+/// Returns whether an internal state should be included in the public output path.
 fn should_emit_output_state(include_linear_interpolation: bool, flags: PathFlags) -> bool {
     include_linear_interpolation || !flags.contains(PathFlags::LIN_INTERP)
 }
 
+/// Converts the flags of a failed Cartesian pose into the flags of a joint-space fallback step.
 fn reconfiguring_output_flags(flags: PathFlags) -> PathFlags {
     (flags & !PathFlags::LIN_INTERP) | PathFlags::RECONFIGURING
 }
 
+/// Builds semantic flags for an interpolated pose inserted between two existing poses.
 fn interpolation_flags_for_edge(from: PathFlags, to: PathFlags) -> PathFlags {
     let mut flags = PathFlags::LIN_INTERP;
 
@@ -190,6 +220,7 @@ fn interpolation_flags_for_edge(from: PathFlags, to: PathFlags) -> PathFlags {
 }
 
 impl AnnotatedPose {
+    /// Interpolates pose geometry and carries edge-level semantic flags to the midpoint.
     fn interpolate(&self, other: &AnnotatedPose, p: f64) -> AnnotatedPose {
         assert!((0.0..=1.0).contains(&p));
 
@@ -204,6 +235,7 @@ impl AnnotatedPose {
     }
 }
 
+/// Produces a compact textual representation of flags for diagnostics.
 fn flag_representation(flags: &PathFlags) -> String {
     const FLAG_MAP: &[(PathFlags, &str)] = &[
         (PathFlags::LIN_INTERP, "LIN_INTERP"),
@@ -233,6 +265,7 @@ fn flag_representation(flags: &PathFlags) -> String {
 }
 
 impl fmt::Debug for AnnotatedPose {
+    /// Formats an annotated pose with semantic flags and TCP pose components.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let translation = self.pose.translation;
         let rotation = self.pose.rotation;
@@ -252,6 +285,7 @@ impl fmt::Debug for AnnotatedPose {
 }
 
 impl fmt::Debug for AnnotatedJoints {
+    /// Formats an output waypoint with its motion mode, semantic flags, and joint angles.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
@@ -268,55 +302,90 @@ impl fmt::Debug for AnnotatedJoints {
     }
 }
 
+/// Failed Cartesian edge together with candidate IK solutions for the target pose.
 struct Transition {
+    /// Pose that the failed Cartesian edge starts from.
     from: AnnotatedPose,
+
+    /// Pose that could not be reached within the allowed transition cost.
     to: AnnotatedPose,
+
+    /// Joint state at the start of the failed edge.
     previous: Joints,
+
+    /// IK solutions for `to` from `previous`, including candidates that may need RRT.
     solutions: Solutions,
 }
 
+/// Dynamic-programming state for one Cartesian target layer.
 #[derive(Clone, Copy)]
 struct LayerState {
+    /// Joint state selected for this layer.
     joints: Joints,
+
+    /// Accumulated weighted transition cost from the graph start to this state.
     total_cost: f64,
+
+    /// Index of the preceding state in the previous layer.
     predecessor: Option<usize>,
 }
 
+/// One prefix state from which a failed Cartesian edge may be reconfigured by RRT.
 struct CartesianGraphFailureCandidate {
+    /// Cartesian joint prefix that reaches `transition.previous` from the graph start.
     planned_prefix: Vec<Joints>,
+
+    /// Failed edge starting from the prefix end state.
     transition: Transition,
+
+    /// Accumulated cost of `planned_prefix`.
     prefix_cost: f64,
 }
 
+/// Cartesian graph failure containing the best prefix candidates to try next.
 struct CartesianGraphFailure {
+    /// Candidate failed edges sorted by increasing prefix cost.
     candidates: Vec<CartesianGraphFailureCandidate>,
 }
 
+/// Complete planning attempt plus the rank used to compare fallbacks.
 #[derive(Clone)]
 struct PlanningOutcome {
+    /// Output path for this attempt.
     path: Vec<AnnotatedJoints>,
+
+    /// Ranking summary used to prefer fewer stroke interruptions and lower cost.
     rank: PlanRank,
 }
 
 impl PlanningOutcome {
+    /// Builds a planning outcome and computes its rank from the generated path.
     fn new(path: Vec<AnnotatedJoints>, transition_coefficients: &Joints) -> Self {
         let rank = PlanRank::from_path(&path, transition_coefficients);
         Self { path, rank }
     }
 
+    /// Returns true when the path has no reconfiguration that interrupts the stroke.
     fn is_good_enough(&self) -> bool {
         self.rank.is_good_enough()
     }
 }
 
+/// Cartesian suffix that has been proven feasible before onboarding RRT is attempted.
 #[derive(Clone)]
 struct SuffixPlanningOutcome {
+    /// Landing joint state from which the Cartesian suffix starts.
     work_path_start: Joints,
+
+    /// Cartesian suffix output waypoints, excluding onboarding.
     suffix: Vec<AnnotatedJoints>,
+
+    /// Rank of the suffix path used to choose which onboarding attempts are worth trying.
     rank: PlanRank,
 }
 
 impl SuffixPlanningOutcome {
+    /// Builds a suffix outcome and ranks the suffix path.
     fn new(
         work_path_start: Joints,
         suffix: Vec<AnnotatedJoints>,
@@ -331,15 +400,24 @@ impl SuffixPlanningOutcome {
     }
 }
 
+/// Comparable quality summary for one planned output path.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PlanRank {
+    /// Number of distinct reconfiguration runs that interrupt trace motion.
     stroke_reconfigurations: usize,
+
+    /// Number of output waypoints that are part of stroke-interrupting reconfiguration.
     stroke_reconfiguration_steps: usize,
+
+    /// Sum of weighted transition costs between consecutive output waypoints.
     total_transition_cost: f64,
+
+    /// Number of output waypoints in the planned path.
     output_steps: usize,
 }
 
 impl PlanRank {
+    /// Computes ranking metrics from a complete or suffix output path.
     fn from_path(path: &[AnnotatedJoints], transition_coefficients: &Joints) -> Self {
         let mut stroke_reconfigurations = 0;
         let mut stroke_reconfiguration_steps = 0;
@@ -375,10 +453,12 @@ impl PlanRank {
         }
     }
 
+    /// Returns true when the path does not interrupt trace motion with reconfiguration.
     fn is_good_enough(&self) -> bool {
         self.stroke_reconfigurations == 0
     }
 
+    /// Orders ranks by stroke interruptions first, then reconfiguration length, cost, and size.
     fn is_better_than(&self, other: &Self) -> bool {
         self.stroke_reconfigurations
             .cmp(&other.stroke_reconfigurations)
@@ -395,6 +475,7 @@ impl PlanRank {
     }
 }
 
+/// Returns true when reconfiguration happens inside the actual stroke instead of entry/exit moves.
 fn is_stroke_interrupting_reconfiguration(flags: PathFlags) -> bool {
     flags.contains(PathFlags::RECONFIGURING)
         && !flags.intersects(
@@ -402,12 +483,14 @@ fn is_stroke_interrupting_reconfiguration(flags: PathFlags) -> bool {
         )
 }
 
+/// Compares two joint states using the looser tolerance used for IK deduplication.
 fn same_joints(left: &Joints, right: &Joints) -> bool {
     left.iter()
         .zip(right.iter())
         .all(|(left, right)| (left - right).abs() <= JOINT_DEDUP_EPSILON_RAD)
 }
 
+/// Returns the lowest-cost state index in a non-empty DP layer.
 fn best_state_index(states: &[LayerState]) -> usize {
     states
         .iter()
@@ -417,6 +500,7 @@ fn best_state_index(states: &[LayerState]) -> usize {
         .expect("Layer should not be empty")
 }
 
+/// Returns up to `limit` state indices sorted by increasing total cost.
 fn best_state_indices_by_cost(states: &[LayerState], limit: usize) -> Vec<usize> {
     let mut indices = (0..states.len()).collect::<Vec<_>>();
     indices.sort_by(|&left, &right| states[left].total_cost.total_cmp(&states[right].total_cost));
@@ -425,11 +509,13 @@ fn best_state_indices_by_cost(states: &[LayerState], limit: usize) -> Vec<usize>
     indices
 }
 
+/// Keeps only the cheapest states in a DP layer.
 fn limit_layer_states_by_cost(states: &mut Vec<LayerState>, limit: usize) {
     states.sort_by(|left, right| left.total_cost.total_cmp(&right.total_cost));
     states.truncate(limit);
 }
 
+/// Creates a graph failure used when cancellation interrupts Cartesian DP planning.
 fn canceled_cartesian_graph_failure(
     starting: &Joints,
     from: &AnnotatedPose,
@@ -449,6 +535,7 @@ fn canceled_cartesian_graph_failure(
     }
 }
 
+/// Sorts suffix candidates by the same quality rank used for complete planning outcomes.
 fn sort_suffix_candidates_by_rank(candidates: &mut [SuffixPlanningOutcome]) {
     candidates.sort_by(|left, right| {
         if left.rank.is_better_than(&right.rank) {
@@ -461,6 +548,34 @@ fn sort_suffix_candidates_by_rank(candidates: &mut [SuffixPlanningOutcome]) {
     });
 }
 
+/// Reserves one collected suffix solution slot and cancels further probes once the limit is met.
+fn reserve_solution_slot(
+    solution_count: &AtomicUsize,
+    solution_limit: usize,
+    stop: &AtomicBool,
+) -> bool {
+    debug_assert!(solution_limit > 0);
+
+    loop {
+        let current = solution_count.load(Ordering::Relaxed);
+        if current >= solution_limit {
+            stop.store(true, Ordering::Relaxed);
+            return false;
+        }
+
+        if solution_count
+            .compare_exchange_weak(current, current + 1, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            if current + 1 >= solution_limit {
+                stop.store(true, Ordering::Relaxed);
+            }
+            return true;
+        }
+    }
+}
+
+/// Inserts a DP layer state, or updates an equivalent state if the new path is cheaper.
 fn add_or_update_state(
     layer: &mut Vec<LayerState>,
     joints: Joints,
@@ -484,6 +599,7 @@ fn add_or_update_state(
     }
 }
 
+/// Reconstructs a joint path by following predecessor indices through DP layers.
 fn reconstruct_path(
     layers: &[Vec<LayerState>],
     mut layer_index: usize,
@@ -503,10 +619,12 @@ fn reconstruct_path(
 }
 
 impl Cartesian<'_> {
+    /// Applies this planner's output filtering setting to one annotated state.
     fn should_emit_output_state(&self, flags: PathFlags) -> bool {
         should_emit_output_state(self.include_linear_interpolation, flags)
     }
 
+    /// Returns the configured number of prefix states to try for reconfiguration.
     fn reconfiguration_prefix_candidate_limit(&self) -> usize {
         if self.max_reconfiguration_prefix_candidates == 0 {
             DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES
@@ -515,6 +633,7 @@ impl Cartesian<'_> {
         }
     }
 
+    /// Returns the configured number of Cartesian-feasible suffixes to try for onboarding.
     fn onboarding_suffix_candidate_limit(&self) -> usize {
         if self.max_onboarding_suffix_candidates == 0 {
             DEFAULT_ONBOARDING_SUFFIX_CANDIDATES
@@ -523,6 +642,7 @@ impl Cartesian<'_> {
         }
     }
 
+    /// Returns the configured maximum number of DP states retained per Cartesian layer.
     fn cartesian_layer_state_limit(&self) -> usize {
         if self.max_cartesian_layer_states == 0 {
             DEFAULT_CARTESIAN_LAYER_STATES
@@ -531,8 +651,19 @@ impl Cartesian<'_> {
         }
     }
 
-    /// Path plan for the given vector of poses. The returned path must be transitionable
-    /// and collision free.
+    /// Returns the configured number of suffix solutions to await before cancelling probes.
+    fn max_solutions_await_limit(&self) -> usize {
+        if self.max_solutions_await == 0 {
+            DEFAULT_MAX_SOLUTIONS_AWAIT
+        } else {
+            self.max_solutions_await
+        }
+    }
+
+    /// Plans a complete path from onboarding start through land, trace steps, and park.
+    ///
+    /// The planner first proves Cartesian suffix feasibility for landing IK candidates, then
+    /// spends RRT time only on the best suffixes to connect the provided start state.
     pub fn plan(
         &self,
         from: &Joints,
@@ -550,17 +681,27 @@ impl Cartesian<'_> {
         let poses = self.with_intermediate_poses(land, &steps, park);
         println!("Probing {} strategies", strategies.len());
 
-        let stop = Arc::new(AtomicBool::new(false));
+        let suffix_stop = Arc::new(AtomicBool::new(false));
+        let suffix_solution_count = AtomicUsize::new(0);
+        let max_solutions_await = self.max_solutions_await_limit();
 
         let mut suffix_candidates = strategies
             .par_iter()
             .filter_map(|strategy| {
-                if stop.load(Ordering::Relaxed) {
+                if suffix_stop.load(Ordering::Relaxed) {
                     return None;
                 }
 
-                match self.probe_cartesian_suffix(strategy, &poses, &stop) {
+                match self.probe_cartesian_suffix(strategy, &poses, &suffix_stop) {
                     Ok(suffix) => {
+                        if !reserve_solution_slot(
+                            &suffix_solution_count,
+                            max_solutions_await,
+                            &suffix_stop,
+                        ) {
+                            return None;
+                        }
+
                         let outcome = SuffixPlanningOutcome::new(
                             *strategy,
                             suffix,
@@ -602,10 +743,11 @@ impl Cartesian<'_> {
             );
         }
 
+        let onboarding_stop = AtomicBool::new(false);
         let mut best_fallback = None::<PlanningOutcome>;
         for suffix_candidate in suffix_candidates.into_iter().take(onboarding_limit) {
             let work_path_start = suffix_candidate.work_path_start;
-            match self.attach_onboarding(from, suffix_candidate, &stop) {
+            match self.attach_onboarding(from, suffix_candidate, &onboarding_stop) {
                 Ok(path) => {
                     let outcome = PlanningOutcome::new(path, &self.transition_coefficients);
                     println!(
@@ -642,6 +784,7 @@ impl Cartesian<'_> {
         }
     }
 
+    /// Prepends onboarding RRT movement to an already feasible Cartesian suffix.
     fn attach_onboarding(
         &self,
         onboarding_start: &Joints,
@@ -659,7 +802,10 @@ impl Cartesian<'_> {
         Ok(trace)
     }
 
-    /// Probe the Cartesian suffix for the given landing strategy before onboarding RRT.
+    /// Plans the Cartesian suffix for one landing strategy before onboarding RRT is attempted.
+    ///
+    /// This method may adaptively refine failed edges, and may use RRT reconfiguration inside
+    /// the suffix when allowed.
     fn probe_cartesian_suffix(
         &self,
         work_path_start: &Joints,
@@ -765,6 +911,7 @@ impl Cartesian<'_> {
         Ok(trace)
     }
 
+    /// Inserts a midpoint before `to_index` when a failed transition can still be refined.
     fn refine_transition(&self, poses: &mut Vec<AnnotatedPose>, to_index: usize) -> bool {
         if to_index == 0 {
             return false;
@@ -780,6 +927,7 @@ impl Cartesian<'_> {
         true
     }
 
+    /// Appends a Cartesian graph extension to the public trace and updates planning cursors.
     fn append_cartesian_extension(
         &self,
         extension: &[Joints],
@@ -809,6 +957,7 @@ impl Cartesian<'_> {
         }
     }
 
+    /// Tries failed-prefix candidates in order until one can bridge the failed pose by RRT.
     fn append_reconfiguration_candidates(
         &self,
         candidates: &[CartesianGraphFailureCandidate],
@@ -866,6 +1015,7 @@ impl Cartesian<'_> {
         false
     }
 
+    /// Appends a joint-space RRT bridge from the current state to one target IK solution.
     fn append_reconfiguration(
         &self,
         previous_joints: &Joints,
@@ -895,6 +1045,7 @@ impl Cartesian<'_> {
         false
     }
 
+    /// Appends the initial joint-space path from the requested start to the selected land state.
     fn append_onboarding(
         &self,
         start: &Joints,
@@ -928,7 +1079,11 @@ impl Cartesian<'_> {
         Ok(())
     }
 
-    /// Plan a Cartesian path through all provided pose layers using dynamic programming.
+    /// Plans a Cartesian path through all provided pose layers using dynamic programming.
+    ///
+    /// Each layer contains IK states for one target pose. Equivalent states are deduplicated, the
+    /// cheapest states are retained as a beam, and failure reports contain the best previous-layer
+    /// prefixes for possible RRT reconfiguration.
     /// The returned path excludes `starting` and contains one joint state per target pose.
     fn plan_cartesian_graph(
         &self,
@@ -1027,6 +1182,7 @@ impl Cartesian<'_> {
         ))
     }
 
+    /// Prints detailed diagnostics for failed Cartesian transitions when debug logging is enabled.
     fn log_failed_transition(&self, failure: &CartesianGraphFailure, step: i32) {
         if !self.debug {
             return;
@@ -1063,6 +1219,7 @@ impl Cartesian<'_> {
         }
     }
 
+    /// Builds the annotated pose sequence including land, trace, park, and fixed-step midpoints.
     fn with_intermediate_poses(
         &self,
         land: &Pose,
@@ -1118,7 +1275,7 @@ impl Cartesian<'_> {
         poses
     }
 
-    /// Add intermediate poses. start and end poses are not added.
+    /// Adds fixed-step intermediate poses between two endpoints without adding the endpoints.
     fn add_intermediate_poses(
         &self,
         start: &Pose,
@@ -1170,11 +1327,22 @@ mod tests {
     use super::{
         add_or_update_state, best_state_indices_by_cost, canceled_cartesian_graph_failure,
         flag_representation, interpolation_flags_for_edge, limit_layer_states_by_cost,
-        reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
-        AnnotatedJoints, AnnotatedPose, LayerState, MoveKind, PathFlags, PlanRank,
-        SuffixPlanningOutcome, DEFAULT_TRANSITION_COSTS,
+        reconfiguring_output_flags, reserve_solution_slot, should_emit_output_state,
+        sort_suffix_candidates_by_rank, AnnotatedJoints, AnnotatedPose, Cartesian, LayerState,
+        MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome, DEFAULT_MAX_SOLUTIONS_AWAIT,
+        DEFAULT_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        DEFAULT_TRANSITION_COSTS,
     };
-    use crate::kinematic_traits::Pose;
+    use crate::collisions::{CheckMode, RobotBody, SafetyDistances};
+    use crate::constraints::Constraints;
+    use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+    use crate::kinematics_with_shape::KinematicsWithShape;
+    use crate::rrt::RRTPlanner;
+    use glam::DVec3;
+    use parry3d::math::Vector;
+    use parry3d::shape::TriMesh;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[test]
     fn output_filter_honors_linear_interpolation_flag() {
@@ -1415,6 +1583,237 @@ mod tests {
         assert_eq!(candidates[1].work_path_start, [2.0; 6]);
     }
 
+    #[test]
+    fn solution_slot_reservation_cancels_after_configured_limit() {
+        let solution_count = AtomicUsize::new(0);
+        let stop = AtomicBool::new(false);
+
+        assert!(reserve_solution_slot(&solution_count, 2, &stop));
+        assert_eq!(solution_count.load(Ordering::Relaxed), 1);
+        assert!(!stop.load(Ordering::Relaxed));
+
+        assert!(reserve_solution_slot(&solution_count, 2, &stop));
+        assert_eq!(solution_count.load(Ordering::Relaxed), 2);
+        assert!(stop.load(Ordering::Relaxed));
+
+        assert!(!reserve_solution_slot(&solution_count, 2, &stop));
+        assert_eq!(solution_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn plan_cartesian_graph_honors_stop_flag() {
+        let robot = test_robot();
+        let planner = test_planner(&robot, 3);
+        let starting = joints(0.0);
+        let from = annotated_pose_at(0.0, PathFlags::LAND);
+        let targets = vec![annotated_pose_at(1.0, PathFlags::TRACE)];
+        let stop = AtomicBool::new(true);
+
+        let failure = planner
+            .plan_cartesian_graph(&starting, &from, &targets, &stop)
+            .err()
+            .expect("stopped graph planning should return a failure");
+
+        assert_eq!(failure.candidates.len(), 1);
+        let candidate = &failure.candidates[0];
+        assert!(candidate.planned_prefix.is_empty());
+        assert_eq!(candidate.transition.previous, starting);
+        assert!(candidate.transition.solutions.is_empty());
+        assert!(candidate.transition.from.flags.contains(PathFlags::LAND));
+        assert!(candidate.transition.to.flags.contains(PathFlags::TRACE));
+    }
+
+    #[test]
+    fn plan_cartesian_graph_reports_only_retained_states_after_beam_pruning() {
+        let robot = test_robot();
+        let planner = test_planner(&robot, 2);
+        let targets = vec![
+            annotated_pose_at(1.0, PathFlags::TRACE),
+            annotated_pose_at(2.0, PathFlags::TRACE),
+        ];
+        let stop = AtomicBool::new(false);
+
+        let failure = planner
+            .plan_cartesian_graph(
+                &joints(0.0),
+                &annotated_pose(PathFlags::LAND),
+                &targets,
+                &stop,
+            )
+            .err()
+            .expect("tight beam should prune the only branch that can reach the second target");
+
+        let previous_values = failure
+            .candidates
+            .iter()
+            .map(|candidate| candidate.transition.previous[0])
+            .collect::<Vec<_>>();
+
+        assert_eq!(previous_values, vec![1.0, 2.0]);
+        assert_eq!(failure.candidates.len(), 2);
+        assert!(failure
+            .candidates
+            .iter()
+            .all(|candidate| candidate.planned_prefix.len() == 1));
+        assert!(failure
+            .candidates
+            .iter()
+            .all(|candidate| candidate.transition.solutions.is_empty()));
+    }
+
+    #[test]
+    fn plan_cartesian_graph_keeps_required_branch_when_beam_is_wide_enough() {
+        let robot = test_robot();
+        let planner = test_planner(&robot, 3);
+        let targets = vec![
+            annotated_pose_at(1.0, PathFlags::TRACE),
+            annotated_pose_at(2.0, PathFlags::TRACE),
+        ];
+        let stop = AtomicBool::new(false);
+
+        let path = match planner.plan_cartesian_graph(
+            &joints(0.0),
+            &annotated_pose(PathFlags::LAND),
+            &targets,
+            &stop,
+        ) {
+            Ok(path) => path,
+            Err(_) => panic!("wider beam should keep the required branch"),
+        };
+
+        assert_eq!(path, vec![joints(3.0), joints(4.0)]);
+    }
+
+    /// Deterministic fake kinematics used to exercise Cartesian graph branching behavior.
+    struct GraphTestKinematics {
+        constraints: Option<Constraints>,
+    }
+
+    impl GraphTestKinematics {
+        /// Creates fake kinematics without joint constraints because RRT is not used by these tests.
+        fn new() -> Self {
+            Self { constraints: None }
+        }
+
+        /// Returns pose-dependent IK branches that make one expensive first-layer branch necessary.
+        fn solutions_for_pose(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            match rounded_x(pose) {
+                1 => vec![joints(1.0), joints(2.0), joints(3.0)],
+                2 if same_joint_value(previous, 3.0) => vec![joints(4.0)],
+                2 => Vec::new(),
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    impl Kinematics for GraphTestKinematics {
+        /// Returns deterministic IK solutions for the target pose with a zero previous state.
+        fn inverse(&self, pose: &Pose) -> Solutions {
+            self.solutions_for_pose(pose, &joints(0.0))
+        }
+
+        /// Returns deterministic IK solutions that may depend on the previous graph state.
+        fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            self.solutions_for_pose(pose, previous)
+        }
+
+        /// Returns identity because forward kinematics is irrelevant for graph tests.
+        fn forward(&self, _qs: &Joints) -> Pose {
+            Pose::identity()
+        }
+
+        /// Reuses the 6-DOF fake IK because the tests do not distinguish 5-DOF behavior.
+        fn inverse_5dof(&self, pose: &Pose, _j6: f64) -> Solutions {
+            self.inverse(pose)
+        }
+
+        /// Reuses continuing fake IK because the tests do not distinguish 5-DOF behavior.
+        fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
+            self.inverse_continuing(pose, prev)
+        }
+
+        /// Provides no constraints because RRT sampling is outside these graph tests.
+        fn constraints(&self) -> &Option<Constraints> {
+            &self.constraints
+        }
+
+        /// Reports no singularity because singularity handling is outside these graph tests.
+        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
+            None
+        }
+
+        /// Returns identity joint poses because collision checks are disabled in the test robot.
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            [Pose::identity(); 6]
+        }
+    }
+
+    /// Converts the x translation into a small integer selector for fake IK behavior.
+    fn rounded_x(pose: &Pose) -> i32 {
+        pose.translation.x.round() as i32
+    }
+
+    /// Checks the first joint value exactly enough for deterministic test branches.
+    fn same_joint_value(joints: &Joints, value: f64) -> bool {
+        (joints[0] - value).abs() <= f64::EPSILON
+    }
+
+    /// Builds a collision-free robot wrapper around the deterministic fake kinematics.
+    fn test_robot() -> KinematicsWithShape {
+        KinematicsWithShape {
+            kinematics: Arc::new(GraphTestKinematics::new()),
+            body: RobotBody {
+                joint_meshes: std::array::from_fn(|_| test_trimesh()),
+                tool: None,
+                base: None,
+                collision_environment: Vec::new(),
+                safety: SafetyDistances::standard(CheckMode::NoCheck),
+            },
+        }
+    }
+
+    /// Builds a Cartesian planner with a configurable graph beam width for tests.
+    fn test_planner(
+        robot: &KinematicsWithShape,
+        max_cartesian_layer_states: usize,
+    ) -> Cartesian<'_> {
+        Cartesian {
+            robot,
+            check_step_m: 0.01,
+            check_step_rad: 0.01,
+            max_transition_cost: 100.0,
+            transition_coefficients: [1.0; 6],
+            linear_recursion_depth: 0,
+            rrt: RRTPlanner {
+                step_size_joint_space: 0.1,
+                max_try: 1,
+                debug: false,
+            },
+            allow_reconfigure: false,
+            max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+            max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+            max_cartesian_layer_states,
+            max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
+            include_linear_interpolation: true,
+            debug: false,
+        }
+    }
+
+    /// Creates a minimal valid mesh for the collision body fields that are disabled in tests.
+    fn test_trimesh() -> TriMesh {
+        TriMesh::new(
+            vec![
+                Vector::new(0.0, 0.0, 0.0),
+                Vector::new(1.0, 0.0, 0.0),
+                Vector::new(0.0, 1.0, 0.0),
+                Vector::new(0.0, 0.0, 1.0),
+            ],
+            vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+        )
+        .expect("test trimesh should be valid")
+    }
+
+    /// Creates a layer state with no predecessor for helper-level DP tests.
     fn layer_state(value: f64, total_cost: f64) -> LayerState {
         LayerState {
             joints: [value; 6],
@@ -1423,18 +1822,31 @@ mod tests {
         }
     }
 
+    /// Creates a ranked suffix candidate for ordering tests.
     fn suffix_candidate(value: f64, suffix: Vec<AnnotatedJoints>) -> SuffixPlanningOutcome {
         SuffixPlanningOutcome::new([value; 6], suffix, &DEFAULT_TRANSITION_COSTS)
     }
 
-    fn annotated_pose(flags: PathFlags) -> AnnotatedPose {
+    /// Creates an annotated pose at a chosen x coordinate for graph-planning tests.
+    fn annotated_pose_at(x: f64, flags: PathFlags) -> AnnotatedPose {
         AnnotatedPose {
-            pose: Pose::identity(),
+            pose: Pose::from_translation(DVec3::new(x, 0.0, 0.0)),
             flags,
             split_depth: 0,
         }
     }
 
+    /// Creates an annotated identity pose for helper-level tests.
+    fn annotated_pose(flags: PathFlags) -> AnnotatedPose {
+        annotated_pose_at(0.0, flags)
+    }
+
+    /// Creates a joint state where every joint has the same value.
+    fn joints(value: f64) -> Joints {
+        [value; 6]
+    }
+
+    /// Creates an output waypoint with repeated joint values for ranking tests.
     fn joint_step(value: f64, flags: PathFlags, move_into: MoveKind) -> AnnotatedJoints {
         AnnotatedJoints {
             joints: [value; 6],
