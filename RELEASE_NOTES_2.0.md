@@ -40,11 +40,14 @@
 - When constructing `Cartesian`, add:
   - `allow_reconfigure`,
   - `max_reconfiguration_prefix_candidates`,
-  - `max_onboarding_suffix_candidates`,
+  - `preferred_onboarding_suffix_candidates`,
   - `max_cartesian_layer_states`,
   - `max_solutions_await`.
   Use the exported `DEFAULT_*` constants or `0` where documented to select the
   crate defaults.
+  The pre-release field name `max_onboarding_suffix_candidates` was renamed to
+  `preferred_onboarding_suffix_candidates` because it controls the first ranked
+  onboarding tranche, not a hard maximum.
 - When consuming `AnnotatedJoints`, read `move_into` to distinguish Cartesian
   motion from joint-space motion into a waypoint.
 - Replace checks for removed path flags:

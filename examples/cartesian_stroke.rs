@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use {
     rs_opw_kinematics::cartesian::{
         Cartesian, DEFAULT_CARTESIAN_LAYER_STATES, DEFAULT_MAX_SOLUTIONS_AWAIT,
-        DEFAULT_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         DEFAULT_TRANSITION_COSTS,
     },
     rs_opw_kinematics::collisions::CollisionBody,
@@ -151,7 +151,7 @@ fn main() -> Result<()> {
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
         // reconfigured through RRT joint-space movement.
         max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+        preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
         // Fast-pass beam width; plan() retries without it before failing or falling back.
         max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
         max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,

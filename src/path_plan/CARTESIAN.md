@@ -35,7 +35,8 @@ The current strategy is suffix-first:
 2. Compute IK strategies for `land` using `robot.inverse_continuing(land, from)`.
 3. Build the annotated Cartesian pose sequence from `land`, `steps`, and `park`.
 4. For each landing IK strategy, try to plan the Cartesian suffix first.
-5. In the fast pass, stop suffix probing once `max_solutions_await` feasible suffixes have been collected.
+5. In the fast pass, probe landing strategies in deterministic batches and stop starting later batches once
+   `max_solutions_await` feasible suffixes have been collected.
 6. Rank the feasible suffixes.
 7. Try onboarding RRT for the best few feasible suffixes.
 8. If no acceptable complete path is found, try remaining collected suffixes and then retry with an uncapped suffix set.
@@ -43,10 +44,10 @@ The current strategy is suffix-first:
 This order matters. RRT is usually more expensive than checking a small Cartesian IK graph, so the planner avoids
 spending RRT time reaching a landing configuration whose remaining Cartesian suffix is impossible.
 
-Landing strategies are probed in parallel with Rayon. A suffix-stage `AtomicBool` cancellation flag is passed through
-the Cartesian graph planner and suffix reconfiguration RRT. During the fast pass, once `max_solutions_await` feasible
-suffixes have been collected, the flag is set and still-running suffix probes return early where they can. This cap is
-a performance optimization; if capped suffixes do not produce an acceptable complete path, the planner retries without
+Landing strategies are probed in parallel with Rayon in deterministic batches. Completed batch results are appended in
+strategy-index order, so the capped fast-pass candidate set does not depend on worker scheduling. Once
+`max_solutions_await` feasible suffixes have been collected, the planner stops starting later batches. This cap is a
+performance optimization; if capped suffixes do not produce an acceptable complete path, the planner retries without
 the suffix cap before returning failure.
 
 ## Pose Expansion
@@ -135,10 +136,10 @@ RRT uses:
 - `smooth` to spend a bounded number of shortcut checks simplifying a successful raw RRT path. A value of `0`
   disables this post-processing.
 
-The best `max_onboarding_suffix_candidates` suffixes are tried first for onboarding, and the fast-pass feasible suffix
-pool is capped by `max_solutions_await`. This keeps a large set of feasible suffixes from causing many expensive RRT
-attempts on the common path. If those candidates do not produce an acceptable complete path, the planner continues with
-remaining collected suffixes and then an uncapped suffix retry so the fast-pass caps do not become correctness
+The best `preferred_onboarding_suffix_candidates` suffixes are tried first for onboarding, and the fast-pass feasible
+suffix pool is capped by `max_solutions_await`. This keeps a large set of feasible suffixes from causing many expensive
+RRT attempts on the common path. If those candidates do not produce an acceptable complete path, the planner continues
+with remaining collected suffixes and then an uncapped suffix retry so the fast-pass caps do not become correctness
 boundaries.
 
 ## Ranking
@@ -171,10 +172,10 @@ The workflow is:
 1. Generate landing IK candidates.
 2. Run Cartesian suffix planning from each landing candidate.
 3. Keep only suffixes that are feasible.
-4. In the fast pass, cancel still-running suffix probes after `max_solutions_await` feasible suffixes have been
-   collected.
+4. In the fast pass, stop starting later deterministic strategy batches after `max_solutions_await` feasible suffixes
+   have been collected.
 5. Rank those suffixes.
-6. Run onboarding RRT first for the best `max_onboarding_suffix_candidates` suffixes.
+6. Run onboarding RRT first for the best `preferred_onboarding_suffix_candidates` suffixes.
 7. If no acceptable complete path is found, continue through remaining collected suffixes and then retry all landing
    strategies without the suffix cap.
 
@@ -182,14 +183,15 @@ This favors cheap deterministic IK graph work before expensive randomized joint-
 
 ### Parallel Strategy Probing
 
-Landing IK strategies are independent, so suffix planning for them is done with Rayon. The suffix-stage cancellation
-flag is passed into Cartesian graph planning and suffix reconfiguration RRT so expensive workers can stop once the
-planner has collected enough suffix solutions.
+Landing IK strategies are independent, so suffix planning for each strategy batch is done with Rayon. During the capped
+fast pass, strategies are split into deterministic batches whose size is derived from `max_solutions_await`. Results
+from a completed batch are appended in strategy-index order, and once enough feasible suffixes have been collected the
+planner does not start later batches.
 
-`max_solutions_await` controls how many feasible suffix solutions the fast pass waits for before setting that
-cancellation flag. The default is 3. A smaller value returns from the parallel suffix phase earlier, while a larger
-value gives the ranker more candidate suffixes to compare. The cap is not a final completeness boundary: capped
-onboarding failure triggers an uncapped suffix retry before the planner returns failure.
+`max_solutions_await` controls how many feasible suffix solutions the fast pass collects before skipping later strategy
+batches. The default is 3. A smaller value starts fewer strategy batches on the fast path, while a larger value gives
+the ranker more candidate suffixes to compare. The cap is not a final completeness boundary: capped onboarding failure
+triggers an uncapped suffix retry before the planner returns failure.
 
 ### Dynamic Programming Instead of Greedy IK
 
@@ -250,11 +252,12 @@ The ranking order deliberately prioritizes semantic path quality before raw join
 3. Prefer lower weighted transition cost.
 4. Prefer fewer output waypoints.
 
-### Early Cancellation
+### Batch Limit Behavior
 
-`plan_cartesian_graph()` checks the suffix-stage cancellation flag while processing target layers and previous-layer
-states. Suffix reconfiguration RRT also checks the same flag. This prevents parallel workers from continuing expensive
-graph or RRT work after the planner has already collected `max_solutions_await` feasible suffixes.
+The fast pass does not rely on Rayon scheduling order. It waits for a strategy batch to finish, appends feasible
+suffixes in strategy order, and stops before starting the next batch once the `max_solutions_await` limit is reached.
+Lower-level graph and RRT code accepts a cooperative stop flag, but the current fast-path suffix cap does not set that
+flag after enough suffixes are collected. The cap is enforced at batch boundaries.
 
 ## Checks Made
 
@@ -280,11 +283,12 @@ The planner checks sampled configurations, not every continuous point in space. 
 - `linear_recursion_depth`: maximum adaptive midpoint insertion depth for failed Cartesian edges.
 - `allow_reconfigure`: enables joint-space RRT bridges inside the suffix when Cartesian continuity fails.
 - `max_reconfiguration_prefix_candidates`: number of previous graph states to try for reconfiguration.
-- `max_onboarding_suffix_candidates`: number of feasible Cartesian suffixes to try with onboarding RRT.
+- `preferred_onboarding_suffix_candidates`: number of top-ranked feasible suffixes to try first with onboarding RRT.
+  This is a fast-path tranche size, not a total maximum; `plan()` continues with remaining collected suffixes if needed.
 - `max_cartesian_layer_states`: fast-pass beam width for dynamic-programming layers. A value of `usize::MAX` disables
   layer beam pruning.
-- `max_solutions_await`: number of feasible suffix solutions to collect in the fast pass before cancelling remaining
-  suffix probes (default 3). Failed capped onboarding triggers an uncapped suffix retry.
+- `max_solutions_await`: number of feasible suffix solutions to collect in the fast pass before later strategy batches
+  are skipped (default 3). Failed capped onboarding triggers an uncapped suffix retry.
 - `include_linear_interpolation`: controls whether internally checked interpolated poses appear in the output.
 - `debug`: enables diagnostic output for failed transitions and planning choices.
 

@@ -22,13 +22,13 @@ pub const DEFAULT_TRANSITION_COSTS: [f64; 6] = [1.2, 1.1, 1.1, 0.9, 0.9, 0.8];
 /// Default number of Cartesian graph prefix states to try for RRT reconfiguration.
 pub const DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES: usize = 3;
 
-/// Default number of Cartesian-feasible suffixes to try for onboarding RRT.
-pub const DEFAULT_ONBOARDING_SUFFIX_CANDIDATES: usize = 3;
+/// Default number of top-ranked Cartesian suffixes to try before remaining collected suffixes.
+pub const DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES: usize = 3;
 
 /// Default maximum number of states retained per Cartesian graph layer.
 pub const DEFAULT_CARTESIAN_LAYER_STATES: usize = 32;
 
-/// Default number of Cartesian suffix solutions to await before cancelling extra probes.
+/// Default number of Cartesian suffix solutions to collect before skipping later strategy batches.
 pub const DEFAULT_MAX_SOLUTIONS_AWAIT: usize = 3;
 
 /// Joint-space tolerance used to merge numerically equivalent IK states in DP layers.
@@ -69,14 +69,19 @@ pub struct Cartesian<'a> {
     pub allow_reconfigure: bool,
 
     /// Maximum number of failed Cartesian graph prefix states to try as RRT
-    /// reconfiguration starts, ordered by increasing prefix cost.
+    /// reconfiguration starts in the fast pass, ordered by increasing prefix cost.
+    /// If the fast pass cannot produce an acceptable complete path, [`Self::plan`]
+    /// retries without this prefix cap. [`Self::plan_fast_approximate`] keeps it
+    /// as a hard latency bound.
     /// A value of 0 uses [`DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES`].
     pub max_reconfiguration_prefix_candidates: usize,
 
-    /// Maximum number of Cartesian-feasible suffix candidates to try for
-    /// onboarding RRT, ordered by suffix rank. A value of 0 uses
-    /// [`DEFAULT_ONBOARDING_SUFFIX_CANDIDATES`].
-    pub max_onboarding_suffix_candidates: usize,
+    /// Preferred number of top-ranked Cartesian suffix candidates to try first
+    /// for onboarding RRT. If these fail, [`Self::plan`] continues with the
+    /// remaining collected suffixes before returning failure.
+    /// A value of 0 uses
+    /// [`DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES`].
+    pub preferred_onboarding_suffix_candidates: usize,
 
     /// Maximum number of dynamic-programming states retained in each Cartesian
     /// graph layer during the fast pass. A value of 0 uses
@@ -537,7 +542,7 @@ fn limit_layer_states_by_cost(states: &mut Vec<LayerState>, limit: usize) {
     states.truncate(limit);
 }
 
-/// Creates a graph failure used when cancellation interrupts Cartesian DP planning.
+/// Creates a graph failure used when cooperative stop interrupts Cartesian DP planning.
 fn canceled_cartesian_graph_failure(
     starting: &Joints,
     from: &AnnotatedPose,
@@ -646,12 +651,12 @@ impl Cartesian<'_> {
         }
     }
 
-    /// Returns the configured number of Cartesian-feasible suffixes to try for onboarding.
-    fn onboarding_suffix_candidate_limit(&self) -> usize {
-        if self.max_onboarding_suffix_candidates == 0 {
-            DEFAULT_ONBOARDING_SUFFIX_CANDIDATES
+    /// Returns the configured first-tranche size for ranked onboarding suffix attempts.
+    fn preferred_onboarding_suffix_candidate_limit(&self) -> usize {
+        if self.preferred_onboarding_suffix_candidates == 0 {
+            DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES
         } else {
-            self.max_onboarding_suffix_candidates
+            self.preferred_onboarding_suffix_candidates
         }
     }
 
@@ -664,7 +669,7 @@ impl Cartesian<'_> {
         }
     }
 
-    /// Returns the configured number of suffix solutions to await before cancelling probes.
+    /// Returns the configured number of suffix solutions to collect before skipping later strategy batches.
     fn max_solutions_await_limit(&self) -> usize {
         if self.max_solutions_await == 0 {
             DEFAULT_MAX_SOLUTIONS_AWAIT
@@ -678,8 +683,8 @@ impl Cartesian<'_> {
     /// The planner first proves Cartesian suffix feasibility for landing IK candidates, then
     /// spends RRT time on ranked suffixes to connect the provided start state. Configured layer,
     /// suffix, and onboarding caps limit the fast pass only; if that pass cannot produce an
-    /// acceptable complete path, the planner retries with less restrictive limits before returning
-    /// failure or the best fallback path.
+    /// acceptable complete path, the planner retries with less restrictive layer and
+    /// reconfiguration-prefix limits before returning failure or the best fallback path.
     pub fn plan(
         &self,
         from: &Joints,
@@ -690,10 +695,16 @@ impl Cartesian<'_> {
         let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park)?;
 
         let layer_state_limit = self.cartesian_layer_state_limit();
-        let fast_outcome =
-            self.plan_with_cartesian_layer_limit(from, &strategies, &poses, layer_state_limit);
+        let reconfiguration_prefix_limit = self.reconfiguration_prefix_candidate_limit();
+        let fast_outcome = self.plan_with_limits(
+            from,
+            &strategies,
+            &poses,
+            layer_state_limit,
+            reconfiguration_prefix_limit,
+        );
 
-        if layer_state_limit == usize::MAX {
+        if layer_state_limit == usize::MAX && reconfiguration_prefix_limit == usize::MAX {
             return fast_outcome.map(|outcome| outcome.path);
         }
 
@@ -702,10 +713,10 @@ impl Cartesian<'_> {
             Ok(fast_fallback) => {
                 if self.debug {
                     println!(
-                        "Fast Cartesian planning produced a fallback path; retrying without layer beam limit"
+                        "Fast Cartesian planning produced a fallback path; retrying without layer or reconfiguration-prefix limits"
                     );
                 }
-                match self.plan_with_cartesian_layer_limit(from, &strategies, &poses, usize::MAX) {
+                match self.plan_with_limits(from, &strategies, &poses, usize::MAX, usize::MAX) {
                     Ok(exhaustive_outcome) => {
                         if exhaustive_outcome.rank.is_better_than(&fast_fallback.rank) {
                             Ok(exhaustive_outcome.path)
@@ -718,9 +729,11 @@ impl Cartesian<'_> {
             }
             Err(first_err) => {
                 if self.debug {
-                    println!("Fast Cartesian planning failed; retrying without layer beam limit");
+                    println!(
+                        "Fast Cartesian planning failed; retrying without layer or reconfiguration-prefix limits"
+                    );
                 }
-                self.plan_with_cartesian_layer_limit(from, &strategies, &poses, usize::MAX)
+                self.plan_with_limits(from, &strategies, &poses, usize::MAX, usize::MAX)
                     .map(|outcome| outcome.path)
                     .map_err(|second_err| {
                         format!(
@@ -734,8 +747,8 @@ impl Cartesian<'_> {
     /// Plans a path using the configured Cartesian layer beam as a hard limit.
     ///
     /// Unlike [`Self::plan`], this does not retry the Cartesian suffix graph with unbounded
-    /// layers after beam pruning. Use this only when lower latency is more important than avoiding
-    /// beam-pruning false negatives.
+    /// layers or unbounded reconfiguration-prefix candidates. Use this only when lower latency is
+    /// more important than avoiding pruning false negatives.
     pub fn plan_fast_approximate(
         &self,
         from: &Joints,
@@ -744,11 +757,12 @@ impl Cartesian<'_> {
         park: &Pose,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park)?;
-        self.plan_with_cartesian_layer_limit(
+        self.plan_with_limits(
             from,
             &strategies,
             &poses,
             self.cartesian_layer_state_limit(),
+            self.reconfiguration_prefix_candidate_limit(),
         )
         .map(|outcome| outcome.path)
     }
@@ -775,13 +789,14 @@ impl Cartesian<'_> {
         Ok((strategies, poses))
     }
 
-    /// Runs the suffix-first planner with a specific Cartesian graph layer-state limit.
-    fn plan_with_cartesian_layer_limit(
+    /// Runs the suffix-first planner with explicit fast/exhaustive search limits.
+    fn plan_with_limits(
         &self,
         from: &Joints,
         strategies: &[Joints],
         poses: &[AnnotatedPose],
         layer_state_limit: usize,
+        reconfiguration_prefix_limit: usize,
     ) -> Result<PlanningOutcome, String> {
         let max_solutions_await = self.max_solutions_await_limit();
         let mut suffix_candidates = self.collect_suffix_candidates(
@@ -789,6 +804,7 @@ impl Cartesian<'_> {
             poses,
             Some(max_solutions_await),
             layer_state_limit,
+            reconfiguration_prefix_limit,
         );
 
         let suffix_probe_was_limited = max_solutions_await < strategies.len();
@@ -798,7 +814,7 @@ impl Cartesian<'_> {
         if !suffix_candidates.is_empty() {
             sort_suffix_candidates_by_rank(&mut suffix_candidates);
             let onboarding_limit = self
-                .onboarding_suffix_candidate_limit()
+                .preferred_onboarding_suffix_candidate_limit()
                 .min(suffix_candidates.len());
             if self.debug {
                 println!(
@@ -843,8 +859,13 @@ impl Cartesian<'_> {
                 );
             }
 
-            let mut suffix_candidates =
-                self.collect_suffix_candidates(strategies, poses, None, layer_state_limit);
+            let mut suffix_candidates = self.collect_suffix_candidates(
+                strategies,
+                poses,
+                None,
+                layer_state_limit,
+                reconfiguration_prefix_limit,
+            );
             if !suffix_candidates.is_empty() {
                 sort_suffix_candidates_by_rank(&mut suffix_candidates);
                 if self.debug {
@@ -886,6 +907,7 @@ impl Cartesian<'_> {
         poses: &[AnnotatedPose],
         solution_limit: Option<usize>,
         layer_state_limit: usize,
+        reconfiguration_prefix_limit: usize,
     ) -> Vec<SuffixPlanningOutcome> {
         let suffix_stop = Arc::new(AtomicBool::new(false));
         let solution_limit = solution_limit.map(|limit| limit.max(1));
@@ -907,6 +929,7 @@ impl Cartesian<'_> {
                         poses,
                         &suffix_stop,
                         layer_state_limit,
+                        reconfiguration_prefix_limit,
                     ) {
                         Ok(suffix) => {
                             let outcome = SuffixPlanningOutcome::new(
@@ -1017,6 +1040,7 @@ impl Cartesian<'_> {
         poses: &[AnnotatedPose],
         stop: &AtomicBool,
         layer_state_limit: usize,
+        reconfiguration_prefix_limit: usize,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.debug {
             eprintln!("Cartesian suffix planning started, computing strategy {work_path_start:?}");
@@ -1037,6 +1061,7 @@ impl Cartesian<'_> {
                 &poses[pose_index..],
                 stop,
                 layer_state_limit,
+                reconfiguration_prefix_limit,
             ) {
                 Ok(extension) => {
                     self.append_cartesian_extension(
@@ -1241,6 +1266,18 @@ impl Cartesian<'_> {
             eprintln!("Closing step with RRT");
         }
         for next in &transition.solutions {
+            if same_joints(previous_joints, next) {
+                let flags = reconfiguring_output_flags(pose.flags);
+                if self.should_emit_output_state(flags) {
+                    trace.push(AnnotatedJoints {
+                        joints: *next,
+                        flags,
+                        move_into: MoveKind::Joint,
+                    });
+                }
+                return true;
+            }
+
             let path = self.rrt.plan_rrt(previous_joints, next, self.robot, stop);
             if let Ok(path) = path {
                 if self.debug {
@@ -1309,6 +1346,7 @@ impl Cartesian<'_> {
         targets: &[AnnotatedPose],
         stop: &AtomicBool,
         layer_state_limit: usize,
+        reconfiguration_prefix_limit: usize,
     ) -> Result<Vec<Joints>, CartesianGraphFailure> {
         if targets.is_empty() {
             return Ok(Vec::new());
@@ -1361,7 +1399,7 @@ impl Cartesian<'_> {
                     targets[target_index - 1]
                 };
                 let previous_layer = &layers[previous_layer_index];
-                let candidate_limit = self.reconfiguration_prefix_candidate_limit();
+                let candidate_limit = reconfiguration_prefix_limit.max(1);
                 let candidates = best_state_indices_by_cost(previous_layer, candidate_limit)
                     .into_iter()
                     .map(|previous_state_index| {
@@ -1546,7 +1584,7 @@ impl Cartesian<'_> {
 mod tests {
     use super::{
         AnnotatedJoints, AnnotatedPose, Cartesian, DEFAULT_MAX_SOLUTIONS_AWAIT,
-        DEFAULT_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome,
         add_or_update_state, append_suffix_candidates_by_strategy_order,
         best_state_indices_by_cost, canceled_cartesian_graph_failure, flag_representation,
@@ -1563,7 +1601,7 @@ mod tests {
     use parry3d::math::Vector;
     use parry3d::shape::TriMesh;
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn output_filter_honors_linear_interpolation_flag() {
@@ -1906,6 +1944,7 @@ mod tests {
                 &targets,
                 &stop,
                 planner.cartesian_layer_state_limit(),
+                planner.reconfiguration_prefix_candidate_limit(),
             )
             .expect_err("stopped graph planning should return a failure");
 
@@ -1935,6 +1974,7 @@ mod tests {
                 &targets,
                 &stop,
                 planner.cartesian_layer_state_limit(),
+                planner.reconfiguration_prefix_candidate_limit(),
             )
             .expect_err("tight beam should prune the only branch that can reach the second target");
 
@@ -1976,6 +2016,7 @@ mod tests {
             &targets,
             &stop,
             planner.cartesian_layer_state_limit(),
+            planner.reconfiguration_prefix_candidate_limit(),
         ) {
             Ok(path) => path,
             Err(_) => panic!("wider beam should keep the required branch"),
@@ -2072,7 +2113,7 @@ mod tests {
         planner.check_step_m = 10.0;
         planner.check_step_rad = 10.0;
         planner.max_solutions_await = 3;
-        planner.max_onboarding_suffix_candidates = 3;
+        planner.preferred_onboarding_suffix_candidates = 3;
         planner.rrt.max_try = 0;
 
         let path = planner
@@ -2083,6 +2124,59 @@ mod tests {
         assert_eq!(path[0].joints, joints(0.0));
         assert!(path[0].flags.contains(PathFlags::LAND));
         assert!(path[1].flags.contains(PathFlags::PARK));
+    }
+
+    #[test]
+    fn plan_retries_unbounded_reconfiguration_prefixes_after_capped_failures() {
+        let robot = reconfiguration_prefix_retry_robot();
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        planner.allow_reconfigure = true;
+        planner.max_reconfiguration_prefix_candidates = 3;
+        planner.rrt.max_try = 0;
+
+        let path = planner
+            .plan(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0)],
+                &pose_at(2.0),
+            )
+            .expect("unbounded retry should try the fourth reconfiguration prefix");
+
+        assert_eq!(path.len(), 3);
+        assert_eq!(path[0].joints, joints(0.0));
+        assert_eq!(path[1].joints, joints(4.0));
+        assert_eq!(path[2].joints, joints(4.0));
+        assert!(path[0].flags.contains(PathFlags::LAND));
+        assert!(path[1].flags.contains(PathFlags::TRACE));
+        assert!(path[2].flags.contains(PathFlags::PARK));
+        assert_eq!(path[1].move_into, MoveKind::Cartesian);
+        assert!(path[2].flags.contains(PathFlags::RECONFIGURING));
+        assert_eq!(path[2].move_into, MoveKind::Joint);
+    }
+
+    #[test]
+    fn plan_fast_approximate_keeps_reconfiguration_prefix_cap_as_hard_boundary() {
+        let robot = reconfiguration_prefix_retry_robot();
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        planner.allow_reconfigure = true;
+        planner.max_reconfiguration_prefix_candidates = 3;
+        planner.rrt.max_try = 0;
+
+        let err = planner
+            .plan_fast_approximate(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0)],
+                &pose_at(2.0),
+            )
+            .expect_err("approximate mode should keep the prefix cap failure");
+
+        assert!(err.contains("No Cartesian suffix worked out"));
     }
 
     /// Deterministic fake kinematics used to exercise Cartesian graph branching behavior.
@@ -2244,6 +2338,82 @@ mod tests {
         }
     }
 
+    /// Fake kinematics where only the fourth failed-prefix candidate can reconfigure.
+    struct ReconfigurationPrefixRetryKinematics {
+        constraints: Option<Constraints>,
+        target_two_calls_by_previous: [AtomicUsize; 5],
+    }
+
+    impl ReconfigurationPrefixRetryKinematics {
+        fn new() -> Self {
+            Self {
+                constraints: None,
+                target_two_calls_by_previous: std::array::from_fn(|_| AtomicUsize::new(0)),
+            }
+        }
+
+        fn target_two_solutions(&self, previous: &Joints) -> Solutions {
+            let previous_value = previous[0].round() as usize;
+            if !(1..=4).contains(&previous_value) {
+                return Vec::new();
+            }
+
+            let call = self.target_two_calls_by_previous[previous_value]
+                .fetch_add(1, Ordering::SeqCst)
+                + 1;
+
+            match previous_value {
+                // Odd calls are the DP edge checks and must fail. Even calls are
+                // failure-candidate construction and provide RRT targets.
+                1..=3 if call.is_multiple_of(2) => vec![joints(100.0 + previous_value as f64)],
+                // Prefix 4 appears in the exhaustive retry only: call 1 is the fast
+                // DP check, call 2 is the exhaustive DP check, and call 3 is the
+                // unbounded failure-candidate construction.
+                4 if call >= 3 => vec![joints(4.0)],
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    impl Kinematics for ReconfigurationPrefixRetryKinematics {
+        fn inverse(&self, pose: &Pose) -> Solutions {
+            self.inverse_continuing(pose, &joints(0.0))
+        }
+
+        fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            match rounded_x(pose) {
+                0 => vec![joints(0.0)],
+                1 => vec![joints(1.0), joints(2.0), joints(3.0), joints(4.0)],
+                2 => self.target_two_solutions(previous),
+                _ => Vec::new(),
+            }
+        }
+
+        fn forward(&self, _qs: &Joints) -> Pose {
+            Pose::identity()
+        }
+
+        fn inverse_5dof(&self, pose: &Pose, _j6: f64) -> Solutions {
+            self.inverse(pose)
+        }
+
+        fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
+            self.inverse_continuing(pose, prev)
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            &self.constraints
+        }
+
+        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
+            None
+        }
+
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            [Pose::identity(); 6]
+        }
+    }
+
     /// Converts the x translation into a small integer selector for fake IK behavior.
     fn rounded_x(pose: &Pose) -> i32 {
         pose.translation.x.round() as i32
@@ -2302,7 +2472,7 @@ mod tests {
             },
             allow_reconfigure: false,
             max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-            max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+            preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
             max_cartesian_layer_states,
             max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
             include_linear_interpolation: true,
@@ -2314,6 +2484,20 @@ mod tests {
     fn capped_retry_robot() -> KinematicsWithShape {
         KinematicsWithShape {
             kinematics: Arc::new(CappedRetryKinematics::new()),
+            body: RobotBody {
+                joint_meshes: std::array::from_fn(|_| test_trimesh()),
+                tool: None,
+                base: None,
+                collision_environment: Vec::new(),
+                safety: SafetyDistances::standard(CheckMode::NoCheck),
+            },
+        }
+    }
+
+    /// Builds a collision-free robot wrapper around the prefix-retry fake kinematics.
+    fn reconfiguration_prefix_retry_robot() -> KinematicsWithShape {
+        KinematicsWithShape {
+            kinematics: Arc::new(ReconfigurationPrefixRetryKinematics::new()),
             body: RobotBody {
                 joint_meshes: std::array::from_fn(|_| test_trimesh()),
                 tool: None,

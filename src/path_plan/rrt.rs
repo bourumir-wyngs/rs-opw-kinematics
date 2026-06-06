@@ -4,6 +4,7 @@ use crate::utils::dump_joints;
 use rand::{Rng, RngExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use tracing::debug;
 
 pub use crate::rrt_to::dual_rrt_connect;
 
@@ -26,7 +27,7 @@ pub struct RRTPlanner {
     /// to return the raw RRT tree path without simplification.
     pub smooth: usize,
 
-    /// Flag to print extra diagnostics if required.
+    /// Flag to emit extra diagnostics if required.
     pub debug: bool,
 }
 
@@ -36,7 +37,7 @@ impl Default for RRTPlanner {
             step_size_joint_space: 3_f64.to_radians(),
             max_try: 2000,
             smooth: 0,
-            debug: true,
+            debug: false,
         }
     }
 }
@@ -287,22 +288,33 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         stop: &AtomicBool,
     ) -> Result<Vec<Joints>, String> {
-        println!("RRT started {:?} -> {:?}", start, goal);
-        let started = Instant::now();
+        if self.debug {
+            debug!(?start, ?goal, "RRT started");
+        }
+        let started = self.debug.then(Instant::now);
         let path = self.plan_path(kinematics, start, goal, stop);
-        let spent = started.elapsed();
         let result = self.convert_result(path);
 
-        match &result {
-            Ok(path) => {
-                println!("RRT steps: {}", &path.len());
+        if self.debug {
+            match &result {
+                Ok(path) => {
+                    debug!(steps = path.len(), "RRT succeeded");
+                }
+                Err(error_message) => {
+                    debug!(error = %error_message, "Direct RRT failed");
+                }
             }
-            Err(error_message) => {
-                println!("Direct RRT failed: {}", error_message);
+
+            if let Some(started) = started {
+                debug!(
+                    elapsed = ?started.elapsed(),
+                    ?start,
+                    ?goal,
+                    "RRT finished"
+                );
             }
         }
         // self.print_summary(&result);
-        println!("RRT Took {:?} for {:?} -> {:?}", &spent, start, goal);
 
         result
     }

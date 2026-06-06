@@ -43,16 +43,30 @@ impl FrameTransform {
 
     /// Creates a frame transform from parts.
     pub fn from_parts(translation: DVec3, rotation: DQuat, scale: f64) -> Self {
-        assert!(
-            scale.is_finite() && scale > 0.0,
-            "frame scale must be finite and positive"
-        );
-        let pose = Pose::from_parts(translation, rotation);
-        Self {
+        Self::try_from_parts(translation, rotation, scale)
+            .expect("frame transform parts must be valid")
+    }
+
+    /// Tries to create a frame transform from parts.
+    ///
+    /// Unlike rigid poses, a frame transform may include a uniform positive scale. Invalid input is
+    /// returned as an error so file and FFI boundaries can report it without panicking.
+    pub fn try_from_parts(
+        translation: DVec3,
+        rotation: DQuat,
+        scale: f64,
+    ) -> Result<Self, Box<dyn Error>> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(Box::new(InvalidFrameTransform::new(
+                "frame scale must be finite and positive",
+            )));
+        }
+        let pose = Pose::try_from_parts(translation, rotation)?;
+        Ok(Self {
             translation: pose.translation,
             rotation: pose.rotation,
             scale,
-        }
+        })
     }
 
     /// Creates a rigid frame transform from a pose.
@@ -118,7 +132,7 @@ pub struct Frame {
     pub robot: Arc<dyn Kinematics>, // The robot
 
     /// The frame transform, normally computed with [`Frame::translation`],
-    /// [`Frame::frame`], or [`Frame::from_tie`].
+    /// [`Frame::frame`], or [`Frame::try_from_tie`].
     pub frame: FrameTransform,
 }
 
@@ -145,12 +159,14 @@ impl Frame {
         similarity_from_tie_points([p1, p2, p3], [q1, q2, q3], 1.0)
     }
 
-    /// Compute a frame transform from three original and three target tie points.
+    /// Try to compute a frame transform from a tie mapping.
     ///
-    /// Unlike [`Frame::frame`], this constructor supports uniform scaling. The three
-    /// target tie points must be a translated, rotated, and uniformly scaled copy of
-    /// the three original tie points. Non-uniform scale or shear is rejected.
-    pub fn from_tie(
+    /// A tie maps one set of three original trajectory points to the required set of
+    /// three target points. The resulting frame may translate, rotate, and uniformly
+    /// scale the original coordinate system. Degenerate tie point sets, such as
+    /// matching points or three points on one line, cannot define a frame and return
+    /// an error. Non-uniform scale and shear are also rejected.
+    pub fn try_from_tie(
         original: [DVec3; 3],
         target: [DVec3; 3],
     ) -> Result<FrameTransform, Box<dyn Error>> {
@@ -175,6 +191,17 @@ impl Frame {
         }
 
         Ok(transform)
+    }
+
+    /// Compute a frame transform from a tie mapping.
+    ///
+    /// This is a compatibility alias for [`Frame::try_from_tie`]. It is still fallible
+    /// because degenerate or non-similar tie point sets cannot define a valid frame.
+    pub fn from_tie(
+        original: [DVec3; 3],
+        target: [DVec3; 3],
+    ) -> Result<FrameTransform, Box<dyn Error>> {
+        Self::try_from_tie(original, target)
     }
 
     /// This function calculates the required joint values for a robot after applying a transformation
@@ -317,6 +344,24 @@ pub struct NotSimilarity {
     pub b3: DVec3,
 }
 
+/// Error returned when a frame transform is constructed from invalid raw parts.
+#[derive(Debug)]
+pub struct InvalidFrameTransform {
+    message: &'static str,
+}
+
+impl InvalidFrameTransform {
+    pub fn new(message: &'static str) -> Self {
+        Self { message }
+    }
+}
+
+impl fmt::Display for InvalidFrameTransform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message)
+    }
+}
+
 impl NotSimilarity {
     /// Creates a new NotSimilarity instance, containing 6 points that do not
     /// represent a valid similarity transform.
@@ -387,6 +432,8 @@ impl fmt::Display for ColinearPoints {
 }
 
 impl Error for ColinearPoints {}
+
+impl Error for InvalidFrameTransform {}
 
 impl Error for NotIsometry {}
 
@@ -466,7 +513,7 @@ fn similarity_from_tie_points(
     let rotation = DQuat::from_mat3(&rotation_matrix);
     let translation = target[0] - rotation * (original[0] * scale);
 
-    Ok(FrameTransform::from_parts(translation, rotation, scale))
+    FrameTransform::try_from_parts(translation, rotation, scale)
 }
 
 fn distances_match(
@@ -599,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_tie_supports_uniform_scale() {
+    fn test_try_from_tie_supports_uniform_scale() {
         let original = [
             DVec3::new(0.0, 0.0, 0.0),
             DVec3::new(1.0, 0.0, 0.0),
@@ -610,7 +657,8 @@ mod tests {
         let translation = DVec3::new(1.0, 2.0, 3.0);
         let target = original.map(|point| translation + rotation * (point * scale));
 
-        let result = Frame::from_tie(original, target).expect("scaled tie points must be valid");
+        let result =
+            Frame::try_from_tie(original, target).expect("scaled tie points must be valid");
 
         assert!((result.scale - scale).abs() < 1e-12);
         assert!((result.translation - translation).length() < 1e-12);
@@ -623,7 +671,26 @@ mod tests {
     }
 
     #[test]
-    fn test_from_tie_rejects_non_uniform_scale() {
+    fn test_from_tie_delegates_to_try_from_tie() {
+        let original = [
+            DVec3::new(0.0, 0.0, 0.0),
+            DVec3::new(1.0, 0.0, 0.0),
+            DVec3::new(0.0, 1.0, 0.0),
+        ];
+        let target = [
+            DVec3::new(1.0, 2.0, 3.0),
+            DVec3::new(2.0, 2.0, 3.0),
+            DVec3::new(1.0, 3.0, 3.0),
+        ];
+
+        assert_eq!(
+            Frame::from_tie(original, target).expect("valid tie points"),
+            Frame::try_from_tie(original, target).expect("valid tie points")
+        );
+    }
+
+    #[test]
+    fn test_try_from_tie_rejects_non_uniform_scale() {
         let original = [
             DVec3::new(0.0, 0.0, 0.0),
             DVec3::new(1.0, 0.0, 0.0),
@@ -635,8 +702,38 @@ mod tests {
             DVec3::new(0.0, 3.0, 0.0),
         ];
 
-        let error = Frame::from_tie(original, target).expect_err("non-uniform scale must fail");
+        let error = Frame::try_from_tie(original, target).expect_err("non-uniform scale must fail");
         assert!(error.to_string().contains("Not similarity"));
+    }
+
+    #[test]
+    fn test_try_from_tie_rejects_colinear_points() {
+        let original = [
+            DVec3::new(0.0, 0.0, 0.0),
+            DVec3::new(1.0, 0.0, 0.0),
+            DVec3::new(2.0, 0.0, 0.0),
+        ];
+        let target = [
+            DVec3::new(0.0, 0.0, 0.0),
+            DVec3::new(0.0, 1.0, 0.0),
+            DVec3::new(0.0, 2.0, 0.0),
+        ];
+
+        let error =
+            Frame::try_from_tie(original, target).expect_err("colinear tie points must fail");
+        assert!(error.to_string().contains("colinear source points"));
+    }
+
+    #[test]
+    fn test_frame_transform_try_from_parts_rejects_invalid_parts() {
+        let bad_scale = FrameTransform::try_from_parts(DVec3::ZERO, DQuat::IDENTITY, 0.0)
+            .expect_err("zero scale must fail");
+        assert!(bad_scale.to_string().contains("scale"));
+
+        let bad_pose =
+            FrameTransform::try_from_parts(DVec3::new(f64::NAN, 0.0, 0.0), DQuat::IDENTITY, 1.0)
+                .expect_err("invalid translation must fail");
+        assert!(bad_pose.to_string().contains("translation"));
     }
 
     #[test]

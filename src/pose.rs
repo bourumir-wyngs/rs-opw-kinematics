@@ -1,7 +1,29 @@
 //! Glam-backed rigid pose and kinematic vector types.
 
 use glam::{DQuat, DVec3, Quat, Vec3};
-use std::ops::Mul;
+use std::{error::Error, fmt, ops::Mul};
+
+/// Error returned by fallible pose constructors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoseError {
+    message: String,
+}
+
+impl PoseError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for PoseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl Error for PoseError {}
 
 /// Rigid f64 pose used by kinematics.
 ///
@@ -70,6 +92,14 @@ impl Pose {
         Self::from_parts(translation, DQuat::IDENTITY)
     }
 
+    /// Tries to create a translation-only pose.
+    ///
+    /// This is intended for file, Python, and other FFI boundaries where invalid input should be
+    /// reported as an error instead of panicking.
+    pub fn try_from_translation(translation: DVec3) -> Result<Self, PoseError> {
+        Self::try_from_parts(translation, DQuat::IDENTITY)
+    }
+
     /// Creates a pose from translation and rotation.
     ///
     /// The rotation is normalized so callers do not need to pre-normalize
@@ -77,11 +107,19 @@ impl Pose {
     /// `rotation` field is later mutated directly, callers must preserve this normalized
     /// quaternion invariant.
     pub fn from_parts(translation: DVec3, rotation: DQuat) -> Self {
-        assert_finite_dvec3(translation, "pose translation");
-        Pose {
+        Self::try_from_parts(translation, rotation).expect("pose parts must be valid")
+    }
+
+    /// Tries to create a pose from translation and rotation.
+    ///
+    /// The rotation is normalized on success. Non-finite translation components and non-finite or
+    /// zero-length rotations are returned as [`PoseError`] instead of panicking.
+    pub fn try_from_parts(translation: DVec3, rotation: DQuat) -> Result<Self, PoseError> {
+        validate_finite_dvec3(translation, "pose translation")?;
+        Ok(Pose {
             translation,
-            rotation: normalize_dquat(rotation),
-        }
+            rotation: try_normalize_dquat(rotation, "pose rotation")?,
+        })
     }
 
     /// Returns the inverse rigid transform.
@@ -149,17 +187,33 @@ impl Pose32 {
         Self::from_parts(translation, Quat::IDENTITY)
     }
 
+    /// Tries to create a translation-only pose.
+    ///
+    /// This is intended for file, Python, and other FFI boundaries where invalid input should be
+    /// reported as an error instead of panicking.
+    pub fn try_from_translation(translation: Vec3) -> Result<Self, PoseError> {
+        Self::try_from_parts(translation, Quat::IDENTITY)
+    }
+
     /// Creates a pose from translation and rotation.
     ///
     /// The rotation is normalized so callers do not need to pre-normalize raw data. If the public
     /// `rotation` field is later mutated directly, callers must preserve this normalized
     /// quaternion invariant.
     pub fn from_parts(translation: Vec3, rotation: Quat) -> Self {
-        assert_finite_vec3(translation, "pose32 translation");
-        Pose32 {
+        Self::try_from_parts(translation, rotation).expect("pose32 parts must be valid")
+    }
+
+    /// Tries to create a pose from translation and rotation.
+    ///
+    /// The rotation is normalized on success. Non-finite translation components and non-finite or
+    /// zero-length rotations are returned as [`PoseError`] instead of panicking.
+    pub fn try_from_parts(translation: Vec3, rotation: Quat) -> Result<Self, PoseError> {
+        validate_finite_vec3(translation, "pose32 translation")?;
+        Ok(Pose32 {
             translation,
-            rotation: normalize_quat(rotation),
-        }
+            rotation: try_normalize_quat(rotation, "pose32 rotation")?,
+        })
     }
 
     /// Returns the inverse rigid transform.
@@ -233,54 +287,66 @@ impl Mul<Pose32> for Pose32 {
     }
 }
 
-fn normalize_dquat(rotation: DQuat) -> DQuat {
+fn try_normalize_dquat(rotation: DQuat, name: &str) -> Result<DQuat, PoseError> {
     let length = (rotation.x * rotation.x
         + rotation.y * rotation.y
         + rotation.z * rotation.z
         + rotation.w * rotation.w)
         .sqrt();
-    assert!(
-        length.is_finite() && length > 0.0,
-        "pose rotation must be finite and non-zero"
-    );
-    DQuat::from_xyzw(
+
+    if !length.is_finite() || length <= 0.0 {
+        return Err(PoseError::new(format!(
+            "{name} must be finite and non-zero"
+        )));
+    }
+
+    Ok(DQuat::from_xyzw(
         rotation.x / length,
         rotation.y / length,
         rotation.z / length,
         rotation.w / length,
-    )
+    ))
 }
 
-fn normalize_quat(rotation: Quat) -> Quat {
+fn try_normalize_quat(rotation: Quat, name: &str) -> Result<Quat, PoseError> {
     let length = (rotation.x * rotation.x
         + rotation.y * rotation.y
         + rotation.z * rotation.z
         + rotation.w * rotation.w)
         .sqrt();
-    assert!(
-        length.is_finite() && length > 0.0,
-        "pose32 rotation must be finite and non-zero"
-    );
-    Quat::from_xyzw(
+
+    if !length.is_finite() || length <= 0.0 {
+        return Err(PoseError::new(format!(
+            "{name} must be finite and non-zero"
+        )));
+    }
+
+    Ok(Quat::from_xyzw(
         rotation.x / length,
         rotation.y / length,
         rotation.z / length,
         rotation.w / length,
-    )
+    ))
 }
 
 fn assert_finite_dvec3(vector: DVec3, name: &str) {
-    assert!(
-        vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite(),
-        "{name} must be finite"
-    );
+    validate_finite_dvec3(vector, name).expect("vector components must be valid")
 }
 
-fn assert_finite_vec3(vector: Vec3, name: &str) {
-    assert!(
-        vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite(),
-        "{name} must be finite"
-    );
+fn validate_finite_dvec3(vector: DVec3, name: &str) -> Result<(), PoseError> {
+    if vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite() {
+        Ok(())
+    } else {
+        Err(PoseError::new(format!("{name} must be finite")))
+    }
+}
+
+fn validate_finite_vec3(vector: Vec3, name: &str) -> Result<(), PoseError> {
+    if vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite() {
+        Ok(())
+    } else {
+        Err(PoseError::new(format!("{name} must be finite")))
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +380,34 @@ mod tests {
         let length = pose.rotation.length();
 
         assert!((length - 1.0).abs() <= EPS);
+    }
+
+    #[test]
+    fn try_from_parts_rejects_invalid_pose_values() {
+        let bad_translation = Pose::try_from_parts(DVec3::new(0.0, f64::NAN, 0.0), DQuat::IDENTITY)
+            .expect_err("non-finite translation must fail");
+        assert!(bad_translation.to_string().contains("translation"));
+
+        let zero_rotation = Pose::try_from_parts(DVec3::ZERO, DQuat::from_xyzw(0.0, 0.0, 0.0, 0.0))
+            .expect_err("zero rotation quaternion must fail");
+        assert!(zero_rotation.to_string().contains("rotation"));
+
+        let nan_rotation =
+            Pose::try_from_parts(DVec3::ZERO, DQuat::from_xyzw(0.0, 0.0, f64::NAN, 1.0))
+                .expect_err("non-finite rotation quaternion must fail");
+        assert!(nan_rotation.to_string().contains("rotation"));
+    }
+
+    #[test]
+    fn pose32_try_from_parts_rejects_invalid_values() {
+        let bad_translation =
+            Pose32::try_from_parts(Vec3::new(0.0, f32::INFINITY, 0.0), Quat::IDENTITY)
+                .expect_err("non-finite translation must fail");
+        assert!(bad_translation.to_string().contains("translation"));
+
+        let zero_rotation = Pose32::try_from_parts(Vec3::ZERO, Quat::from_xyzw(0.0, 0.0, 0.0, 0.0))
+            .expect_err("zero rotation quaternion must fail");
+        assert!(zero_rotation.to_string().contains("rotation"));
     }
 
     #[test]

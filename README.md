@@ -192,7 +192,7 @@ crate's public API and direct dependencies. See also
   `allow_filesystem` for mesh/file loading support.
 - Direct `Cartesian` construction now requires the additional configuration
   fields `allow_reconfigure`, `max_reconfiguration_prefix_candidates`,
-  `max_onboarding_suffix_candidates`, `max_cartesian_layer_states`, and
+  `preferred_onboarding_suffix_candidates`, `max_cartesian_layer_states`, and
   `max_solutions_await`. Use the exported `DEFAULT_*` constants or `0` where
   documented to select crate defaults.
 - `RRTPlanner` gained `smooth`; set it to `0` to keep raw RRT paths without
@@ -258,16 +258,14 @@ Please see the [example](examples/tool_and_base.rs).
 
 ## The frame
 
-Since 1.8.2 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
-angles)
-prepared for one location to make the same kind of movements in another location (translated and rotated).
+This package supports the frame transform that allows to transform the robot trajectory (in terms of joint
+angles) prepared for one location to make the same kind of movements in another location (translated, rotated, and scaled).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
 Frame construction uses `rs_opw_kinematics::glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
 original and transformed points, the Frame object can take "canonical" joint angles and calculated joint angles for the
-transformed (shifted and rotated) trajectory. See the
-[frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
+transformed (shifted and rotated) trajectory. See the [frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
 ## Individual link positions
 
@@ -534,7 +532,7 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
         // reconfigured through RRT joint-space movement.
         max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+        preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
         // Fast-pass beam width; plan() retries without it before failing or falling back.
         max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
         max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
@@ -617,7 +615,7 @@ real-world robotic movement.
 # Configuring the solver for your robot
 
 The project contains built-in definitions for Igus Rebel, ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx,
-FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160 and TX2-160L with various levels of
+FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160, and TX2-160L with various levels of
 testing. Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is
 described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
