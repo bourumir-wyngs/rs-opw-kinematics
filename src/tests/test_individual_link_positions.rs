@@ -249,7 +249,7 @@ fn test_frame_forward_kinematics() {
     let robot_without_frame = OPWKinematics::new(parameters);
 
     // Tool extends 1 meter in the Z direction
-    let frame_translation = Pose::from_translation(DVec3::new(0.0, 0.0, frame_offset));
+    let frame_translation = Frame::translation(DVec3::ZERO, DVec3::new(0.0, 0.0, frame_offset));
 
     // Create the Tool instance with the transformation
     let robot_with_frame = Frame {
@@ -280,7 +280,7 @@ fn test_frame_forward_kinematics() {
         (a1 + c2, b, c1),                               // 3
         (a1 + c2, b, c1 - a2),                          // 4
         (a1 + c2 + c3, b, c1 - a2),                     // 5
-        (a1 + c2 + c3 + c4 + frame_offset, b, c1 - a2), // 6
+        (a1 + c2 + c3 + c4, b, c1 - a2 + frame_offset), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation

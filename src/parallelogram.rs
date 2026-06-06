@@ -1,9 +1,9 @@
 //! Support for parallelogram mechanism some robots have. Like Tool and Base, Parallelogram
 //! both wraps arround some instance of Kinematics and implements Kinematics itself.
 
-use std::sync::Arc;
 use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use std::sync::Arc;
 
 /// Parallelogram Mechanism:
 /// The parallelogram mechanism introduces a geometric dependency between two specific joints,
@@ -50,13 +50,13 @@ use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
 /// let parallelogram = Parallelogram {
 ///     robot: robot_kinematics,
 ///     scaling: 1.0, // typically there is 1-to-1 influence between driven and coupled joints
-///     driven: J2,   // Joint 2 is most often the driven joint. 
+///     driven: J2,   // Joint 2 is most often the driven joint.
 ///     coupled: J3,  // Joint 3 is most often the coupled joint
 /// };
 /// ```
-/// As Parallelogram accepts and itself implements Kinematics, it is possible to chain multiple 
+/// As Parallelogram accepts and itself implements Kinematics, it is possible to chain multiple
 /// parallelograms if the robot has more than one.
-/// 
+///
 #[derive(Clone)]
 pub struct Parallelogram {
     /// The underlying robot's kinematics used for forward and inverse kinematics calculations.
@@ -76,49 +76,53 @@ impl Kinematics for Parallelogram {
         let mut solutions = self.robot.inverse(tcp);
 
         // Reversing the influence of driven joint in inverse kinematics
-        solutions.iter_mut().for_each(|x| x[self.coupled] += 
-            self.scaling * x[self.driven]); 
+        solutions
+            .iter_mut()
+            .for_each(|x| x[self.coupled] += self.scaling * x[self.driven]);
         solutions
     }
 
     fn inverse_5dof(&self, tcp: &Pose, j6: f64) -> Solutions {
         let mut solutions = self.robot.inverse_5dof(tcp, j6);
 
-        // Reversing the influence of driven joint in inverse kinematics        
-        solutions.iter_mut().for_each(|x| x[self.coupled] += 
-            self.scaling * x[self.driven]); 
+        // Reversing the influence of driven joint in inverse kinematics
+        solutions
+            .iter_mut()
+            .for_each(|x| x[self.coupled] += self.scaling * x[self.driven]);
         solutions
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing_5dof(tcp, previous);
-        
+
         // Reversing the influence of driven joint in inverse kinematics
-        solutions.iter_mut().for_each(|x| x[self.coupled] += 
-            self.scaling * x[self.driven]); 
+        solutions
+            .iter_mut()
+            .for_each(|x| x[self.coupled] += self.scaling * x[self.driven]);
         solutions
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
         let mut solutions = self.robot.inverse_continuing(tcp, previous);
-        
+
         // Reversing the influence of driven joint in inverse kinematics
-        solutions.iter_mut().for_each(|x| x[self.coupled] += 
-            self.scaling * x[self.driven]); 
+        solutions
+            .iter_mut()
+            .for_each(|x| x[self.coupled] += self.scaling * x[self.driven]);
         solutions
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
         let mut joints = *qs;
         // Adjusting coupled joint based on driven joint in forward kinematics
-        joints[self.coupled] -= self.scaling * joints[self.driven]; 
+        joints[self.coupled] -= self.scaling * joints[self.driven];
         self.robot.forward(&joints)
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
-        let mut joints = *joints; 
+        let mut joints = *joints;
         // Adjusting coupled joint based on driven joint in forward kinematics
-        joints[self.coupled] -= self.scaling * joints[self.driven]; 
+        joints[self.coupled] -= self.scaling * joints[self.driven];
         self.robot.forward_with_joint_poses(&joints)
     }
 

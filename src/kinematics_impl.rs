@@ -1,8 +1,8 @@
 //! Provides implementation of inverse and direct kinematics.
 
-use crate::constraints::{Constraints, BY_CONSTRAINS, BY_PREV};
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions, JOINTS_AT_ZERO};
+use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 use crate::kinematic_traits::{J4, J5, J6};
+use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Singularity, Solutions};
 use crate::parameters::opw_kinematics::Parameters;
 use crate::utils::opw_kinematics::is_valid;
 use glam::{DMat3, DQuat, DVec3};
@@ -83,6 +83,11 @@ fn mat3_from_rows(rows: [[f64; 3]; 3]) -> DMat3 {
         DVec3::new(rows[0][1], rows[1][1], rows[2][1]),
         DVec3::new(rows[0][2], rows[1][2], rows[2][2]),
     )
+}
+
+fn theta5_from_cosine(m: f64) -> f64 {
+    let m = m.clamp(-1.0, 1.0);
+    (1.0 - m * m).sqrt().atan2(m)
 }
 
 impl Kinematics for OPWKinematics {
@@ -440,10 +445,10 @@ impl OPWKinematics {
                 + matrix[(2, 2)] * cos23[3],
         ];
 
-        let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
-        let theta5_ii = f64::atan2((1.0 - m[1] * m[1]).sqrt(), m[1]);
-        let theta5_iii = f64::atan2((1.0 - m[2] * m[2]).sqrt(), m[2]);
-        let theta5_iv = f64::atan2((1.0 - m[3] * m[3]).sqrt(), m[3]);
+        let theta5_i = theta5_from_cosine(m[0]);
+        let theta5_ii = theta5_from_cosine(m[1]);
+        let theta5_iii = theta5_from_cosine(m[2]);
+        let theta5_iv = theta5_from_cosine(m[3]);
 
         let theta5_v = -theta5_i;
         let theta5_vi = -theta5_ii;
@@ -673,10 +678,10 @@ impl OPWKinematics {
                 + matrix[(2, 2)] * cos23[3],
         ];
 
-        let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
-        let theta5_ii = f64::atan2((1.0 - m[1] * m[1]).sqrt(), m[1]);
-        let theta5_iii = f64::atan2((1.0 - m[2] * m[2]).sqrt(), m[2]);
-        let theta5_iv = f64::atan2((1.0 - m[3] * m[3]).sqrt(), m[3]);
+        let theta5_i = theta5_from_cosine(m[0]);
+        let theta5_ii = theta5_from_cosine(m[1]);
+        let theta5_iii = theta5_from_cosine(m[2]);
+        let theta5_iv = theta5_from_cosine(m[3]);
 
         let theta5_v = -theta5_i;
         let theta5_vi = -theta5_ii;
@@ -909,6 +914,17 @@ mod tests {
     use crate::parameters::opw_kinematics::Parameters;
 
     #[test]
+    fn theta5_from_cosine_clamps_roundoff_outside_unit_interval() {
+        let high = theta5_from_cosine(1.0 + f64::EPSILON);
+        let low = theta5_from_cosine(-1.0 - f64::EPSILON);
+
+        assert!(high.is_finite());
+        assert!(low.is_finite());
+        assert_eq!(high, 0.0);
+        assert_eq!(low, std::f64::consts::PI);
+    }
+
+    #[test]
     fn test_inverse_continuing_large_j6_angles() {
         let robot = OPWKinematics::new(Parameters::irb2400_10());
 
@@ -950,7 +966,7 @@ mod tests {
 
     #[test]
     fn test_inverse_continuing_adds_blended_solution_at_j5_pi() {
-        use crate::kinematic_traits::{Joints, Kinematics, J4, J5, J6};
+        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
         use std::f64::consts::PI;
 
         // Use a known-good robot model; adjust if you prefer a different preset.

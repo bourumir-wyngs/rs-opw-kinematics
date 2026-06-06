@@ -40,9 +40,8 @@ pub mod opw_kinematics {
 
         /// Degrees of freedom for the robot.
         /// This can either be 5 for 5-DOF robots or 6 for 6-DOF robots.
-        pub dof: i8
+        pub dof: i8,
     }
-
 
     impl Parameters {
         /// Convert to string yaml representation (quick viewing, etc).
@@ -66,12 +65,14 @@ pub mod opw_kinematics {
                 self.c2,
                 self.c3,
                 self.c4,
-                self.offsets.iter().map(deg)
-                    .collect::<Vec<_>>().join(","),
-                self.sign_corrections.iter().map(|x| x.to_string())
-                    .collect::<Vec<_>>().join(","),
+                self.offsets.iter().map(deg).collect::<Vec<_>>().join(","),
+                self.sign_corrections
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
                 self.dof
             )
-        }        
+        }
     }
 }

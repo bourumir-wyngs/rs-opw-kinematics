@@ -1,6 +1,6 @@
 //! Supporting robotic arms with a parallelogram mechanism.
 
-use glam::EulerRot;
+use rs_opw_kinematics::glam::EulerRot;
 use rs_opw_kinematics::kinematic_traits::{J2, J3, Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parallelogram::Parallelogram;

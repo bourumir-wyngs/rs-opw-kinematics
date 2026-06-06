@@ -4,10 +4,10 @@ use anyhow::anyhow;
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
-    glam::{DVec3, Vec3},
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
     rs_opw_kinematics::constraints::{BY_PREV, Constraints},
+    rs_opw_kinematics::glam::{DVec3, Vec3},
     rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
     rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,

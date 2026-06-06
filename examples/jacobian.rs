@@ -1,5 +1,5 @@
-use glam::DVec3;
 use rs_opw_kinematics::constraints::{BY_CONSTRAINS, Constraints};
+use rs_opw_kinematics::glam::DVec3;
 use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;

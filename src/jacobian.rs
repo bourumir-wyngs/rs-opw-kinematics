@@ -234,7 +234,7 @@ impl Jacobian {
     /// # Returns
     ///
     /// A new instance of `Jacobian`
-    pub fn new(robot: &impl Kinematics, qs: &Joints, epsilon: f64) -> Self {
+    pub fn new(robot: &(impl Kinematics + ?Sized), qs: &Joints, epsilon: f64) -> Self {
         let matrix = compute_jacobian(robot, qs, epsilon);
         Self { matrix, epsilon }
     }
@@ -413,7 +413,11 @@ impl Jacobian {
 /// The Jacobian matrix maps the joint velocities to the end-effector velocities.
 /// Each column corresponds to a joint, and each row corresponds to a degree of freedom
 /// of the end-effector (linear and angular velocities).
-pub(crate) fn compute_jacobian(robot: &impl Kinematics, joints: &Joints, epsilon: f64) -> Matrix6 {
+pub(crate) fn compute_jacobian(
+    robot: &(impl Kinematics + ?Sized),
+    joints: &Joints,
+    epsilon: f64,
+) -> Matrix6 {
     let mut jacobian = Matrix6::zeros();
     let current_pose = robot.forward(joints);
     let current_position = current_pose.translation;

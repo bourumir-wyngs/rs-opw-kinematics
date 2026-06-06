@@ -74,7 +74,6 @@ struct Root {
     pub dof: Option<i8>,
 }
 
-
 #[test]
 fn test_nan_in_conf() {
     let contents = r#"

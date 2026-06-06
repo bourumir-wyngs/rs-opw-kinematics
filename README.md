@@ -146,14 +146,14 @@ Please see the [example](examples/constraints.rs).
 
 The public kinematics API uses a crate-owned
 [Pose](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Pose.html)
-type backed by `glam::DVec3` translation and `glam::DQuat` rotation. Forward kinematics returns this pose,
+type backed by `rs_opw_kinematics::glam::DVec3` translation and `rs_opw_kinematics::glam::DQuat` rotation. Forward kinematics returns this pose,
 and inverse kinematics accepts the same type.
 `Pose::from_parts` normalizes the rotation. The `translation` and `rotation` fields are public for
 direct access, but callers that mutate `pose.rotation` directly must keep it as a finite, normalized
-quaternion.
+quaternion. Use the `rs_opw_kinematics::glam` re-export in downstream code so your vector and quaternion types match the crate API.
 
 ```rust
-use glam::{DQuat, DVec3};
+use rs_opw_kinematics::glam::{DQuat, DVec3};
 use rs_opw_kinematics::kinematic_traits::Pose;
 
 let pose = Pose::from_parts(
@@ -167,11 +167,16 @@ println!("TCP z = {:.3}", pose.translation.z);
 ## Migrating to 2.0
 
 Version 2.0 makes the geometry API glam-native and removes nalgebra from this
-crate's public API and direct dependencies.
+crate's public API and direct dependencies. See also
+[RELEASE_NOTES_2.0.md](RELEASE_NOTES_2.0.md).
 
 - Replace nalgebra `Isometry3`, `Translation3`, and `UnitQuaternion` poses with
   crate-owned `Pose` values created by `Pose::from_translation` or
   `Pose::from_parts(DVec3, DQuat)`.
+- Import glam types from `rs_opw_kinematics::glam`, for example
+  `use rs_opw_kinematics::glam::{DQuat, DVec3, Quat, Vec3};`. If downstream
+  code imports `glam` directly, depend on the exact compatible version:
+  `glam = "=0.30.10"`.
 - Use `pose.translation` and `pose.rotation` directly instead of nalgebra
   isometry fields.
 - Use `Pose32` for collision and visualization placement, including
@@ -182,6 +187,22 @@ crate's public API and direct dependencies.
   helper methods accept `Joints`.
 - Parry is upgraded to `parry3d` 0.26, and mesh loading uses
   `rs-read-trimesh` 2.0.9 with its default Parry 0.26 support.
+- Replace the old `rrt` feature with `stroke_planning`. The compatibility
+  feature stubs `ply-rs-bw` and `stl_io` were removed; use `rs-read-trimesh` or
+  `allow_filesystem` for mesh/file loading support.
+- Direct `Cartesian` construction now requires the additional configuration
+  fields `allow_reconfigure`, `max_reconfiguration_prefix_candidates`,
+  `max_onboarding_suffix_candidates`, `max_cartesian_layer_states`, and
+  `max_solutions_await`. Use the exported `DEFAULT_*` constants or `0` where
+  documented to select crate defaults.
+- `RRTPlanner` gained `smooth`; set it to `0` to keep raw RRT paths without
+  shortcut smoothing.
+- `AnnotatedJoints` gained `move_into`. Use it to distinguish Cartesian motion
+  from joint-space motion into each waypoint.
+- `PathFlags::ALTERED` and `PathFlags::CARTESIAN` were removed. Reconfiguration
+  is now represented by `PathFlags::RECONFIGURING`, and joint-space
+  reconfiguration waypoints have `move_into == MoveKind::Joint`. Cartesian
+  waypoints have `move_into == MoveKind::Cartesian`.
 - Downstream code that still needs nalgebra should add its own nalgebra
   dependency and keep conversions at the application boundary.
 
@@ -198,7 +219,7 @@ and the end-effector velocities. The computed Jacobian object provides:
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
 or torques in Newton meters. End-effector velocity is represented as
 [`Twist`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Twist.html):
-linear velocity in meters per second and angular velocity in radians per second, both stored as `glam::DVec3`.
+linear velocity in meters per second and angular velocity in radians per second, both stored as `rs_opw_kinematics::glam::DVec3`.
 End-effector force and torque are represented as
 [`Wrench`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Wrench.html):
 force in newtons and torque in newton meters.
@@ -220,7 +241,7 @@ inverse kinematics now becomes the pose of the tool center point, not any part o
 on a [base](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
 
 ```rust
-use glam::DVec3;
+use rs_opw_kinematics::glam::DVec3;
 use rs_opw_kinematics::kinematic_traits::Pose;
 
 let base = Pose::from_translation(DVec3::new(0.0, 0.0, 0.5));
@@ -243,7 +264,7 @@ prepared for one location to make the same kind of movements in another location
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
-Frame construction uses `glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
+Frame construction uses `rs_opw_kinematics::glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
 original and transformed points, the Frame object can take "canonical" joint angles and calculated joint angles for the
 transformed (shifted and rotated) trajectory. See the
 [frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
@@ -328,7 +349,7 @@ The code below demonstrates how to create this structure, complete with tool,
 base, and constraints (see also [example](examples/complete_visible_robot.rs)):
 
 ```rust
-use glam::{DVec3, Vec3};
+use rs_opw_kinematics::glam::{DVec3, Vec3};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::collisions::{
     CollisionBody, SafetyDistances, CheckMode, J_BASE, J2, J3, J4, J6, J_TOOL, NEVER_COLLIDES,
@@ -514,6 +535,7 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         // reconfigured through RRT joint-space movement.
         max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         max_onboarding_suffix_candidates: DEFAULT_ONBOARDING_SUFFIX_CANDIDATES,
+        // Fast-pass beam width; plan() retries without it before failing or falling back.
         max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
         max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are

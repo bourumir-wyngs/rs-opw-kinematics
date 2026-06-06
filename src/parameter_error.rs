@@ -18,22 +18,22 @@ pub enum ParameterError {
 impl std::fmt::Display for ParameterError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            ParameterError::IoError(ref err) => 
-                write!(f, "IO Error: {}", err),
-            ParameterError::ParseError(ref msg) => 
-                write!(f, "Parse Error: {}", msg),
-            ParameterError::WrongAngle(ref msg) =>
-                write!(f, "Wrong angle representation: {}", msg),            
-            ParameterError::MissingField(ref field) => 
-                write!(f, "Missing Field: {}", field),
-            ParameterError::InvalidLength { expected, found } => 
-                write!(f, "Invalid Length: expected {}, found {}", expected, found),
-            ParameterError::XmlProcessingError(ref err) => 
-                write!(f, "XML Processing Error: {}", err),
-            ParameterError::ParameterPopulationError(ref err) => 
-                write!(f, "Parameter Population Error: {}", err),
-            ParameterError::KinematicsConfigurationError(ref err) => 
-                write!(f, "Kinematics Configuration Error: {}", err),
+            ParameterError::IoError(ref err) => write!(f, "IO Error: {}", err),
+            ParameterError::ParseError(ref msg) => write!(f, "Parse Error: {}", msg),
+            ParameterError::WrongAngle(ref msg) => write!(f, "Wrong angle representation: {}", msg),
+            ParameterError::MissingField(ref field) => write!(f, "Missing Field: {}", field),
+            ParameterError::InvalidLength { expected, found } => {
+                write!(f, "Invalid Length: expected {}, found {}", expected, found)
+            }
+            ParameterError::XmlProcessingError(ref err) => {
+                write!(f, "XML Processing Error: {}", err)
+            }
+            ParameterError::ParameterPopulationError(ref err) => {
+                write!(f, "Parameter Population Error: {}", err)
+            }
+            ParameterError::KinematicsConfigurationError(ref err) => {
+                write!(f, "Kinematics Configuration Error: {}", err)
+            }
         }
     }
 }

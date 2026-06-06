@@ -7,7 +7,7 @@ use crate::constraints::Constraints;
 /// The fields are public for direct access. Constructors normalize the rotation; if you mutate the
 /// rotation field directly, keep it as a finite, normalized quaternion.
 /// ```
-/// use glam::{DQuat, DVec3};
+/// use rs_opw_kinematics::glam::{DQuat, DVec3};
 /// use rs_opw_kinematics::kinematic_traits::Pose;
 ///
 /// let translation = DVec3::new(1.0, 0.0, 0.0);

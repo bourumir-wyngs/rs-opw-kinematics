@@ -40,9 +40,9 @@
 //!     collision would occur).
 //!   - **Forward Kinematics**: Collisions are permitted, but colliding robot joints and environment objects are highlighted.
 
-use crate::camera_controller::{camera_controller_system, CameraController};
+use crate::camera_controller::{CameraController, camera_controller_system};
 use crate::collisions::SafetyDistances;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
+use crate::kinematic_traits::{ENV_START_IDX, J_BASE, J_TOOL, Joints, Kinematics, Pose};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::pose::Pose32;
 use crate::utils;
@@ -51,8 +51,9 @@ use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::winit::WinitPlugin;
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use glam::{DQuat, DVec3, EulerRot};
+use parry3d::math::Vector as ParryVector;
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
@@ -61,6 +62,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
+fn bevy_vec3_from_parry(point: &ParryVector) -> bevy::prelude::Vec3 {
+    bevy::prelude::Vec3::new(point.x, point.y, point.z)
+}
+
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
     let mut mesh = Mesh::new(
@@ -68,8 +73,9 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         RenderAssetUsages::RENDER_WORLD,
     );
 
-    // Step 1: Extract vertices and indices from the TriMesh
-    let vertices: Vec<_> = trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect();
+    let parry_vertices = trimesh.vertices();
+    // Step 1: Extract vertex positions and indices from the TriMesh
+    let vertices: Vec<_> = parry_vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
     let indices: Vec<_> = trimesh
         .indices()
         .iter()
@@ -86,9 +92,9 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         let i2 = triangle[2] as usize;
 
         // Get the three vertices of the triangle
-        let v0 = Vec3::from_array(vertices[i0]);
-        let v1 = Vec3::from_array(vertices[i1]);
-        let v2 = Vec3::from_array(vertices[i2]);
+        let v0 = bevy_vec3_from_parry(&parry_vertices[i0]);
+        let v1 = bevy_vec3_from_parry(&parry_vertices[i1]);
+        let v2 = bevy_vec3_from_parry(&parry_vertices[i2]);
 
         // Calculate the two edge vectors
         let edge1 = v1 - v0;

@@ -85,9 +85,10 @@ robot's collision model before the graph sees them.
 Near-duplicate joint states are deduplicated with `JOINT_DEDUP_EPSILON_RAD`. If the same layer gets numerically
 equivalent states through different predecessors, only the cheaper predecessor is kept.
 
-After each layer is built, states are sorted by accumulated prefix cost and truncated to `max_cartesian_layer_states`.
-This makes the graph search a beam search. It is not complete, but it limits growth when IK returns many alternatives
-or near-duplicates.
+During the fast pass, after each layer is built, states are sorted by accumulated prefix cost and truncated to
+`max_cartesian_layer_states`. This makes the fast graph search a beam search. If the fast pass cannot produce an
+acceptable complete path, `Cartesian::plan()` retries without this layer limit before failing or returning a fallback.
+`Cartesian::plan_fast_approximate()` keeps the beam as a hard latency bound and can therefore return false negatives.
 
 If all targets are planned, the planner reconstructs the cheapest final path by following predecessor indices backward
 through the layers.
@@ -142,7 +143,8 @@ boundaries.
 
 ## Ranking
 
-Feasible suffixes and complete paths are ranked by `PlanRank`.
+Feasible suffixes and complete paths are ranked by `PlanRank`. Suffix ranking prepends a synthetic `LAND` state at the
+selected landing joints, so the rank includes the first transition from the landing configuration into the suffix.
 
 The comparison order is:
 
@@ -207,16 +209,18 @@ variants of the same configuration.
 
 ### Beam-Limited Layers
 
-After each dynamic-programming layer is built, states are sorted by accumulated prefix cost and truncated to
-`max_cartesian_layer_states`.
+During the fast pass, after each dynamic-programming layer is built, states are sorted by accumulated prefix cost and
+truncated to `max_cartesian_layer_states`.
 
-This turns the full graph search into a beam search:
+This turns the fast graph search into a beam search:
 
 - Larger beams keep more alternatives and are less likely to prune a later-useful branch.
 - Smaller beams are faster and use less memory.
-- The default is intended as a practical bound, not a proof of completeness.
+- The default is intended as a practical fast-pass bound, not a proof of completeness.
 
-If a stroke fails unexpectedly, increasing `max_cartesian_layer_states` is one of the first tuning options to try.
+`Cartesian::plan()` treats the beam as an optimization boundary: if the bounded pass fails or only finds a
+stroke-interrupting fallback, it retries with an unbounded Cartesian graph layer. `Cartesian::plan_fast_approximate()`
+does not do that retry and is the explicit hard-beam mode.
 
 ### Multiple Reconfiguration Prefixes
 
@@ -277,7 +281,8 @@ The planner checks sampled configurations, not every continuous point in space. 
 - `allow_reconfigure`: enables joint-space RRT bridges inside the suffix when Cartesian continuity fails.
 - `max_reconfiguration_prefix_candidates`: number of previous graph states to try for reconfiguration.
 - `max_onboarding_suffix_candidates`: number of feasible Cartesian suffixes to try with onboarding RRT.
-- `max_cartesian_layer_states`: beam width for dynamic-programming layers.
+- `max_cartesian_layer_states`: fast-pass beam width for dynamic-programming layers. A value of `usize::MAX` disables
+  layer beam pruning.
 - `max_solutions_await`: number of feasible suffix solutions to collect in the fast pass before cancelling remaining
   suffix probes (default 3). Failed capped onboarding triggers an uncapped suffix retry.
 - `include_linear_interpolation`: controls whether internally checked interpolated poses appear in the output.
@@ -288,7 +293,8 @@ The planner checks sampled configurations, not every continuous point in space. 
 - The planner depends heavily on good `land` and `park` poses. They should be close enough to the work surface that
   the Cartesian approach and lift are realistic, but far enough to leave room for safe onboarding and exit.
 - A very small `max_transition_cost` may reject valid Cartesian movement. A very large value may allow branch jumps.
-- A small `max_cartesian_layer_states` is faster but can prune a branch that later becomes necessary.
+- A small `max_cartesian_layer_states` speeds up the fast pass. `Cartesian::plan()` retries without this beam before
+  failing or returning a fallback; `Cartesian::plan_fast_approximate()` does not.
 - RRT needs useful joint constraints. Without constraints, random sampling for onboarding or reconfiguration cannot
   explore the intended joint space well.
 - Continuous revolute joints are currently deduplicated by raw joint differences. If continuous joints are important,

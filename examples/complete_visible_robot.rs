@@ -3,12 +3,12 @@ use anyhow::Result;
 use anyhow::anyhow;
 #[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 use {
-    glam::{DVec3, Vec3},
-
     rs_opw_kinematics::collisions::CollisionBody,
 
     rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
     rs_opw_kinematics::constraints::{BY_PREV, Constraints},
+    rs_opw_kinematics::glam::{DVec3, Vec3},
+
     rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
     rs_opw_kinematics::kinematic_traits::{Kinematics, Pose},
     // This example only makes sense with collisions feature enabled

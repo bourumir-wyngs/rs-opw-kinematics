@@ -1,10 +1,10 @@
 //! Joint limit support
 
+use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints};
+use crate::utils::deg;
+use rand::{Rng, RngExt};
 use std::f64::consts::PI;
 use std::ops::RangeInclusive;
-use rand::{Rng, RngExt};
-use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
-use crate::utils::deg;
 
 #[derive(Clone, Debug, Copy)]
 pub struct Constraints {
@@ -29,8 +29,8 @@ pub struct Constraints {
 /// When sorting solutions, give absolute priority to constraints (the closer to the midrange
 /// of constraints, the better)
 pub const BY_CONSTRAINS: f64 = 1.0;
-/// When sorting solutions, give absolute priority to previous joints values (the closer to the 
-/// previous value, the better). 
+/// When sorting solutions, give absolute priority to previous joints values (the closer to the
+/// previous value, the better).
 pub const BY_PREV: f64 = 0.0;
 
 const TWO_PI: f64 = 2.0 * PI;
@@ -39,7 +39,7 @@ impl Constraints {
     /// Create constraints that restrict the joint rotations between 'from' to 'to' values.
     /// Wrapping arround is supported so order is important. For instance,
     /// from = 0.1 and to = 0.2 (radians) means the joint
-    /// is allowed to rotate to 0.11, 0.12 ... 1.99, 0.2. 
+    /// is allowed to rotate to 0.11, 0.12 ... 1.99, 0.2.
     /// from = 0.2 ant to = 0.1 is also valid but means the joint is allowed to rotate
     /// to 0.21, 0.22, 0.99, 2 * PI or 0.0 (wrapping around), then to 0.09 and finally 0.1,
     /// so the other side of the circle. The sorting_weight parameter influences sorting of the
@@ -76,7 +76,7 @@ impl Constraints {
     /// ```
     /// use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
     /// let constraints = Constraints::from_degrees(
-    ///   [0.0..=90.0, 45.0..=135.0, -90.0..=90.0, 0.0..=180.0, -45.0..=45.0, -180.0..=180.0], 
+    ///   [0.0..=90.0, 45.0..=135.0, -90.0..=90.0, 0.0..=180.0, -45.0..=45.0, -180.0..=180.0],
     ///   BY_PREV);
     /// ```
     pub fn from_degrees(ranges: [RangeInclusive<f64>; 6], sorting_weight: f64) -> Self {
@@ -167,25 +167,22 @@ impl Constraints {
     /// Return new vector of angle arrays, removing all that have members not satisfying these
     /// constraints.
     pub fn filter(&self, angles: &[[f64; 6]]) -> Vec<[f64; 6]> {
-        angles.iter()
+        angles
+            .iter()
             .filter(|angle_array| self.compliant(angle_array))
             .cloned()
             .collect()
     }
-
 
     pub fn to_yaml(&self) -> String {
         format!(
             "constraints:\n  \
                from: [{}]\n  \
                to: [{}]\n",
-            self.from.iter().map(deg)
-                .collect::<Vec<_>>().join(", "),
-            self.to.iter().map(deg)
-                .collect::<Vec<_>>().join(", ")
+            self.from.iter().map(deg).collect::<Vec<_>>().join(", "),
+            self.to.iter().map(deg).collect::<Vec<_>>().join(", ")
         )
     }
-
 
     /// Generate a random valid angle within the defined constraints for each joint.
     pub fn random_angles(&self) -> Joints {
@@ -214,7 +211,6 @@ impl Constraints {
             random_angle(&mut rng, self.from[5], self.to[5]),
         ]
     }
-
 }
 
 impl Default for Constraints {
@@ -231,9 +227,9 @@ impl Default for Constraints {
 
 #[cfg(test)]
 mod tests {
-    use crate::kinematic_traits::Solutions;
-    use crate::utils::{as_radians};
     use super::*;
+    use crate::kinematic_traits::Solutions;
+    use crate::utils::as_radians;
 
     #[test]
     fn test_historical_failure_1() {
@@ -260,7 +256,14 @@ mod tests {
 
     #[test]
     fn test_with_wrap_around() {
-        let angles = [0.9 * PI, 1.9 * PI, 0.05 * PI, 1.05 * PI, 1.95 * PI, 0.95 * PI];
+        let angles = [
+            0.9 * PI,
+            1.9 * PI,
+            0.05 * PI,
+            1.05 * PI,
+            1.95 * PI,
+            0.95 * PI,
+        ];
         let from = [0.8 * PI, 1.8 * PI, 0.0, 1.0 * PI, 1.9 * PI, 0.9 * PI];
         let to = [0.1 * PI, 1.1 * PI, 0.2 * PI, 1.2 * PI, 0.0, 1.0 * PI];
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
@@ -278,7 +281,14 @@ mod tests {
 
     #[test]
     fn test_invalid_angles_no_wrap_around() {
-        let angles = [0.15 * PI, 0.25 * PI, 0.55 * PI, 0.65 * PI, 0.75 * PI, 0.85 * PI];
+        let angles = [
+            0.15 * PI,
+            0.25 * PI,
+            0.55 * PI,
+            0.65 * PI,
+            0.75 * PI,
+            0.85 * PI,
+        ];
         let from = [0.2 * PI, 0.3 * PI, 0.6 * PI, 0.7 * PI, 0.8 * PI, 0.9 * PI];
         let to = [0.1 * PI, 0.2 * PI, 0.5 * PI, 0.6 * PI, 0.7 * PI, 0.8 * PI];
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
@@ -300,13 +310,16 @@ mod tests {
         let to = [PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0, PI / 2.0];
         let angles = vec![
             [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0], // Should be retained
-            [PI, 2.0 * PI, PI, PI, PI, PI], // Should be removed
+            [PI, 2.0 * PI, PI, PI, PI, PI],                               // Should be removed
         ];
 
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
         let filtered_angles = limits.filter(&angles);
         assert_eq!(filtered_angles.len(), 1);
-        assert_eq!(filtered_angles[0], [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0]);
+        assert_eq!(
+            filtered_angles[0],
+            [PI / 3.0, PI / 4.0, PI / 6.0, PI / 3.0, PI / 4.0, PI / 6.0]
+        );
     }
 
     #[test]

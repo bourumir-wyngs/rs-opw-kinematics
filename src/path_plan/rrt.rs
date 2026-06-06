@@ -97,7 +97,7 @@ where
 fn remove_adjacent_duplicates(path: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let mut deduplicated: Vec<Vec<f64>> = Vec::with_capacity(path.len());
     for configuration in path {
-        if deduplicated.last().map_or(true, |last| {
+        if deduplicated.last().is_none_or(|last| {
             !same_configuration(last, configuration, RRT_SMOOTH_DUPLICATE_EPSILON)
         }) {
             deduplicated.push(configuration.clone());
@@ -124,9 +124,10 @@ fn resample_path(path: &[Vec<f64>], step_size_joint_space: f64) -> Vec<Vec<f64>>
             resampled.push(interpolate_configuration(from, to, p));
         }
 
-        if resampled.last().map_or(true, |last| {
-            !same_configuration(last, to, RRT_SMOOTH_DUPLICATE_EPSILON)
-        }) {
+        if resampled
+            .last()
+            .is_none_or(|last| !same_configuration(last, to, RRT_SMOOTH_DUPLICATE_EPSILON))
+        {
             resampled.push(to.clone());
         }
     }
