@@ -104,7 +104,9 @@ single cheapest previous state. Each candidate contains:
 - the failed target pose's IK solutions from that previous state,
 - the accumulated prefix cost.
 
-The candidates are sorted by prefix cost and limited by `max_reconfiguration_prefix_candidates`.
+The candidates are sorted by prefix cost. In `Cartesian::plan()`, `max_reconfiguration_prefix_candidates` is a
+fast-pass bound: if the fast pass fails or only produces a stroke-interrupting fallback, the planner retries with
+unbounded prefix candidates. `Cartesian::plan_fast_approximate()` keeps this prefix limit as a hard latency bound.
 
 The suffix planner handles a failed graph edge in this order:
 
@@ -282,7 +284,9 @@ The planner checks sampled configurations, not every continuous point in space. 
 - `transition_coefficients`: joint weights used for transition cost.
 - `linear_recursion_depth`: maximum adaptive midpoint insertion depth for failed Cartesian edges.
 - `allow_reconfigure`: enables joint-space RRT bridges inside the suffix when Cartesian continuity fails.
-- `max_reconfiguration_prefix_candidates`: number of previous graph states to try for reconfiguration.
+- `max_reconfiguration_prefix_candidates`: number of previous graph states to try for reconfiguration in the fast pass.
+  `Cartesian::plan()` retries with unbounded prefix candidates before failing or returning a stroke-interrupting
+  fallback; `Cartesian::plan_fast_approximate()` keeps this as a hard latency bound.
 - `preferred_onboarding_suffix_candidates`: number of top-ranked feasible suffixes to try first with onboarding RRT.
   This is a fast-path tranche size, not a total maximum; `plan()` continues with remaining collected suffixes if needed.
 - `max_cartesian_layer_states`: fast-pass beam width for dynamic-programming layers. A value of `usize::MAX` disables

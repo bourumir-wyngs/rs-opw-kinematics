@@ -4,22 +4,23 @@ use glam::{DQuat, DVec3, Quat, Vec3};
 use std::{error::Error, fmt, ops::Mul};
 
 /// Error returned by fallible pose constructors.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PoseError {
-    message: String,
-}
-
-impl PoseError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PoseError {
+    /// Translation contains at least one non-finite component.
+    NonFiniteTranslation,
+    /// Rotation contains at least one non-finite component, or normalization overflowed.
+    NonFiniteRotation,
+    /// Rotation quaternion has zero length.
+    ZeroRotation,
 }
 
 impl fmt::Display for PoseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
+        match self {
+            PoseError::NonFiniteTranslation => f.write_str("pose translation must be finite"),
+            PoseError::NonFiniteRotation => f.write_str("pose rotation must be finite"),
+            PoseError::ZeroRotation => f.write_str("pose rotation must be non-zero"),
+        }
     }
 }
 
@@ -115,10 +116,10 @@ impl Pose {
     /// The rotation is normalized on success. Non-finite translation components and non-finite or
     /// zero-length rotations are returned as [`PoseError`] instead of panicking.
     pub fn try_from_parts(translation: DVec3, rotation: DQuat) -> Result<Self, PoseError> {
-        validate_finite_dvec3(translation, "pose translation")?;
+        validate_finite_dvec3(translation)?;
         Ok(Pose {
             translation,
-            rotation: try_normalize_dquat(rotation, "pose rotation")?,
+            rotation: try_normalize_dquat(rotation)?,
         })
     }
 
@@ -209,10 +210,10 @@ impl Pose32 {
     /// The rotation is normalized on success. Non-finite translation components and non-finite or
     /// zero-length rotations are returned as [`PoseError`] instead of panicking.
     pub fn try_from_parts(translation: Vec3, rotation: Quat) -> Result<Self, PoseError> {
-        validate_finite_vec3(translation, "pose32 translation")?;
+        validate_finite_vec3(translation)?;
         Ok(Pose32 {
             translation,
-            rotation: try_normalize_quat(rotation, "pose32 rotation")?,
+            rotation: try_normalize_quat(rotation)?,
         })
     }
 
@@ -287,17 +288,26 @@ impl Mul<Pose32> for Pose32 {
     }
 }
 
-fn try_normalize_dquat(rotation: DQuat, name: &str) -> Result<DQuat, PoseError> {
+fn try_normalize_dquat(rotation: DQuat) -> Result<DQuat, PoseError> {
+    if !(rotation.x.is_finite()
+        && rotation.y.is_finite()
+        && rotation.z.is_finite()
+        && rotation.w.is_finite())
+    {
+        return Err(PoseError::NonFiniteRotation);
+    }
+
     let length = (rotation.x * rotation.x
         + rotation.y * rotation.y
         + rotation.z * rotation.z
         + rotation.w * rotation.w)
         .sqrt();
 
-    if !length.is_finite() || length <= 0.0 {
-        return Err(PoseError::new(format!(
-            "{name} must be finite and non-zero"
-        )));
+    if !length.is_finite() {
+        return Err(PoseError::NonFiniteRotation);
+    }
+    if length <= 0.0 {
+        return Err(PoseError::ZeroRotation);
     }
 
     Ok(DQuat::from_xyzw(
@@ -308,17 +318,26 @@ fn try_normalize_dquat(rotation: DQuat, name: &str) -> Result<DQuat, PoseError> 
     ))
 }
 
-fn try_normalize_quat(rotation: Quat, name: &str) -> Result<Quat, PoseError> {
+fn try_normalize_quat(rotation: Quat) -> Result<Quat, PoseError> {
+    if !(rotation.x.is_finite()
+        && rotation.y.is_finite()
+        && rotation.z.is_finite()
+        && rotation.w.is_finite())
+    {
+        return Err(PoseError::NonFiniteRotation);
+    }
+
     let length = (rotation.x * rotation.x
         + rotation.y * rotation.y
         + rotation.z * rotation.z
         + rotation.w * rotation.w)
         .sqrt();
 
-    if !length.is_finite() || length <= 0.0 {
-        return Err(PoseError::new(format!(
-            "{name} must be finite and non-zero"
-        )));
+    if !length.is_finite() {
+        return Err(PoseError::NonFiniteRotation);
+    }
+    if length <= 0.0 {
+        return Err(PoseError::ZeroRotation);
     }
 
     Ok(Quat::from_xyzw(
@@ -330,22 +349,25 @@ fn try_normalize_quat(rotation: Quat, name: &str) -> Result<Quat, PoseError> {
 }
 
 fn assert_finite_dvec3(vector: DVec3, name: &str) {
-    validate_finite_dvec3(vector, name).expect("vector components must be valid")
+    assert!(
+        vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite(),
+        "{name} must be finite"
+    );
 }
 
-fn validate_finite_dvec3(vector: DVec3, name: &str) -> Result<(), PoseError> {
+fn validate_finite_dvec3(vector: DVec3) -> Result<(), PoseError> {
     if vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite() {
         Ok(())
     } else {
-        Err(PoseError::new(format!("{name} must be finite")))
+        Err(PoseError::NonFiniteTranslation)
     }
 }
 
-fn validate_finite_vec3(vector: Vec3, name: &str) -> Result<(), PoseError> {
+fn validate_finite_vec3(vector: Vec3) -> Result<(), PoseError> {
     if vector.x.is_finite() && vector.y.is_finite() && vector.z.is_finite() {
         Ok(())
     } else {
-        Err(PoseError::new(format!("{name} must be finite")))
+        Err(PoseError::NonFiniteTranslation)
     }
 }
 
@@ -386,15 +408,18 @@ mod tests {
     fn try_from_parts_rejects_invalid_pose_values() {
         let bad_translation = Pose::try_from_parts(DVec3::new(0.0, f64::NAN, 0.0), DQuat::IDENTITY)
             .expect_err("non-finite translation must fail");
+        assert_eq!(bad_translation, PoseError::NonFiniteTranslation);
         assert!(bad_translation.to_string().contains("translation"));
 
         let zero_rotation = Pose::try_from_parts(DVec3::ZERO, DQuat::from_xyzw(0.0, 0.0, 0.0, 0.0))
             .expect_err("zero rotation quaternion must fail");
+        assert_eq!(zero_rotation, PoseError::ZeroRotation);
         assert!(zero_rotation.to_string().contains("rotation"));
 
         let nan_rotation =
             Pose::try_from_parts(DVec3::ZERO, DQuat::from_xyzw(0.0, 0.0, f64::NAN, 1.0))
                 .expect_err("non-finite rotation quaternion must fail");
+        assert_eq!(nan_rotation, PoseError::NonFiniteRotation);
         assert!(nan_rotation.to_string().contains("rotation"));
     }
 
@@ -403,11 +428,16 @@ mod tests {
         let bad_translation =
             Pose32::try_from_parts(Vec3::new(0.0, f32::INFINITY, 0.0), Quat::IDENTITY)
                 .expect_err("non-finite translation must fail");
-        assert!(bad_translation.to_string().contains("translation"));
+        assert_eq!(bad_translation, PoseError::NonFiniteTranslation);
 
         let zero_rotation = Pose32::try_from_parts(Vec3::ZERO, Quat::from_xyzw(0.0, 0.0, 0.0, 0.0))
             .expect_err("zero rotation quaternion must fail");
-        assert!(zero_rotation.to_string().contains("rotation"));
+        assert_eq!(zero_rotation, PoseError::ZeroRotation);
+
+        let nan_rotation =
+            Pose32::try_from_parts(Vec3::ZERO, Quat::from_xyzw(0.0, 0.0, f32::NAN, 1.0))
+                .expect_err("non-finite rotation quaternion must fail");
+        assert_eq!(nan_rotation, PoseError::NonFiniteRotation);
     }
 
     #[test]

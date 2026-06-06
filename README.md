@@ -450,6 +450,8 @@ Apache 2.0 license by Takashi Ogura and Mitsuharu Kojima. It can be used the fol
 
 ```rust
 use rrt::dual_rrt_connect;
+use std::sync::atomic::AtomicBool;
+
 fn plan_path(
   kinematics: &KinematicsWithShape,
   start: Joints, goal: Joints,
@@ -467,10 +469,12 @@ fn plan_path(
   };
 
   // Plan the path with RRT
+  let stop = AtomicBool::new(false);
   dual_rrt_connect(
     &start, &goal, collision_free,
     random_joint_angles, 3_f64.to_radians(), // Step size in joint space
     2000,  // Max iterations
+    &stop,
   )
 }
 ```
