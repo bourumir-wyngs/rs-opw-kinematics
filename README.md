@@ -5,12 +5,13 @@ planning.
 [![GitHub](https://img.shields.io/badge/GitHub-777777)](https://github.com/bourumir-wyngs/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/v/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/rust.yml)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions)
-[![API 1.8 compatible](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/rs-opw-kinematics/semver-main.yml?branch=main&label=API%201.8%20compatible)](https://github.com/bourumir-wyngs/rs-opw-kinematics/actions/workflows/semver-main.yml)
 [![crates.io](https://img.shields.io/crates/l/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![crates.io](https://img.shields.io/crates/d/rs-opw-kinematics.svg)](https://crates.io/crates/rs-opw-kinematics)
 [![docs.rs](https://docs.rs/rs-opw-kinematics/badge.svg)](https://docs.rs/rs-opw-kinematics)
 
 <img src="https://github.com/user-attachments/assets/64cf952a-93b0-4a69-ba6f-d3e98b1cee25" alt="screenshot" width="300"/>
+
+This library is also available from Python via [spherical-wrist](https://github.com/bourumir-wyngs/spherical-wrist) crate.
 
 See also [video produced with RViz under ROS2](https://www.youtube.com/watch?v=CVZ9CFt_QMM)
 
@@ -49,7 +50,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = ">=1.8.10, <2.0.0"
+rs-opw-kinematics = "2"
 ```
 
 Simple "hello world" demonstrating singularity handling:
@@ -141,6 +142,70 @@ Since 1.8.2, convenience method exists to specify constraints as ranges in degre
 
 Please see the [example](examples/constraints.rs).
 
+## Pose
+
+The public kinematics API uses a crate-owned
+[Pose](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Pose.html)
+type backed by `rs_opw_kinematics::glam::DVec3` translation and `rs_opw_kinematics::glam::DQuat` rotation. Forward kinematics returns this pose,
+and inverse kinematics accepts the same type.
+`Pose::from_parts` normalizes the rotation. The `translation` and `rotation` fields are public for
+direct access, but callers that mutate `pose.rotation` directly must keep it as a finite, normalized
+quaternion. Use the `rs_opw_kinematics::glam` re-export in downstream code so your vector and quaternion types match the crate API.
+
+```rust
+use rs_opw_kinematics::glam::{DQuat, DVec3};
+use rs_opw_kinematics::kinematic_traits::Pose;
+
+let pose = Pose::from_parts(
+    DVec3::new(0.4, 0.2, 0.8),
+    DQuat::from_rotation_z(90.0_f64.to_radians()),
+);
+
+println!("TCP z = {:.3}", pose.translation.z);
+```
+
+## Migrating to 2.0
+
+Version 2.0 makes the geometry API glam-native and removes nalgebra from this
+crate's public API and direct dependencies. See also
+[RELEASE_NOTES_2.0.md](RELEASE_NOTES_2.0.md).
+
+- Replace nalgebra `Isometry3`, `Translation3`, and `UnitQuaternion` poses with
+  crate-owned `Pose` values created by `Pose::from_translation` or
+  `Pose::from_parts(DVec3, DQuat)`.
+- Import glam types from `rs_opw_kinematics::glam`, for example
+  `use rs_opw_kinematics::glam::{DQuat, DVec3, Quat, Vec3};`. If downstream
+  code imports `glam` directly, depend on the exact compatible version:
+  `glam = "=0.30.10"`.
+- Use `pose.translation` and `pose.rotation` directly instead of nalgebra
+  isometry fields.
+- Use `Pose32` for collision and visualization placement, including
+  `CollisionBody::pose`, `BaseBody::base_pose`, and `PositionedJoint::transform`.
+- `KinematicsWithShape::new` and `KinematicsWithShape::with_safety` take
+  `Pose` for base and tool transforms.
+- Jacobian velocity and torque APIs use `Twist` and `Wrench`; six-component
+  helper methods accept `Joints`.
+- Parry is upgraded to `parry3d` 0.26, and mesh loading uses
+  `rs-read-trimesh` 2.0.9 with its default Parry 0.26 support.
+- Replace the old `rrt` feature with `stroke_planning`. The compatibility
+  feature stubs `ply-rs-bw` and `stl_io` were removed; use `rs-read-trimesh` or
+  `allow_filesystem` for mesh/file loading support.
+- Direct `Cartesian` construction now requires the additional configuration
+  fields `allow_reconfigure`, `max_reconfiguration_prefix_candidates`,
+  `preferred_onboarding_suffix_candidates`, `max_cartesian_layer_states`, and
+  `max_solutions_await`. Use the exported `DEFAULT_*` constants or `0` where
+  documented to select crate defaults.
+- `RRTPlanner` gained `smooth`; set it to `0` to keep raw RRT paths without
+  shortcut smoothing.
+- `AnnotatedJoints` gained `move_into`. Use it to distinguish Cartesian motion
+  from joint-space motion into each waypoint.
+- `PathFlags::ALTERED` and `PathFlags::CARTESIAN` were removed. Reconfiguration
+  is now represented by `PathFlags::RECONFIGURING`, and joint-space
+  reconfiguration waypoints have `move_into == MoveKind::Joint`. Cartesian
+  waypoints have `move_into == MoveKind::Cartesian`.
+- Downstream code that still needs nalgebra should add its own nalgebra
+  dependency and keep conversions at the application boundary.
+
 ## Jacobian: torques and velocities
 
 Since 1.3.2, it is possible to obtain
@@ -152,10 +217,15 @@ and the end-effector velocities. The computed Jacobian object provides:
 - Joint [torques](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/jacobian/struct.Jacobian.html#method.torques) required to achieve a desired end-effector force/torque.
 
 The same Joints structure is reused, the six values now representing either angular velocities in radians per second
-or torques in Newton meters. For the end effector, it is possible to use either
-nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html)
-or [Vector6](https://docs.rs/nalgebra/latest/nalgebra/base/type.Vector6.html), supporting linear and angular velocities (m/s and rad/s).
-For wrenches, forces are in N and torques in N*m.
+or torques in Newton meters. End-effector velocity is represented as
+[`Twist`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Twist.html):
+linear velocity in meters per second and angular velocity in radians per second, both stored as `rs_opw_kinematics::glam::DVec3`.
+End-effector force and torque are represented as
+[`Wrench`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/pose/struct.Wrench.html):
+force in newtons and torque in newton meters.
+
+For callers that already store six-component arrays, `velocities_from_vector` and `torques_from_vector` accept `Joints`
+with the first three components for the linear part and the last three for the angular part.
 
 These values are useful when path planning for a robot that needs to move very swiftly, to prevent
 overspeed or overtorque of individual joints.
@@ -165,12 +235,18 @@ Please see the [example](examples/jacobian.rs).
 ## The tool and the base
 
 Since 1.3.2, robot can be equipped with
-the [tool](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Tool.html), defined as
-nalgebra::[Isometry3](https://docs.rs/nalgebra/latest/nalgebra/geometry/type.Isometry3.html). The tool isometry defines
-both
-additional translation and additional rotation. The "pose" as defined in forward and inverse kinematics
-now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
+the [tool](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Tool.html), defined as a `Pose`.
+The tool pose defines both additional translation and additional rotation. The "pose" as defined in forward and
+inverse kinematics now becomes the pose of the tool center point, not any part of the robot. The robot can also be placed
 on a [base](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/tool/struct.Base.html), further supporting the conditions much closer to the real industrial environment.
+
+```rust
+use rs_opw_kinematics::glam::DVec3;
+use rs_opw_kinematics::kinematic_traits::Pose;
+
+let base = Pose::from_translation(DVec3::new(0.0, 0.0, 0.5));
+let tool = Pose::from_translation(DVec3::new(0.0, 0.0, 1.0));
+```
 
 "Robot with the tool" and "Robot on the base" can be constructed around
 any [Kinematics](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematic_traits/trait.Kinematics.html)
@@ -182,15 +258,14 @@ Please see the [example](examples/tool_and_base.rs).
 
 ## The frame
 
-Since 1.8.2 this package supports the frame transform that allows to transform the robot trajectory (in terms of joint
-angles)
-prepared for one location to make the same kind of movements in another location (translated and rotated).
+This package supports the frame transform that allows to transform the robot trajectory (in terms of joint
+angles) prepared for one location to make the same kind of movements in another location (translated, rotated, and scaled).
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
-Once constructed by specifying original and transformed points, the Frame object can take "canonical" joint angles
-and calculated joint angles for the transformed (shifted and rotated) trajectory. See the
-[frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
+Frame construction uses `rs_opw_kinematics::glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
+original and transformed points, the Frame object can take "canonical" joint angles and calculated joint angles for the
+transformed (shifted and rotated) trajectory. See the [frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
 ## Individual link positions
 
@@ -272,13 +347,15 @@ The code below demonstrates how to create this structure, complete with tool,
 base, and constraints (see also [example](examples/complete_visible_robot.rs)):
 
 ```rust
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
+use rs_opw_kinematics::glam::{DVec3, Vec3};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::collisions::{
     CollisionBody, SafetyDistances, CheckMode, J_BASE, J2, J3, J4, J6, J_TOOL, NEVER_COLLIDES,
 };
+use rs_opw_kinematics::kinematic_traits::Pose;
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+use rs_opw_kinematics::pose::Pose32;
 use rs_read_trimesh::load_trimesh; // loads .stl, .ply, .obj and .dae. Supports scaling. 
 
 /// Create the sample robot we will visualize. This function creates
@@ -326,23 +403,17 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
         // Base link mesh
         load_trimesh("src/tests/data/staubli/rx160/base_link.stl", 1.0)?,
         // Base transform, this is where the robot is standing
-        Isometry3::from_parts(
-            Translation3::new(0.4, 0.7, 0.0).into(),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.4, 0.7, 0.0)),
         // Tool mesh. Load it from .ply file for feature demonstration
         load_trimesh("src/tests/data/flag.ply", 1.0)?,
         // Tool transform, tip (not base) of the tool. Past this transform is the TCP.
-        Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, 0.5).into(),
-            UnitQuaternion::identity(),
-        ),
+        Pose::from_translation(DVec3::new(0.0, 0.0, 0.5)),
         // Objects around the robot, with global transforms for them.
         vec![
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(-1., 0., 0.) },
-            CollisionBody { mesh: monolith.clone(), pose: Isometry3::translation(0., 1., 0.) },
-            CollisionBody { mesh: monolith,         pose: Isometry3::translation(0., -1., 0.) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(1.0, 0.0, 0.0)) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(-1.0, 0.0, 0.0)) },
+            CollisionBody { mesh: monolith.clone(), pose: Pose32::from_translation(Vec3::new(0.0, 1.0, 0.0)) },
+            CollisionBody { mesh: monolith,         pose: Pose32::from_translation(Vec3::new(0.0, -1.0, 0.0)) },
         ],
         SafetyDistances {
             to_environment: 0.05,   // Robot should not come closer than 5 cm to pillars
@@ -379,6 +450,8 @@ Apache 2.0 license by Takashi Ogura and Mitsuharu Kojima. It can be used the fol
 
 ```rust
 use rrt::dual_rrt_connect;
+use std::sync::atomic::AtomicBool;
+
 fn plan_path(
   kinematics: &KinematicsWithShape,
   start: Joints, goal: Joints,
@@ -396,10 +469,12 @@ fn plan_path(
   };
 
   // Plan the path with RRT
+  let stop = AtomicBool::new(false);
   dual_rrt_connect(
     &start, &goal, collision_free,
     random_joint_angles, 3_f64.to_radians(), // Step size in joint space
     2000,  // Max iterations
+    &stop,
   )
 }
 ```
@@ -455,8 +530,16 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         rrt: RRTPlanner {
             step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
             max_try: 1000,
+            smooth: 0,
             debug: true,
         },
+        allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
+        // reconfigured through RRT joint-space movement.
+        max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
+        // Fast-pass beam width; plan() retries without it before failing or falling back.
+        max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
+        max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
         include_linear_interpolation: true, // If true, intermediate Cartesian poses are
         // included in the output. Otherwise, they are checked but not included in the output
 
@@ -536,7 +619,7 @@ real-world robotic movement.
 # Configuring the solver for your robot
 
 The project contains built-in definitions for Igus Rebel, ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx,
-FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160 and TX2-160L with various levels of
+FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160, and TX2-160L with various levels of
 testing. Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is
 described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
@@ -580,12 +663,12 @@ or collision detection is not used), the filesystem access can be completely dis
 library like:
 
 ```toml
-rs-opw-kinematics = { version = ">=1.8.0, <2.0.0", default-features = false }
+rs-opw-kinematics = { version = "2", default-features = false }
 ```
 
 In this case, import of URDF and YAML files will be inaccessible, visualization and
 collision detection will not work either, and used dependencies
-will be limited to the single _nalgebra_ crate.
+will be limited to the core kinematics dependency set.
 
 # Testing
 

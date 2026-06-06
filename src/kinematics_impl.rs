@@ -1,13 +1,13 @@
 //! Provides implementation of inverse and direct kinematics.
 
-use std::f64::{consts::PI};
-use crate::kinematic_traits::{Kinematics, Solutions, Pose, Singularity, Joints, JOINTS_AT_ZERO};
-use crate::kinematic_traits::{J4, J5, J6};
-use crate::parameters::opw_kinematics::{Parameters};
-use crate::utils::opw_kinematics::{is_valid};
-use nalgebra::{Isometry3, Matrix3, OVector, Rotation3, Translation3, U3, Unit, UnitQuaternion,
-               Vector3};
 use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
+use crate::kinematic_traits::{J4, J5, J6};
+use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::parameters::opw_kinematics::Parameters;
+use crate::utils::opw_kinematics::is_valid;
+use glam::{DMat3, DQuat, DVec3};
+use std::f64::consts::PI;
+use std::ops::Index;
 
 const DEBUG: bool = false;
 
@@ -16,8 +16,6 @@ pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
     parameters: Parameters,
     constraints: Option<Constraints>,
-
-    unit_z: Unit<OVector<f64, U3>>,
 }
 
 impl OPWKinematics {
@@ -26,7 +24,6 @@ impl OPWKinematics {
     pub fn new(parameters: Parameters) -> Self {
         OPWKinematics {
             parameters,
-            unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
             constraints: None,
         }
     }
@@ -36,12 +33,10 @@ impl OPWKinematics {
     pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
         OPWKinematics {
             parameters,
-            unit_z: Unit::new_normalize(Vector3::z_axis().into_inner()),
             constraints: Some(constraints),
         }
     }
 }
-
 
 const MM: f64 = 0.001;
 const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
@@ -49,6 +44,51 @@ const ANGULAR_TOLERANCE: f64 = 1E-6;
 
 // Use for singularity checks.
 const SINGULARITY_ANGLE_THR: f64 = 0.01 * PI / 180.0;
+
+#[derive(Clone, Copy)]
+struct RotationMatrix {
+    matrix: DMat3,
+}
+
+impl RotationMatrix {
+    fn from_quat(rotation: DQuat) -> Self {
+        Self {
+            matrix: DMat3::from_quat(rotation),
+        }
+    }
+}
+
+impl Index<(usize, usize)> for RotationMatrix {
+    type Output = f64;
+
+    fn index(&self, (row, col): (usize, usize)) -> &Self::Output {
+        match (row, col) {
+            (0, 0) => &self.matrix.x_axis.x,
+            (1, 0) => &self.matrix.x_axis.y,
+            (2, 0) => &self.matrix.x_axis.z,
+            (0, 1) => &self.matrix.y_axis.x,
+            (1, 1) => &self.matrix.y_axis.y,
+            (2, 1) => &self.matrix.y_axis.z,
+            (0, 2) => &self.matrix.z_axis.x,
+            (1, 2) => &self.matrix.z_axis.y,
+            (2, 2) => &self.matrix.z_axis.z,
+            _ => panic!("rotation matrix index out of bounds: ({row}, {col})"),
+        }
+    }
+}
+
+fn mat3_from_rows(rows: [[f64; 3]; 3]) -> DMat3 {
+    DMat3::from_cols(
+        DVec3::new(rows[0][0], rows[1][0], rows[2][0]),
+        DVec3::new(rows[0][1], rows[1][1], rows[2][1]),
+        DVec3::new(rows[0][2], rows[1][2], rows[2][2]),
+    )
+}
+
+fn theta5_from_cosine(m: f64) -> f64 {
+    let m = m.clamp(-1.0, 1.0);
+    (1.0 - m * m).sqrt().atan2(m)
+}
 
 impl Kinematics for OPWKinematics {
     /// Return the solution that is constraint compliant anv values are valid
@@ -80,17 +120,20 @@ impl Kinematics for OPWKinematics {
         };
 
         const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
-        const SINGULARITY_SHIFTS: [[f64; 3]; 4] =
-            [[0., 0., 0., ], [SINGULARITY_SHIFT, 0., 0.],
-                [0., SINGULARITY_SHIFT, 0.], [0., 0., SINGULARITY_SHIFT]];
+        const SINGULARITY_SHIFTS: [[f64; 3]; 4] = [
+            [0., 0., 0.],
+            [SINGULARITY_SHIFT, 0., 0.],
+            [0., SINGULARITY_SHIFT, 0.],
+            [0., 0., SINGULARITY_SHIFT],
+        ];
 
         let mut solutions: Vec<Joints> = Vec::with_capacity(9);
         let pt = pose.translation;
 
         let rotation = pose.rotation;
         'shifts: for d in SINGULARITY_SHIFTS {
-            let shifted = Pose::from_parts(
-                Translation3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
+            let shifted =
+                Pose::from_parts(DVec3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
             let ik = self.inverse_intern(&shifted);
             // Self::dump_shifted_solutions(d, &ik);
             if solutions.is_empty() {
@@ -132,8 +175,9 @@ impl Kinematics for OPWKinematics {
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
-                        if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) &&
-                            self.constraints_compliant(now) {
+                        if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE)
+                            && self.constraints_compliant(now)
+                        {
                             // Guard against the case our solution is out of constraints.
                             solutions.push(now);
                             // We only expect one singularity case hence once we found, we can end
@@ -192,33 +236,31 @@ impl Kinematics for OPWKinematics {
         let (s6, c6) = q6.sin_cos();
 
         // Compute rotation matrix r_0c
-        let r_0c = Matrix3::new(
-            c1 * c2 * c3 - c1 * s2 * s3, -s1, c1 * c2 * s3 + c1 * s2 * c3,
-            s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3,
-            -s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3,
-        );
+        let r_0c = mat3_from_rows([
+            [
+                c1 * c2 * c3 - c1 * s2 * s3,
+                -s1,
+                c1 * c2 * s3 + c1 * s2 * c3,
+            ],
+            [s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3],
+            [-s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3],
+        ]);
 
         // Compute rotation matrix r_ce
-        let r_ce = Matrix3::new(
-            c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5,
-            s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5,
-            -s5 * c6, s5 * s6, c5,
-        );
+        let r_ce = mat3_from_rows([
+            [c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5],
+            [s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5],
+            [-s5 * c6, s5 * s6, c5],
+        ]);
 
         // Compute the final rotation matrix r_oe
         let r_oe = r_0c * r_ce;
 
         // Calculate the final translation
-        let translation = Vector3::new(cx0, cy0, cz0) + p.c4 * r_oe * *self.unit_z;
+        let translation = DVec3::new(cx0, cy0, cz0) + p.c4 * (r_oe * DVec3::Z);
+        let rotation = DQuat::from_mat3(&r_oe);
 
-        // Convert the rotation matrix to a quaternion
-        let rotation = Rotation3::from_matrix_unchecked(r_oe);
-
-        // Return the pose combining translation and rotation
-        Pose::from_parts(
-            Translation3::from(translation),
-            UnitQuaternion::from_rotation_matrix(&rotation),
-        )
+        Pose::from_parts(translation, rotation)
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -232,45 +274,49 @@ impl Kinematics for OPWKinematics {
         let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
 
         // Pose 1 is lifted by c1 as per URDF concepts (there is the base link that sits at 0,0,0)
-        let pose1 = Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c1),
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), q1),
+        let pose1 = Pose::from_parts(
+            DVec3::new(0.0, 0.0, p.c1),
+            DQuat::from_axis_angle(DVec3::Z, q1),
         );
 
-        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by 
-        let pose2 = pose1 * Isometry3::from_parts(
-            Translation3::new(p.a1, p.b, 0.0),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q2),
-        );
+        // Pose 2: The c2 - spanning arm is by c1 up, by a1 along x, and rotated around z by
+        let pose2 = pose1
+            * Pose::from_parts(
+                DVec3::new(p.a1, p.b, 0.0),
+                DQuat::from_axis_angle(DVec3::Y, q2),
+            );
 
-        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2. 
-        let pose3 = pose2 * Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c2),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q3),
-        );
+        // Pose 3: The c3 - spanning arm goes starts further away by the length of c2.
+        let pose3 = pose2
+            * Pose::from_parts(
+                DVec3::new(0.0, 0.0, p.c2),
+                DQuat::from_axis_angle(DVec3::Y, q3),
+            );
 
         // Pose 4: this part uses pose3 as a base and just rotates around z.
-        let pose4 = pose3 * Isometry3::from_parts(
-            Translation3::new(p.a2, 0.0, 0.0),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q4),
-        );
-         
+        let pose4 = pose3
+            * Pose::from_parts(
+                DVec3::new(p.a2, 0.0, 0.0),
+                DQuat::from_axis_angle(DVec3::Z, q4),
+            );
+
         // Pose 5 is the movable "nose" close to the tool center point.
-        let pose5 = pose4 * Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c3),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::y_axis(), q5),
-        );
+        let pose5 = pose4
+            * Pose::from_parts(
+                DVec3::new(0.0, 0.0, p.c3),
+                DQuat::from_axis_angle(DVec3::Y, q5),
+            );
 
         // Pose 6 is pose of the tool-accepting joint that is often round and the
         // rotation not visible in rendering without tool
-        let pose6 = pose5 * Isometry3::from_parts(
-            Translation3::new(0.0, 0.0, p.c4),
-            UnitQuaternion::from_axis_angle(&nalgebra::Vector3::z_axis(), q6),
-        );
+        let pose6 = pose5
+            * Pose::from_parts(
+                DVec3::new(0.0, 0.0, p.c4),
+                DQuat::from_axis_angle(DVec3::Z, q6),
+            );
 
         [pose1, pose2, pose3, pose4, pose5, pose6]
     }
-
 
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
         self.filter_constraints_compliant(self.inverse_intern_5_dof(pose, j6))
@@ -315,9 +361,9 @@ impl OPWKinematics {
         let params = &self.parameters;
 
         // Adjust to wrist center
-        let matrix = pose.rotation.to_rotation_matrix();
-        let translation_vector = &pose.translation.vector; // Get the translation vector component
-        let scaled_z_axis = params.c4 * matrix.transform_vector(&Vector3::z_axis()); // Scale and rotate the z-axis vector
+        let matrix = RotationMatrix::from_quat(pose.rotation);
+        let translation_vector = pose.translation;
+        let scaled_z_axis = params.c4 * (pose.rotation * DVec3::Z);
 
         let c = translation_vector - scaled_z_axis;
 
@@ -329,7 +375,7 @@ impl OPWKinematics {
         let theta1_i = tmp1 - tmp2;
         let theta1_ii = tmp1 + tmp2 - PI;
 
-        let tmp3 = c.z - params.c1; // Access z directly for nalgebra's Vector3
+        let tmp3 = c.z - params.c1;
         let s1_2 = nx1 * nx1 + tmp3 * tmp3;
 
         let tmp4 = nx1 + 2.0 * params.a1;
@@ -373,87 +419,92 @@ impl OPWKinematics {
         let (theta1_ii_sin, theta1_ii_cos) = theta1_ii.sin_cos();
 
         // orientation part
-        let sin1: [f64; 4] = [
-            theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin,
-        ];
+        let sin1: [f64; 4] = [theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin];
+        let cos1: [f64; 4] = [theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos];
 
-        let cos1: [f64; 4] = [
-            theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos
-        ];
+        let (sin23_i, cos23_i) = (theta2_i + theta3_i).sin_cos();
+        let (sin23_ii, cos23_ii) = (theta2_ii + theta3_ii).sin_cos();
+        let (sin23_iii, cos23_iii) = (theta2_iii + theta3_iii).sin_cos();
+        let (sin23_iv, cos23_iv) = (theta2_iv + theta3_iv).sin_cos();
 
-        let s23: [f64; 4] = [
-            (theta2_i + theta3_i).sin(),
-            (theta2_ii + theta3_ii).sin(),
-            (theta2_iii + theta3_iii).sin(),
-            (theta2_iv + theta3_iv).sin(),
-        ];
-
-        let c23: [f64; 4] = [
-            (theta2_i + theta3_i).cos(),
-            (theta2_ii + theta3_ii).cos(),
-            (theta2_iii + theta3_iii).cos(),
-            (theta2_iv + theta3_iv).cos(),
-        ];
+        let sin23: [f64; 4] = [sin23_i, sin23_ii, sin23_iii, sin23_iv];
+        let cos23: [f64; 4] = [cos23_i, cos23_ii, cos23_iii, cos23_iv];
 
         let m: [f64; 4] = [
-            matrix[(0, 2)] * s23[0] * cos1[0] + matrix[(1, 2)] * s23[0] * sin1[0] + matrix[(2, 2)] * c23[0],
-            matrix[(0, 2)] * s23[1] * cos1[1] + matrix[(1, 2)] * s23[1] * sin1[1] + matrix[(2, 2)] * c23[1],
-            matrix[(0, 2)] * s23[2] * cos1[2] + matrix[(1, 2)] * s23[2] * sin1[2] + matrix[(2, 2)] * c23[2],
-            matrix[(0, 2)] * s23[3] * cos1[3] + matrix[(1, 2)] * s23[3] * sin1[3] + matrix[(2, 2)] * c23[3],
+            matrix[(0, 2)] * sin23[0] * cos1[0]
+                + matrix[(1, 2)] * sin23[0] * sin1[0]
+                + matrix[(2, 2)] * cos23[0],
+            matrix[(0, 2)] * sin23[1] * cos1[1]
+                + matrix[(1, 2)] * sin23[1] * sin1[1]
+                + matrix[(2, 2)] * cos23[1],
+            matrix[(0, 2)] * sin23[2] * cos1[2]
+                + matrix[(1, 2)] * sin23[2] * sin1[2]
+                + matrix[(2, 2)] * cos23[2],
+            matrix[(0, 2)] * sin23[3] * cos1[3]
+                + matrix[(1, 2)] * sin23[3] * sin1[3]
+                + matrix[(2, 2)] * cos23[3],
         ];
 
-        let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
-        let theta5_ii = f64::atan2((1.0 - m[1] * m[1]).sqrt(), m[1]);
-        let theta5_iii = f64::atan2((1.0 - m[2] * m[2]).sqrt(), m[2]);
-        let theta5_iv = f64::atan2((1.0 - m[3] * m[3]).sqrt(), m[3]);
+        let theta5_i = theta5_from_cosine(m[0]);
+        let theta5_ii = theta5_from_cosine(m[1]);
+        let theta5_iii = theta5_from_cosine(m[2]);
+        let theta5_iv = theta5_from_cosine(m[3]);
 
         let theta5_v = -theta5_i;
         let theta5_vi = -theta5_ii;
         let theta5_vii = -theta5_iii;
         let theta5_viii = -theta5_iv;
 
-        
-        
-
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
-        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
+        let theta4_ix = matrix[(0, 2)] * cos23[0] * cos1[0] + matrix[(1, 2)] * cos23[0] * sin1[0]
+            - matrix[(2, 2)] * sin23[0];
         let theta4_i = theta4_iy.atan2(theta4_ix);
 
-        let theta6_iy = matrix[(0, 1)] * s23[0] * cos1[0] + matrix[(1, 1)] * s23[0] * sin1[0] + matrix[(2, 1)] * c23[0];
-        let theta6_ix = -matrix[(0, 0)] * s23[0] * cos1[0] - matrix[(1, 0)] * s23[0] * sin1[0] - matrix[(2, 0)] * c23[0];
+        let theta6_iy = matrix[(0, 1)] * sin23[0] * cos1[0]
+            + matrix[(1, 1)] * sin23[0] * sin1[0]
+            + matrix[(2, 1)] * cos23[0];
+        let theta6_ix = -matrix[(0, 0)] * sin23[0] * cos1[0]
+            - matrix[(1, 0)] * sin23[0] * sin1[0]
+            - matrix[(2, 0)] * cos23[0];
         let theta6_i = theta6_iy.atan2(theta6_ix);
 
-        
-        
-
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
-        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
+        let theta4_iix = matrix[(0, 2)] * cos23[1] * cos1[1] + matrix[(1, 2)] * cos23[1] * sin1[1]
+            - matrix[(2, 2)] * sin23[1];
         let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
-        let theta6_iiy = matrix[(0, 1)] * s23[1] * cos1[1] + matrix[(1, 1)] * s23[1] * sin1[1] + matrix[(2, 1)] * c23[1];
-        let theta6_iix = -matrix[(0, 0)] * s23[1] * cos1[1] - matrix[(1, 0)] * s23[1] * sin1[1] - matrix[(2, 0)] * c23[1];
+        let theta6_iiy = matrix[(0, 1)] * sin23[1] * cos1[1]
+            + matrix[(1, 1)] * sin23[1] * sin1[1]
+            + matrix[(2, 1)] * cos23[1];
+        let theta6_iix = -matrix[(0, 0)] * sin23[1] * cos1[1]
+            - matrix[(1, 0)] * sin23[1] * sin1[1]
+            - matrix[(2, 0)] * cos23[1];
         let theta6_ii = theta6_iiy.atan2(theta6_iix);
 
-        
-        
-
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
-        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
+        let theta4_iiix = matrix[(0, 2)] * cos23[2] * cos1[2] + matrix[(1, 2)] * cos23[2] * sin1[2]
+            - matrix[(2, 2)] * sin23[2];
         let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
-        let theta6_iiiy = matrix[(0, 1)] * s23[2] * cos1[2] + matrix[(1, 1)] * s23[2] * sin1[2] + matrix[(2, 1)] * c23[2];
-        let theta6_iiix = -matrix[(0, 0)] * s23[2] * cos1[2] - matrix[(1, 0)] * s23[2] * sin1[2] - matrix[(2, 0)] * c23[2];
+        let theta6_iiiy = matrix[(0, 1)] * sin23[2] * cos1[2]
+            + matrix[(1, 1)] * sin23[2] * sin1[2]
+            + matrix[(2, 1)] * cos23[2];
+        let theta6_iiix = -matrix[(0, 0)] * sin23[2] * cos1[2]
+            - matrix[(1, 0)] * sin23[2] * sin1[2]
+            - matrix[(2, 0)] * cos23[2];
         let theta6_iii = theta6_iiiy.atan2(theta6_iiix);
 
-        
-        
-
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
-        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
+        let theta4_ivx = matrix[(0, 2)] * cos23[3] * cos1[3] + matrix[(1, 2)] * cos23[3] * sin1[3]
+            - matrix[(2, 2)] * sin23[3];
         let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
-        let theta6_ivy = matrix[(0, 1)] * s23[3] * cos1[3] + matrix[(1, 1)] * s23[3] * sin1[3] + matrix[(2, 1)] * c23[3];
-        let theta6_ivx = -matrix[(0, 0)] * s23[3] * cos1[3] - matrix[(1, 0)] * s23[3] * sin1[3] - matrix[(2, 0)] * c23[3];
+        let theta6_ivy = matrix[(0, 1)] * sin23[3] * cos1[3]
+            + matrix[(1, 1)] * sin23[3] * sin1[3]
+            + matrix[(2, 1)] * cos23[3];
+        let theta6_ivx = -matrix[(0, 0)] * sin23[3] * cos1[3]
+            - matrix[(1, 0)] * sin23[3] * sin1[3]
+            - matrix[(2, 0)] * cos23[3];
         let theta6_iv = theta6_ivy.atan2(theta6_ivx);
 
         let theta4_v = theta4_i + PI;
@@ -468,20 +519,36 @@ impl OPWKinematics {
 
         let theta: [[f64; 6]; 8] = [
             [theta1_i, theta2_i, theta3_i, theta4_i, theta5_i, theta6_i],
-            [theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii],
-            [theta1_ii, theta2_iii, theta3_iii, theta4_iii, theta5_iii, theta6_iii],
-            [theta1_ii, theta2_iv, theta3_iv, theta4_iv, theta5_iv, theta6_iv],
+            [
+                theta1_i, theta2_ii, theta3_ii, theta4_ii, theta5_ii, theta6_ii,
+            ],
+            [
+                theta1_ii, theta2_iii, theta3_iii, theta4_iii, theta5_iii, theta6_iii,
+            ],
+            [
+                theta1_ii, theta2_iv, theta3_iv, theta4_iv, theta5_iv, theta6_iv,
+            ],
             [theta1_i, theta2_i, theta3_i, theta4_v, theta5_v, theta6_v],
-            [theta1_i, theta2_ii, theta3_ii, theta4_vi, theta5_vi, theta6_vi],
-            [theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii],
-            [theta1_ii, theta2_iv, theta3_iv, theta4_viii, theta5_viii, theta6_viii],
+            [
+                theta1_i, theta2_ii, theta3_ii, theta4_vi, theta5_vi, theta6_vi,
+            ],
+            [
+                theta1_ii, theta2_iii, theta3_iii, theta4_vii, theta5_vii, theta6_vii,
+            ],
+            [
+                theta1_ii,
+                theta2_iv,
+                theta3_iv,
+                theta4_viii,
+                theta5_viii,
+                theta6_viii,
+            ],
         ];
 
         let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
         for (si, solution) in sols.iter_mut().enumerate() {
             for (ji, joint) in solution.iter_mut().enumerate() {
-                *joint = (theta[si][ji] + params.offsets[ji]) *
-                    params.sign_corrections[ji] as f64;
+                *joint = (theta[si][ji] + params.offsets[ji]) * params.sign_corrections[ji] as f64;
             }
         }
 
@@ -505,7 +572,7 @@ impl OPWKinematics {
                     valid = false;
                     break;
                 }
-            };
+            }
             if valid {
                 let check_pose = self.forward(solution);
                 if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
@@ -525,9 +592,9 @@ impl OPWKinematics {
         let params = &self.parameters;
 
         // Adjust to wrist center
-        let matrix = pose.rotation.to_rotation_matrix();
-        let translation_vector = &pose.translation.vector; // Get the translation vector component
-        let scaled_z_axis = params.c4 * matrix.transform_vector(&Vector3::z_axis()); // Scale and rotate the z-axis vector
+        let matrix = RotationMatrix::from_quat(pose.rotation);
+        let translation_vector = pose.translation;
+        let scaled_z_axis = params.c4 * (pose.rotation * DVec3::Z);
 
         let c = translation_vector - scaled_z_axis;
 
@@ -539,7 +606,7 @@ impl OPWKinematics {
         let theta1_i = tmp1 - tmp2;
         let theta1_ii = tmp1 + tmp2 - PI;
 
-        let tmp3 = c.z - params.c1; // Access z directly for nalgebra's Vector3
+        let tmp3 = c.z - params.c1;
         let s1_2 = nx1 * nx1 + tmp3 * tmp3;
 
         let tmp4 = nx1 + 2.0 * params.a1;
@@ -583,67 +650,62 @@ impl OPWKinematics {
         let (theta1_ii_sin, theta1_ii_cos) = theta1_ii.sin_cos();
 
         // orientation part
-        let sin1: [f64; 4] = [
-            theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin,
-        ];
+        let sin1: [f64; 4] = [theta1_i_sin, theta1_i_sin, theta1_ii_sin, theta1_ii_sin];
 
-        let cos1: [f64; 4] = [
-            theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos
-        ];
+        let cos1: [f64; 4] = [theta1_i_cos, theta1_i_cos, theta1_ii_cos, theta1_ii_cos];
 
-        let s23: [f64; 4] = [
-            (theta2_i + theta3_i).sin(),
-            (theta2_ii + theta3_ii).sin(),
-            (theta2_iii + theta3_iii).sin(),
-            (theta2_iv + theta3_iv).sin(),
-        ];
+        let (sin23_i, cos23_i) = (theta2_i + theta3_i).sin_cos();
+        let (sin23_ii, cos23_ii) = (theta2_ii + theta3_ii).sin_cos();
+        let (sin23_iii, cos23_iii) = (theta2_iii + theta3_iii).sin_cos();
+        let (sin23_iv, cos23_iv) = (theta2_iv + theta3_iv).sin_cos();
 
-        let c23: [f64; 4] = [
-            (theta2_i + theta3_i).cos(),
-            (theta2_ii + theta3_ii).cos(),
-            (theta2_iii + theta3_iii).cos(),
-            (theta2_iv + theta3_iv).cos(),
-        ];
+        let sin23: [f64; 4] = [sin23_i, sin23_ii, sin23_iii, sin23_iv];
+
+        let cos23: [f64; 4] = [cos23_i, cos23_ii, cos23_iii, cos23_iv];
 
         let m: [f64; 4] = [
-            matrix[(0, 2)] * s23[0] * cos1[0] + matrix[(1, 2)] * s23[0] * sin1[0] + matrix[(2, 2)] * c23[0],
-            matrix[(0, 2)] * s23[1] * cos1[1] + matrix[(1, 2)] * s23[1] * sin1[1] + matrix[(2, 2)] * c23[1],
-            matrix[(0, 2)] * s23[2] * cos1[2] + matrix[(1, 2)] * s23[2] * sin1[2] + matrix[(2, 2)] * c23[2],
-            matrix[(0, 2)] * s23[3] * cos1[3] + matrix[(1, 2)] * s23[3] * sin1[3] + matrix[(2, 2)] * c23[3],
+            matrix[(0, 2)] * sin23[0] * cos1[0]
+                + matrix[(1, 2)] * sin23[0] * sin1[0]
+                + matrix[(2, 2)] * cos23[0],
+            matrix[(0, 2)] * sin23[1] * cos1[1]
+                + matrix[(1, 2)] * sin23[1] * sin1[1]
+                + matrix[(2, 2)] * cos23[1],
+            matrix[(0, 2)] * sin23[2] * cos1[2]
+                + matrix[(1, 2)] * sin23[2] * sin1[2]
+                + matrix[(2, 2)] * cos23[2],
+            matrix[(0, 2)] * sin23[3] * cos1[3]
+                + matrix[(1, 2)] * sin23[3] * sin1[3]
+                + matrix[(2, 2)] * cos23[3],
         ];
 
-        let theta5_i = f64::atan2((1.0 - m[0] * m[0]).sqrt(), m[0]);
-        let theta5_ii = f64::atan2((1.0 - m[1] * m[1]).sqrt(), m[1]);
-        let theta5_iii = f64::atan2((1.0 - m[2] * m[2]).sqrt(), m[2]);
-        let theta5_iv = f64::atan2((1.0 - m[3] * m[3]).sqrt(), m[3]);
+        let theta5_i = theta5_from_cosine(m[0]);
+        let theta5_ii = theta5_from_cosine(m[1]);
+        let theta5_iii = theta5_from_cosine(m[2]);
+        let theta5_iv = theta5_from_cosine(m[3]);
 
         let theta5_v = -theta5_i;
         let theta5_vi = -theta5_ii;
         let theta5_vii = -theta5_iii;
         let theta5_viii = -theta5_iv;
 
-        
-
         let theta4_iy = matrix[(1, 2)] * cos1[0] - matrix[(0, 2)] * sin1[0];
-        let theta4_ix = matrix[(0, 2)] * c23[0] * cos1[0] + matrix[(1, 2)] * c23[0] * sin1[0] - matrix[(2, 2)] * s23[0];
+        let theta4_ix = matrix[(0, 2)] * cos23[0] * cos1[0] + matrix[(1, 2)] * cos23[0] * sin1[0]
+            - matrix[(2, 2)] * sin23[0];
         let theta4_i = theta4_iy.atan2(theta4_ix);
 
-        
-
         let theta4_iiy = matrix[(1, 2)] * cos1[1] - matrix[(0, 2)] * sin1[1];
-        let theta4_iix = matrix[(0, 2)] * c23[1] * cos1[1] + matrix[(1, 2)] * c23[1] * sin1[1] - matrix[(2, 2)] * s23[1];
+        let theta4_iix = matrix[(0, 2)] * cos23[1] * cos1[1] + matrix[(1, 2)] * cos23[1] * sin1[1]
+            - matrix[(2, 2)] * sin23[1];
         let theta4_ii = theta4_iiy.atan2(theta4_iix);
 
-        
-
         let theta4_iiiy = matrix[(1, 2)] * cos1[2] - matrix[(0, 2)] * sin1[2];
-        let theta4_iiix = matrix[(0, 2)] * c23[2] * cos1[2] + matrix[(1, 2)] * c23[2] * sin1[2] - matrix[(2, 2)] * s23[2];
+        let theta4_iiix = matrix[(0, 2)] * cos23[2] * cos1[2] + matrix[(1, 2)] * cos23[2] * sin1[2]
+            - matrix[(2, 2)] * sin23[2];
         let theta4_iii = theta4_iiiy.atan2(theta4_iiix);
 
-        
-
         let theta4_ivy = matrix[(1, 2)] * cos1[3] - matrix[(0, 2)] * sin1[3];
-        let theta4_ivx = matrix[(0, 2)] * c23[3] * cos1[3] + matrix[(1, 2)] * c23[3] * sin1[3] - matrix[(2, 2)] * s23[3];
+        let theta4_ivx = matrix[(0, 2)] * cos23[3] * cos1[3] + matrix[(1, 2)] * cos23[3] * sin1[3]
+            - matrix[(2, 2)] * sin23[3];
         let theta4_iv = theta4_ivy.atan2(theta4_ivx);
 
         let theta4_v = theta4_i + PI;
@@ -665,8 +727,7 @@ impl OPWKinematics {
         let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
         for (si, solution) in sols.iter_mut().enumerate() {
             for (ji, joint) in solution.iter_mut().take(5).enumerate() {
-                *joint = (theta[si][ji] + params.offsets[ji]) *
-                    params.sign_corrections[ji] as f64;
+                *joint = (theta[si][ji] + params.offsets[ji]) * params.sign_corrections[ji] as f64;
             }
             solution[5] = j6; // J6 goes directly to response and is not more adjusted
         }
@@ -691,7 +752,7 @@ impl OPWKinematics {
                     valid = false;
                     break;
                 }
-            };
+            }
             if valid {
                 let check_xyz = self.forward(solution).translation;
                 if Self::compare_xyz_only(&pose.translation, &check_xyz, DISTANCE_TOLERANCE) {
@@ -707,35 +768,39 @@ impl OPWKinematics {
         result
     }
 
-    fn compare_xyz_only(pose_translation: &Translation3<f64>, check_xyz: &Translation3<f64>, tolerance: f64) -> bool {
-        (pose_translation.vector - check_xyz.vector).norm() <= tolerance
+    fn compare_xyz_only(pose_translation: &DVec3, check_xyz: &DVec3, tolerance: f64) -> bool {
+        (*pose_translation - *check_xyz).length() <= tolerance
     }
 
     fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
         match &self.constraints {
             Some(constraints) => constraints.filter(&solutions),
-            None => solutions
+            None => solutions,
         }
     }
 
     fn constraints_compliant(&self, solution: Joints) -> bool {
         match &self.constraints {
             Some(constraints) => constraints.compliant(&solution),
-            None => true
+            None => true,
         }
     }
 
     /// Sorts the solutions vector by closeness to the `previous` joint.
     /// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
     fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
-        let sorting_weight = self.constraints.as_ref()
+        let sorting_weight = self
+            .constraints
+            .as_ref()
             .map_or(BY_PREV, |c| c.sorting_weight);
         if sorting_weight == BY_PREV {
             // If no constraints or they weight is zero, use simpler version
             solutions.sort_by(|a, b| {
                 let distance_a = calculate_distance(a, previous);
                 let distance_b = calculate_distance(b, previous);
-                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+                distance_a
+                    .partial_cmp(&distance_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
         } else {
             let constraints = self.constraints.as_ref().unwrap();
@@ -756,26 +821,27 @@ impl OPWKinematics {
 
                 let distance_a = prev_a * (1.0 - sorting_weight) + constr_a * sorting_weight;
                 let distance_b = prev_b * (1.0 - sorting_weight) + constr_b * sorting_weight;
-                distance_a.partial_cmp(&distance_b).unwrap_or(std::cmp::Ordering::Equal)
+                distance_a
+                    .partial_cmp(&distance_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
     }
 
     /// Get constraint centers in case we have the already constructed instance of the
     fn constraint_centers(&self) -> &Joints {
-        self.constraints.as_ref()
+        self.constraints
+            .as_ref()
             .map_or(&JOINTS_AT_ZERO, |c| &c.centers)
     }
 }
 
 // Adjusted helper function to check for n*pi where n is any integer
 fn is_close_to_multiple_of_pi(joint_value: f64, threshold: f64) -> bool {
-
     // Normalize angle within [0, 2*PI)
     let normalized_angle = joint_value.rem_euclid(2.0 * PI);
     // Check if the normalized angle is close to 0 or PI
-    normalized_angle < threshold ||
-        (PI - normalized_angle).abs() < threshold
+    normalized_angle < threshold || (PI - normalized_angle).abs() < threshold
 }
 
 fn are_angles_close(angle1: f64, angle2: f64) -> bool {
@@ -801,17 +867,16 @@ fn normalize_near(now: &mut f64, must_be_near: f64) {
 }
 
 fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
-    joint1.iter()
+    joint1
+        .iter()
         .zip(joint2.iter())
         .map(|(a, b)| (a - b).abs())
         .sum()
 }
 
-// Compare two poses with the given tolerance.
-fn compare_poses(ta: &Isometry3<f64>, tb: &Isometry3<f64>,
-                 distance_tolerance: f64, angular_tolerance: f64) -> bool {
-    let translation_distance = (ta.translation.vector - tb.translation.vector).norm();
-    let angular_distance = ta.rotation.angle_to(&tb.rotation);
+fn compare_poses(ta: &Pose, tb: &Pose, distance_tolerance: f64, angular_tolerance: f64) -> bool {
+    let translation_distance = (ta.translation - tb.translation).length();
+    let angular_distance = ta.angular_distance(*tb);
 
     if translation_distance.abs() > distance_tolerance {
         if DEBUG {
@@ -849,10 +914,23 @@ mod tests {
     use crate::parameters::opw_kinematics::Parameters;
 
     #[test]
+    fn theta5_from_cosine_clamps_roundoff_outside_unit_interval() {
+        let high = theta5_from_cosine(1.0 + f64::EPSILON);
+        let low = theta5_from_cosine(-1.0 - f64::EPSILON);
+
+        assert!(high.is_finite());
+        assert!(low.is_finite());
+        assert_eq!(high, 0.0);
+        assert_eq!(low, std::f64::consts::PI);
+    }
+
+    #[test]
     fn test_inverse_continuing_large_j6_angles() {
         let robot = OPWKinematics::new(Parameters::irb2400_10());
 
-        let angles_deg:[f64; 10] = [-90000.0, -9000.0, -900.0, -90.0, -9.0, 9.0, 90.0, 900.0, 9000.0, 90000.0];
+        let angles_deg: [f64; 10] = [
+            -90000.0, -9000.0, -900.0, -90.0, -9.0, 9.0, 90.0, 900.0, 9000.0, 90000.0,
+        ];
 
         for &angle_deg in &angles_deg {
             let j6_rad = angle_deg.to_radians();
@@ -862,7 +940,11 @@ mod tests {
             let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.1, j6_rad];
             let solutions = robot.inverse_continuing(&pose, &previous);
 
-            assert!(!solutions.is_empty(), "No solutions found for angle {} degrees", angle_deg);
+            assert!(
+                !solutions.is_empty(),
+                "No solutions found for angle {} degrees",
+                angle_deg
+            );
 
             let solution_j6 = solutions[0][J6];
 
@@ -873,14 +955,19 @@ mod tests {
             let diff = (normalized_solution_j6 - previous[J6]).abs();
 
             // Allow small epsilon due to floating-point errors
-            assert!(diff < 1e-6, "J6 mismatch for angle {} degrees: difference was {} radians", angle_deg, diff);
+            assert!(
+                diff < 1e-6,
+                "J6 mismatch for angle {} degrees: difference was {} radians",
+                angle_deg,
+                diff
+            );
         }
     }
 
     #[test]
     fn test_inverse_continuing_adds_blended_solution_at_j5_pi() {
+        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
         use std::f64::consts::PI;
-        use crate::kinematic_traits::{Joints, Kinematics, J4, J5, J6};
 
         // Use a known-good robot model; adjust if you prefer a different preset.
         let robot = OPWKinematics::new(Parameters::irb2400_10());
@@ -898,7 +985,7 @@ mod tests {
             previous[1],
             previous[2],
             previous[J4] + delta,
-            previous[J5],             // keep J5 at π
+            previous[J5], // keep J5 at π
             previous[J6] - delta,
         ];
 
@@ -915,10 +1002,7 @@ mod tests {
         // Continuation: should add exactly one 'blended' solution near `previous`
         // when J5 ≈ π (after the bug fix).
         let cont = robot.inverse_continuing(&pose, &previous);
-        assert!(
-            !cont.is_empty(),
-            "inverse_continuing returned no solutions"
-        );
+        assert!(!cont.is_empty(), "inverse_continuing returned no solutions");
         assert_eq!(
             cont.len(),
             base.len() + 1,
@@ -961,5 +1045,4 @@ mod tests {
 
         let _ = robot.inverse_continuing(&pose, &previous);
     }
-
 }

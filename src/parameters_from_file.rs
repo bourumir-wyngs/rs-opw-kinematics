@@ -8,8 +8,12 @@ use serde::Deserialize;
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
 
-fn default_offsets() -> Vec<f64> { vec![0.0; 6] }
-fn default_sign_corrections() -> Vec<i8> { vec![1; 6] }
+fn default_offsets() -> Vec<f64> {
+    vec![0.0; 6]
+}
+fn default_sign_corrections() -> Vec<i8> {
+    vec![1; 6]
+}
 
 fn opw_geometry_parameter(v: &f64, _ctx: &()) -> garde::Result {
     if !v.is_finite() {
@@ -99,8 +103,9 @@ impl Parameters {
         let contents = std::fs::read_to_string(path)?;
         let root: Root = serde_saphyr::from_str_with_options_valid(
             &contents,
-            serde_saphyr::options! { angle_conversions: true }
-        ).map_err(|e| ParameterError::ParseError(format!("{}", e)))?;
+            serde_saphyr::options! { angle_conversions: true },
+        )
+        .map_err(|e| ParameterError::ParseError(format!("{}", e)))?;
 
         // DOF precedence:
         // - If both present and different -> error.
@@ -158,13 +163,13 @@ impl Parameters {
 /// - If length is 5, pad with `pad`.
 /// - If length is 6, pass-through.
 /// - Otherwise, error.
-fn vec_to_six<T: Copy>(
-    mut v: Vec<T>,
-    pad: T,
-) -> Result<[T; 6], ParameterError> {
+fn vec_to_six<T: Copy>(mut v: Vec<T>, pad: T) -> Result<[T; 6], ParameterError> {
     if v.len() == 5 {
         v.push(pad);
     }
     v.try_into()
-        .map_err(|v: Vec<T>| ParameterError::InvalidLength { expected: 6, found: v.len() })
+        .map_err(|v: Vec<T>| ParameterError::InvalidLength {
+            expected: 6,
+            found: v.len(),
+        })
 }

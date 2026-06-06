@@ -1,4 +1,4 @@
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, JOINTS_AT_ZERO};
+use rs_opw_kinematics::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::{dump_joints, dump_solutions};
@@ -11,7 +11,7 @@ fn main() {
     dump_joints(&joints);
 
     println!("\nSolutions (original angle set is lacking due singularity there: ");
-    let pose: Pose = robot.forward(&joints); // Pose is alias of nalgebra::Isometry3<f64>
+    let pose: Pose = robot.forward(&joints);
 
     let solutions = robot.inverse(&pose); // Solutions is alias of Vec<Joints>
     dump_solutions(&solutions);
@@ -26,18 +26,25 @@ fn main() {
     let solutions = robot.inverse_continuing(&pose, &when_continuing_from_j6_0);
     dump_solutions(&solutions);
 
-    println!("\nIf we do not have the previous position, we can assume we want J4, J6 close to 0.0 \
-    The solution appears and the needed rotation is now equally distributed between J4 and J6.");
+    println!(
+        "\nIf we do not have the previous position, we can assume we want J4, J6 close to 0.0 \
+    The solution appears and the needed rotation is now equally distributed between J4 and J6."
+    );
     let solutions = robot.inverse_continuing(&pose, &JOINTS_AT_ZERO);
     dump_solutions(&solutions);
 
     println!("\n5 DOF, J6 at fixed angle 77 degrees");
     let solutions5dof = robot.inverse_5dof(&pose, 77.0_f64.to_radians());
     dump_solutions(&solutions5dof);
-    println!("The XYZ location of TCP is still as in the original pose x = {:.3}, y = {:.3}, z = {:.3}:",
-             pose.translation.x, pose.translation.y, pose.translation.z);
+    println!(
+        "The XYZ location of TCP is still as in the original pose x = {:.3}, y = {:.3}, z = {:.3}:",
+        pose.translation.x, pose.translation.y, pose.translation.z
+    );
     for solution in &solutions {
         let translation = robot.forward(solution).translation;
-        println!("Translation: x = {:.3}, y = {:.3}, z = {:.3}", translation.x, translation.y, translation.z);
+        println!(
+            "Translation: x = {:.3}, y = {:.3}, z = {:.3}",
+            translation.x, translation.y, translation.z
+        );
     }
 }

@@ -1,11 +1,11 @@
-//! "User friendly" pre-processing of the joint names. 
+//! "User friendly" pre-processing of the joint names.
 
 use regex::Regex;
 
 /// "User friendly" pre-processing of the joint names. If this does not work as expected,
 /// the user should use the advanced function taking the joint names explicitly.
 ///
-/// Simplify joint name: remove macro construct in the prefix, 
+/// Simplify joint name: remove macro construct in the prefix,
 /// underscores and non-word characters, set lowercase.
 pub fn preprocess_joint_name(joint_name: &str) -> String {
     // Create a regex to find the ${prefix} pattern
@@ -19,7 +19,7 @@ pub fn preprocess_joint_name(joint_name: &str) -> String {
 
     let processed_name = discard_non_digit_joint_chars(clean_name.to_string());
     remove_before_joint(processed_name.to_lowercase())
-} 
+}
 
 fn discard_non_digit_joint_chars(input: String) -> String {
     // Define the regular expression
@@ -53,9 +53,20 @@ mod tests {
 
     #[test]
     fn test_name_simplification() {
-        assert_eq!(preprocess_joint_name("joint1"), "joint1", " simplification incorrect");
-        assert_eq!(preprocess_joint_name("JOINT2"), "joint2", "JOINT_2 simplification incorrect");        
-        assert_eq!(preprocess_joint_name("leftJOINT_2!"), "joint2", "leftJOINT_2! simplification incorrect");        
+        assert_eq!(
+            preprocess_joint_name("joint1"),
+            "joint1",
+            " simplification incorrect"
+        );
+        assert_eq!(
+            preprocess_joint_name("JOINT2"),
+            "joint2",
+            "JOINT_2 simplification incorrect"
+        );
+        assert_eq!(
+            preprocess_joint_name("leftJOINT_2!"),
+            "joint2",
+            "leftJOINT_2! simplification incorrect"
+        );
     }
 }
-

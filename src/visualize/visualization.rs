@@ -40,21 +40,31 @@
 //!     collision would occur).
 //!   - **Forward Kinematics**: Collisions are permitted, but colliding robot joints and environment objects are highlighted.
 
-use crate::camera_controller::{camera_controller_system, CameraController};
+use crate::camera_controller::{CameraController, camera_controller_system};
 use crate::collisions::SafetyDistances;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, ENV_START_IDX, J_BASE, J_TOOL};
+use crate::kinematic_traits::{ENV_START_IDX, J_BASE, J_TOOL, Joints, Kinematics, Pose};
 use crate::kinematics_with_shape::KinematicsWithShape;
+use crate::pose::Pose32;
 use crate::utils;
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
-use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use bevy::winit::WinitPlugin;
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use glam::{DQuat, DVec3, EulerRot};
+use parry3d::math::Vector as ParryVector;
 use parry3d::shape::TriMesh;
 use std::collections::HashSet;
 use std::ops::RangeInclusive;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
+
+fn bevy_vec3_from_parry(point: &ParryVector) -> bevy::prelude::Vec3 {
+    bevy::prelude::Vec3::new(point.x, point.y, point.z)
+}
 
 // Convert a parry3d `TriMesh` into a bevy `Mesh` for rendering
 fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
@@ -63,8 +73,9 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         RenderAssetUsages::RENDER_WORLD,
     );
 
-    // Step 1: Extract vertices and indices from the TriMesh
-    let vertices: Vec<_> = trimesh.vertices().iter().map(|v| [v.x, v.y, v.z]).collect();
+    let parry_vertices = trimesh.vertices();
+    // Step 1: Extract vertex positions and indices from the TriMesh
+    let vertices: Vec<_> = parry_vertices.iter().map(|v| [v.x, v.y, v.z]).collect();
     let indices: Vec<_> = trimesh
         .indices()
         .iter()
@@ -81,16 +92,16 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
         let i2 = triangle[2] as usize;
 
         // Get the three vertices of the triangle
-        let v0 = nalgebra::Vector3::new(vertices[i0][0], vertices[i0][1], vertices[i0][2]);
-        let v1 = nalgebra::Vector3::new(vertices[i1][0], vertices[i1][1], vertices[i1][2]);
-        let v2 = nalgebra::Vector3::new(vertices[i2][0], vertices[i2][1], vertices[i2][2]);
+        let v0 = bevy_vec3_from_parry(&parry_vertices[i0]);
+        let v1 = bevy_vec3_from_parry(&parry_vertices[i1]);
+        let v2 = bevy_vec3_from_parry(&parry_vertices[i2]);
 
         // Calculate the two edge vectors
         let edge1 = v1 - v0;
         let edge2 = v2 - v0;
 
         // Calculate the normal using the cross product of the two edges
-        let normal = edge1.cross(&edge2).normalize();
+        let normal = edge1.cross(edge2).normalize_or_zero();
 
         for &i in &[i0, i1, i2] {
             normals[i][0] += normal.x;
@@ -120,7 +131,75 @@ fn trimesh_to_bevy_mesh(trimesh: &TriMesh) -> Mesh {
 }
 
 #[derive(Component)]
-struct RenderedRobotPart;
+struct RenderedRobotPart {
+    collision_index: usize,
+}
+
+struct RobotPartRenderState {
+    collision_index: usize,
+    transform: Transform,
+    material: Handle<StandardMaterial>,
+}
+
+enum VisualizationCommand {
+    SetJointAngles([f32; 6]),
+    Close,
+}
+
+#[derive(Resource)]
+struct VisualizationCommands {
+    receiver: Mutex<Receiver<VisualizationCommand>>,
+}
+
+/// Handle for a non-blocking visualization window.
+///
+/// The handle can update the displayed robot joint angles and request that the
+/// Bevy window closes. Dropping the handle also sends a close request.
+pub struct VisualizationHandle {
+    sender: Sender<VisualizationCommand>,
+    join_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+impl VisualizationHandle {
+    /// Set the displayed robot joint angles. Angles are degrees, matching the
+    /// visualization UI sliders.
+    pub fn set_joint_angles(&self, joint_angles: [f32; 6]) -> Result<(), String> {
+        self.sender
+            .send(VisualizationCommand::SetJointAngles(joint_angles))
+            .map_err(|_| "visualization window is not running".to_string())
+    }
+
+    /// Request the visualization window to close and wait for its thread to exit.
+    pub fn close(&self) -> Result<(), String> {
+        let _ = self.sender.send(VisualizationCommand::Close);
+        let mut join_handle = self
+            .join_handle
+            .lock()
+            .map_err(|_| "visualization handle lock is poisoned".to_string())?;
+        if let Some(join_handle) = join_handle.take() {
+            join_handle
+                .join()
+                .map_err(|_| "visualization thread panicked".to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Returns false after the visualization thread has finished.
+    pub fn is_running(&self) -> bool {
+        match self.join_handle.lock() {
+            Ok(join_handle) => join_handle
+                .as_ref()
+                .is_some_and(|join_handle| !join_handle.is_finished()),
+            Err(_) => false,
+        }
+    }
+}
+
+impl Drop for VisualizationHandle {
+    fn drop(&mut self) {
+        let _ = self.sender.send(VisualizationCommand::Close);
+    }
+}
 
 /// Data to store the current joint angles and TCP as they are shown in control panel
 #[derive(Resource)]
@@ -139,32 +218,30 @@ struct RobotControls {
 }
 
 impl RobotControls {
-    fn set_tcp_from_pose(&mut self, pose: &Isometry3<f64>) {
-        let (roll, pitch, yaw) = pose.rotation.to_rotation_matrix().euler_angles();
+    fn set_tcp_from_pose(&mut self, pose: &Pose) {
+        let (z_angle, y_angle, x_angle) = pose.rotation.to_euler(EulerRot::ZYX);
         self.tcp = [
             pose.translation.x,
             pose.translation.y,
             pose.translation.z,
-            roll.to_degrees(),
-            pitch.to_degrees(),
-            yaw.to_degrees(),
+            z_angle.to_degrees(),
+            y_angle.to_degrees(),
+            x_angle.to_degrees(),
         ];
     }
 
     fn pose(&self) -> Pose {
-        fn quat_from_euler(this: &RobotControls) -> UnitQuaternion<f64> {
-            let roll = this.tcp[3].to_radians();
-            let pitch = this.tcp[4].to_radians();
-            let yaw = this.tcp[5].to_radians();
+        fn quat_from_euler(this: &RobotControls) -> DQuat {
+            let z_angle = this.tcp[3].to_radians();
+            let y_angle = this.tcp[4].to_radians();
+            let x_angle = this.tcp[5].to_radians();
 
-            // Combine rotations in roll-pitch-yaw order
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), roll)
-                * UnitQuaternion::from_axis_angle(&Vector3::y_axis(), pitch)
-                * UnitQuaternion::from_axis_angle(&Vector3::x_axis(), yaw)
+            // Preserve the existing UI angle order: Z, then Y, then X.
+            DQuat::from_euler(EulerRot::ZYX, z_angle, y_angle, x_angle)
         }
 
-        Isometry3::from_parts(
-            Translation3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
+        Pose::from_parts(
+            DVec3::new(self.tcp[0], self.tcp[1], self.tcp[2]),
             quat_from_euler(self),
         )
     }
@@ -236,6 +313,89 @@ pub fn visualize_robot_with_safety(
         .add_systems(Update, (update_robot, camera_controller_system)) // Add systems without .system()
         .add_systems(EguiPrimaryContextPass, control_panel)
         .run();
+}
+
+/// Start visualization on a background thread and return a control handle.
+///
+/// Joint angles are degrees, matching the visualization UI sliders.
+pub fn visualize_robot_async(
+    robot: KinematicsWithShape,
+    initial_angles: [f32; 6],
+    tcp_box: [RangeInclusive<f64>; 3],
+) -> VisualizationHandle {
+    let safety = robot.body.safety.clone();
+    visualize_robot_with_safety_async(robot, initial_angles, tcp_box, &safety)
+}
+
+/// Start visualization on a background thread with custom safety distances and
+/// return a control handle.
+///
+/// Joint angles are degrees, matching the visualization UI sliders.
+pub fn visualize_robot_with_safety_async(
+    robot: KinematicsWithShape,
+    initial_angles: [f32; 6],
+    tcp_box: [RangeInclusive<f64>; 3],
+    safety_distances: &SafetyDistances,
+) -> VisualizationHandle {
+    let (sender, receiver) = mpsc::channel();
+    let safety_distances = safety_distances.clone();
+    let join_handle = thread::spawn(move || {
+        App::new()
+            .add_plugins((
+                DefaultPlugins.set(WinitPlugin {
+                    // The async visualizer intentionally runs Bevy off the
+                    // caller's thread; winit requires this explicit opt-in.
+                    run_on_any_thread: true,
+                }),
+                EguiPlugin::default(),
+            ))
+            .insert_resource(RobotControls {
+                initial_joint_angles: initial_angles,
+                joint_angles: initial_angles,
+                tcp: [0.0; 6],
+                tcp_box,
+                previous_joint_angles: initial_angles,
+                previous_tcp: [0.0; 6],
+                safety_distance: 0.05,
+                previous_safety_distance: 0.0,
+                joint_angles_changed: false,
+                tcp_changed: false,
+                safety_distance_changed: false,
+            })
+            .insert_resource(Robot {
+                kinematics: robot,
+                safety: safety_distances,
+                joint_meshes: None,
+                tool: None,
+                base: None,
+                environment: Vec::new(),
+                material: None,
+                tool_material: None,
+                base_material: None,
+                environment_material: None,
+                colliding_material: None,
+            })
+            .insert_resource(VisualizationCommands {
+                receiver: Mutex::new(receiver),
+            })
+            .add_systems(Startup, setup)
+            .add_systems(
+                Update,
+                (
+                    process_visualization_commands,
+                    update_robot,
+                    camera_controller_system,
+                )
+                    .chain(),
+            )
+            .add_systems(EguiPrimaryContextPass, control_panel)
+            .run();
+    });
+
+    VisualizationHandle {
+        sender,
+        join_handle: Arc::new(Mutex::new(Some(join_handle))),
+    }
 }
 
 fn setup(
@@ -367,89 +527,44 @@ fn visualize_robot_joints(
     angles: &Joints,
     safety_distance: f32,
 ) {
-    // Helper function to transform coordinates to Bevy's coordinate system
-    fn as_bevy(transform: &Isometry3<f32>) -> (Vec3, Quat) {
-        let translation = transform.translation.vector;
-        let rotation = transform.rotation;
-        (
-            Vec3::new(translation.x, translation.y, translation.z),
-            Quat::from_xyzw(rotation.i, rotation.j, rotation.k, rotation.w),
-        )
-    }
-
     /// Spawns a `PbrBundle` entity for a joint, with specified mesh, material, translation, and rotation.
-    fn spawn_joint(
-        commands: &mut Commands,
-        mesh: &Handle<Mesh>,
-        material: Handle<StandardMaterial>,
-        pose: &Isometry3<f32>,
-    ) {
-        let (translation, rotation) = as_bevy(pose);
+    fn spawn_joint(commands: &mut Commands, mesh: &Handle<Mesh>, state: RobotPartRenderState) {
         commands.spawn((
             Mesh3d(mesh.clone()),
-            MeshMaterial3d(material),
-            Transform {
-                translation,
-                rotation,
-                ..default()
+            MeshMaterial3d(state.material),
+            state.transform,
+            RenderedRobotPart {
+                collision_index: state.collision_index,
             },
-            RenderedRobotPart,
         ));
     }
 
-    // Detect collisions between joints
-    let start = Instant::now();
-    robot.safety.to_environment = safety_distance;
-    robot.safety.to_robot_default = safety_distance;
-    let collisions = robot.kinematics.near(angles, &robot.safety);
-    println!("Time for collision check: {:?}", start.elapsed());
-
-    let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
-
-    // Visualize each joint in the robot
-    let positioned_robot = robot.kinematics.positioned_robot(angles);
-    for (j, positioned_joint) in positioned_robot.joints.iter().enumerate() {
-        spawn_joint(
-            commands,
-            &robot.joint_meshes.as_ref().unwrap()[j],
-            maybe_colliding_material(robot, &robot.material, &colliding_segments, &j),
-            &positioned_joint.transform,
-        );
+    for state in robot_part_render_states(robot, angles, safety_distance) {
+        if let Some(mesh) = mesh_for_rendered_part(robot, state.collision_index) {
+            spawn_joint(commands, &mesh, state);
+        }
     }
+}
 
-    // Visualize the tool if present
-    if let (Some(tool), Some(tool_joint)) = (&robot.tool, positioned_robot.tool.as_ref()) {
-        spawn_joint(
-            commands,
-            tool,
-            maybe_colliding_material(robot, &robot.tool_material, &colliding_segments, &J_TOOL),
-            &tool_joint.transform,
-        );
-    }
-
-    // Visualize the base if present
-    if let (Some(base), Some(base_joint)) = (&robot.base, robot.kinematics.body.base.as_ref()) {
-        spawn_joint(
-            commands,
-            base,
-            maybe_colliding_material(robot, &robot.base_material, &colliding_segments, &J_BASE),
-            &base_joint.base_pose,
-        );
-    }
-
-    // Add environment objects
-    for (i, environment_joint) in positioned_robot.environment.iter().enumerate() {
-        spawn_joint(
-            commands,
-            &robot.environment[i],
-            maybe_colliding_material(
-                robot,
-                &robot.environment_material,
-                &colliding_segments,
-                &(ENV_START_IDX + i),
-            ),
-            &environment_joint.pose,
-        );
+fn update_rendered_robot_joints(
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+    query: &mut Query<(
+        &RenderedRobotPart,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
+) {
+    let states = robot_part_render_states(robot, angles, safety_distance);
+    for (part, mut transform, mut material) in query.iter_mut() {
+        if let Some(state) = states
+            .iter()
+            .find(|state| state.collision_index == part.collision_index)
+        {
+            *transform = state.transform;
+            *material = MeshMaterial3d(state.material.clone());
+        }
     }
 }
 
@@ -468,12 +583,135 @@ fn maybe_colliding_material(
     selected_material.as_ref().unwrap().clone()
 }
 
+fn transform_from_pose(pose: &Pose32) -> Transform {
+    Transform {
+        translation: pose.translation,
+        rotation: pose.rotation,
+        ..default()
+    }
+}
+
+fn robot_part_render_states(
+    robot: &mut ResMut<Robot>,
+    angles: &Joints,
+    safety_distance: f32,
+) -> Vec<RobotPartRenderState> {
+    robot.safety.to_environment = safety_distance;
+    robot.safety.to_robot_default = safety_distance;
+    let collisions = robot.kinematics.near(angles, &robot.safety);
+    let colliding_segments: HashSet<_> = collisions.iter().flat_map(|(x, y)| [*x, *y]).collect();
+    let positioned_robot = robot.kinematics.positioned_robot(angles);
+
+    let mut states = Vec::with_capacity(
+        positioned_robot.joints.len()
+            + usize::from(positioned_robot.tool.is_some())
+            + usize::from(robot.kinematics.body.base.is_some())
+            + positioned_robot.environment.len(),
+    );
+
+    for (joint_index, positioned_joint) in positioned_robot.joints.iter().enumerate() {
+        states.push(RobotPartRenderState {
+            collision_index: joint_index,
+            transform: transform_from_pose(&positioned_joint.transform),
+            material: maybe_colliding_material(
+                robot,
+                &robot.material,
+                &colliding_segments,
+                &joint_index,
+            ),
+        });
+    }
+
+    if let Some(tool_joint) = positioned_robot.tool.as_ref() {
+        states.push(RobotPartRenderState {
+            collision_index: J_TOOL,
+            transform: transform_from_pose(&tool_joint.transform),
+            material: maybe_colliding_material(
+                robot,
+                &robot.tool_material,
+                &colliding_segments,
+                &J_TOOL,
+            ),
+        });
+    }
+
+    if let Some(base_joint) = robot.kinematics.body.base.as_ref() {
+        states.push(RobotPartRenderState {
+            collision_index: J_BASE,
+            transform: transform_from_pose(&base_joint.base_pose),
+            material: maybe_colliding_material(
+                robot,
+                &robot.base_material,
+                &colliding_segments,
+                &J_BASE,
+            ),
+        });
+    }
+
+    for (environment_index, environment_joint) in positioned_robot.environment.iter().enumerate() {
+        let collision_index = ENV_START_IDX + environment_index;
+        states.push(RobotPartRenderState {
+            collision_index,
+            transform: transform_from_pose(&environment_joint.pose),
+            material: maybe_colliding_material(
+                robot,
+                &robot.environment_material,
+                &colliding_segments,
+                &collision_index,
+            ),
+        });
+    }
+
+    states
+}
+
+fn mesh_for_rendered_part(robot: &ResMut<Robot>, collision_index: usize) -> Option<Handle<Mesh>> {
+    match collision_index {
+        0..=5 => robot
+            .joint_meshes
+            .as_ref()
+            .map(|joint_meshes| joint_meshes[collision_index].clone()),
+        J_TOOL => robot.tool.clone(),
+        J_BASE => robot.base.clone(),
+        index if index >= ENV_START_IDX => robot.environment.get(index - ENV_START_IDX).cloned(),
+        _ => None,
+    }
+}
+
 // Update the robot when joint angles change
+fn process_visualization_commands(
+    mut controls: ResMut<RobotControls>,
+    command_receiver: Option<Res<VisualizationCommands>>,
+    mut app_exit_writer: MessageWriter<AppExit>,
+) {
+    let Some(command_receiver) = command_receiver else {
+        return;
+    };
+    let Ok(receiver) = command_receiver.receiver.lock() else {
+        return;
+    };
+
+    while let Ok(command) = receiver.try_recv() {
+        match command {
+            VisualizationCommand::SetJointAngles(joint_angles) => {
+                controls.joint_angles = joint_angles;
+                controls.joint_angles_changed = true;
+            }
+            VisualizationCommand::Close => {
+                app_exit_writer.write(AppExit::Success);
+            }
+        }
+    }
+}
+
 fn update_robot(
-    mut commands: Commands,
     mut controls: ResMut<RobotControls>,
     mut robot: ResMut<Robot>,
-    query: Query<Entity, With<RenderedRobotPart>>,
+    mut query: Query<(
+        &RenderedRobotPart,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
 ) {
     let joint_angles_changed = controls.joint_angles_changed;
     let tcp_changed = controls.tcp_changed;
@@ -484,12 +722,8 @@ fn update_robot(
     controls.safety_distance_changed = false;
 
     if joint_angles_changed {
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
-
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
         controls.previous_joint_angles = controls.joint_angles;
 
         // A joint slider edit is forward kinematics only. Update the displayed TCP,
@@ -509,17 +743,14 @@ fn update_robot(
         let ik = robot.kinematics.inverse_continuing(&pose, &angles);
         println!("Time for inverse kinematics: {:?}", start.elapsed());
         if !ik.is_empty() {
-            for entity in query.iter() {
-                commands.entity(entity).despawn();
-            }
             let angles = ik[0];
-            visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+            update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
 
             // Update joint angles to match the current TCP position.
             controls.joint_angles = utils::to_degrees(&angles);
         } else {
             println!(
-                "  no solution for pose {:.1} {:.1} {:.1} rotation {:.1} {:.1} {:.1}",
+                "  no solution for pose {:.1} {:.1} {:.1} rotation Z/Y/X {:.1} {:.1} {:.1}",
                 controls.tcp[0],
                 controls.tcp[1],
                 controls.tcp[2],
@@ -532,11 +763,8 @@ fn update_robot(
         controls.previous_joint_angles = controls.joint_angles;
         controls.previous_safety_distance = controls.safety_distance;
     } else if safety_distance_changed {
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
         let angles = utils::joints(&controls.joint_angles);
-        visualize_robot_joints(&mut commands, &mut robot, &angles, controls.safety_distance);
+        update_rendered_robot_joints(&mut robot, &angles, controls.safety_distance, &mut query);
         controls.previous_safety_distance = controls.safety_distance;
     }
 }
@@ -573,15 +801,15 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
             .changed();
 
         ui.add_space(10.0);
-        ui.label("TCP Euler angles");
+        ui.label("TCP Euler angles (ZYX)");
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Roll"))
+            .add(egui::Slider::new(&mut controls.tcp[3], -90.0..=90.0).text("Z rotation"))
             .changed();
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Pitch"))
+            .add(egui::Slider::new(&mut controls.tcp[4], -90.0..=90.0).text("Y rotation"))
             .changed();
         tcp_changed |= ui
-            .add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("Yaw"))
+            .add(egui::Slider::new(&mut controls.tcp[5], -90.0..=90.0).text("X rotation"))
             .changed();
         if tcp_changed {
             controls.tcp_changed = true;

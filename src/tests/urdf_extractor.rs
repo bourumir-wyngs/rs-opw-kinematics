@@ -1,12 +1,17 @@
-use std::fs::read_to_string;
-use crate::kinematic_traits::{Joints};
+#![allow(clippy::approx_constant)]
+
+use crate::kinematic_traits::Joints;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::urdf;
 use crate::urdf::URDFParameters;
+use std::fs::read_to_string;
 
 fn read_urdf(path: &str) -> URDFParameters {
-    let opw_parameters = urdf::from_urdf(read_to_string(path)
-                                             .expect("Failed to read test data file"), &None).expect("Faile to interpret URDF");
+    let opw_parameters = urdf::from_urdf(
+        read_to_string(path).expect("Failed to read test data file"),
+        &None,
+    )
+    .expect("Faile to interpret URDF");
     // Output the results or further process
     println!("{:?}", opw_parameters);
     opw_parameters
@@ -40,12 +45,19 @@ fn test_extraction_m10ia() {
     let expected_to: Joints = [3.14, 2.79, 4.61, 3.31, 3.31, 6.28];
 
     for (i, &val) in expected_sign_corrections.iter().enumerate() {
-        assert_eq!(opw_parameters.sign_corrections[i], val as i8,
-                   "Mismatch in sign_corrections at index {}", i);
+        assert_eq!(
+            opw_parameters.sign_corrections[i], val as i8,
+            "Mismatch in sign_corrections at index {}",
+            i
+        );
     }
 
     for (i, &val) in expected_from.iter().enumerate() {
-        assert_eq!(opw_parameters.from[i], val, "Mismatch in from at index {}", i);
+        assert_eq!(
+            opw_parameters.from[i], val,
+            "Mismatch in from at index {}",
+            i
+        );
     }
 
     for (i, &val) in expected_to.iter().enumerate() {
@@ -81,16 +93,27 @@ fn test_extraction_lrmate200ib() {
     let expected_to: Joints = [2.7925, 2.6529, 2.8797, 3.3161, 2.0943, 6.2831];
 
     for (i, &val) in expected_sign_corrections.iter().enumerate() {
-        assert_eq!(opw_parameters.sign_corrections[i], val as i8,
-                   "Mismatch in sign_corrections at index {}", i);
+        assert_eq!(
+            opw_parameters.sign_corrections[i], val as i8,
+            "Mismatch in sign_corrections at index {}",
+            i
+        );
     }
 
     for (i, &val) in expected_from.iter().enumerate() {
-        assert_eq!(opw_parameters.from[i], val, "Mismatch in constraints from at index {}", i);
+        assert_eq!(
+            opw_parameters.from[i], val,
+            "Mismatch in constraints from at index {}",
+            i
+        );
     }
 
     for (i, &val) in expected_to.iter().enumerate() {
-        assert_eq!(opw_parameters.to[i], val, "Mismatch in constraints to at index {}", i);
+        assert_eq!(
+            opw_parameters.to[i], val,
+            "Mismatch in constraints to at index {}",
+            i
+        );
     }
 }
 
@@ -120,8 +143,11 @@ fn test_rx160() {
     let expected_sign_corrections: [i32; 6] = [1, 1, 1, 1, 1, 1];
 
     for (i, &val) in expected_sign_corrections.iter().enumerate() {
-        assert_eq!(opw_parameters.sign_corrections[i], val as i8,
-                   "Mismatch in sign_corrections at index {}", i);
+        assert_eq!(
+            opw_parameters.sign_corrections[i], val as i8,
+            "Mismatch in sign_corrections at index {}",
+            i
+        );
     }
 }
 
@@ -159,8 +185,7 @@ fn assert_parameter_extraction(yaml: Parameters, urdf: URDFParameters, robot: &s
 
 #[test]
 fn test_extraction_kr6r700sixx() {
-    let urdf =
-        read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
+    let urdf = read_urdf("src/tests/data/kuka/kr6r700sixx_macro.xacro");
 
     let params = Parameters::kuka_kr6_r700_sixx();
     assert_parameter_extraction(params, urdf, "_kr6r700sixx");
@@ -168,9 +193,11 @@ fn test_extraction_kr6r700sixx() {
 
 #[test]
 fn test_extraction_kr150() {
-    let yaml = Parameters::from_yaml_file("\
-    src/tests/data/kuka/opw_parameters_kr150r3100_2.yaml")
-        .expect("Failed to read or parse URDF");
+    let yaml = Parameters::from_yaml_file(
+        "\
+    src/tests/data/kuka/opw_parameters_kr150r3100_2.yaml",
+    )
+    .expect("Failed to read or parse URDF");
     let urdf = read_urdf("src/tests/data/kuka/kr150r3100_2_macro.xacro");
 
     assert_parameter_extraction(yaml, urdf, "kr150r3100_2");
@@ -178,9 +205,11 @@ fn test_extraction_kr150() {
 
 #[test]
 fn test_extraction_kr10r1420() {
-    let yaml = Parameters::from_yaml_file("\
-    src/tests/data/kuka/opw_parameters_kr10r1420.yaml")
-        .expect("Failed to read or parse URDF");
+    let yaml = Parameters::from_yaml_file(
+        "\
+    src/tests/data/kuka/opw_parameters_kr10r1420.yaml",
+    )
+    .expect("Failed to read or parse URDF");
     let urdf = read_urdf("src/tests/data/kuka/kr10r1420_macro.xacro");
 
     assert_parameter_extraction(yaml, urdf, "kr10r1420");
@@ -188,9 +217,11 @@ fn test_extraction_kr10r1420() {
 
 #[test]
 fn test_extraction_kr5_arc() {
-    let yaml = Parameters::from_yaml_file("\
-    src/tests/data/kuka/opw_parameters_kr6r900_2.yaml")
-        .expect("Failed to read or parse URDF");
+    let yaml = Parameters::from_yaml_file(
+        "\
+    src/tests/data/kuka/opw_parameters_kr6r900_2.yaml",
+    )
+    .expect("Failed to read or parse URDF");
     let urdf = read_urdf("src/tests/data/kuka/kr6r900_2_macro.xacro");
 
     assert_parameter_extraction(yaml, urdf, "kr6r900_2");
@@ -198,9 +229,11 @@ fn test_extraction_kr5_arc() {
 
 #[test]
 fn test_extraction_m20ia() {
-    let yaml = Parameters::from_yaml_file("\
-    src/tests/data/fanuc/opw_parameters_m20ia.yaml")
-        .expect("Failed to read or parse URDF");
+    let yaml = Parameters::from_yaml_file(
+        "\
+    src/tests/data/fanuc/opw_parameters_m20ia.yaml",
+    )
+    .expect("Failed to read or parse URDF");
     let urdf = read_urdf("src/tests/data/fanuc/m20ia_macro.xacro");
 
     assert_parameter_extraction(yaml, urdf, "m20ia");

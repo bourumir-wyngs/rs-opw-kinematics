@@ -2,19 +2,19 @@
 
 extern crate sxd_document;
 
+use crate::constraints::{BY_PREV, Constraints};
+use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints};
+use crate::kinematics_impl::OPWKinematics;
+use crate::parameter_error::ParameterError;
+use crate::parameters::opw_kinematics::Parameters;
 use crate::simplify_joint_name::preprocess_joint_name;
-use sxd_document::{parser, dom, QName};
+use regex::Regex;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
 use std::io;
 use std::path::Path;
-use regex::Regex;
-use crate::constraints::{BY_PREV, Constraints};
-use crate::kinematic_traits::{Joints, JOINTS_AT_ZERO};
-use crate::kinematics_impl::OPWKinematics;
-use crate::parameter_error::ParameterError;
-use crate::parameters::opw_kinematics::Parameters;
+use sxd_document::{QName, dom, parser};
 
 /// Simplified reading from URDF file. This function assumes sorting of results by closest to
 /// previous (BY_PREV) and no joint offsets (zero offsets). URDF file is expected in the input
@@ -40,8 +40,11 @@ use crate::parameters::opw_kinematics::Parameters;
 /// - Returns an error if the file cannot be found, is not accessible, or is incorrectly
 ///   formatted as URDF/XACRO.
 pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, ParameterError> {
-    let xml_content = read_to_string(path)
-        .map_err(|e| ParameterError::IoError(io::Error::other(format!("Failed to read xacro/urdf file: {e}"))))?;
+    let xml_content = read_to_string(path).map_err(|e| {
+        ParameterError::IoError(io::Error::other(format!(
+            "Failed to read xacro/urdf file: {e}"
+        )))
+    })?;
 
     let opw_parameters = from_urdf(xml_content, &None)?;
 
@@ -72,10 +75,10 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, Paramete
 /// use rs_opw_kinematics::kinematic_traits::{Joints, JOINTS_AT_ZERO, Kinematics};
 /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
 /// use rs_opw_kinematics::urdf::from_urdf;
-/// // Exactly this string would fail. Working URDF fragment would be too long for this example. 
+/// // Exactly this string would fail. Working URDF fragment would be too long for this example.
 /// let xml_data = String::from("<robot><joint ...></joint></robot>");
 ///
-/// // Let's assume the joint names have prefix and the joints are zero base numbered. 
+/// // Let's assume the joint names have prefix and the joints are zero base numbered.
 /// let joints = ["lf_joint_0", "lf_joint_1", "lf_joint_2", "lf_joint_3", "lf_joint_4", "lf_joint_5"];
 /// let offsets = [ 0., PI, 0., 0.,0.,0.];
 /// let opw_params = from_urdf(xml_data, &Some(joints));
@@ -83,7 +86,7 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, Paramete
 ///     Ok(opw_params) => {
 ///         println!("Building the IK solver {:?}", opw_params);
 ///         let parameters = opw_params.parameters(&JOINTS_AT_ZERO); // Zero joint offsets
-///         let constraints =opw_params.constraints(BY_PREV); 
+///         let constraints =opw_params.constraints(BY_PREV);
 ///         let robot = OPWKinematics::new_with_constraints(parameters, constraints);
 ///         // let joints = robot.inverse( ... )    
 ///
@@ -91,18 +94,20 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, Paramete
 ///     Err(e) => println!("Error processing URDF: {}", e),
 /// }
 /// ```
-pub fn from_urdf(xml_content: String, joint_names: &Option<[&str; 6]>) -> Result<URDFParameters, ParameterError> {
-    let joint_data = process_joints(&xml_content, joint_names)
-        .map_err(|e|
-            ParameterError::XmlProcessingError(format!("Failed to process XML joints: {}", e)))?;
+pub fn from_urdf(
+    xml_content: String,
+    joint_names: &Option<[&str; 6]>,
+) -> Result<URDFParameters, ParameterError> {
+    let joint_data = process_joints(&xml_content, joint_names).map_err(|e| {
+        ParameterError::XmlProcessingError(format!("Failed to process XML joints: {}", e))
+    })?;
 
-    let opw_parameters = populate_opw_parameters(joint_data, joint_names)
-        .map_err(|e|
-            ParameterError::ParameterPopulationError(format!("Failed to interpret robot model: {}", e)))?;
+    let opw_parameters = populate_opw_parameters(joint_data, joint_names).map_err(|e| {
+        ParameterError::ParameterPopulationError(format!("Failed to interpret robot model: {}", e))
+    })?;
 
     Ok(opw_parameters)
 }
-
 
 #[derive(Debug, Default, PartialEq)]
 struct Vector3 {
@@ -154,12 +159,18 @@ struct JointData {
     to: f64,
 }
 
-fn process_joints(xml: &str, joint_names: &Option<[&str; 6]>) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
+fn process_joints(
+    xml: &str,
+    joint_names: &Option<[&str; 6]>,
+) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
     let package = parser::parse(xml)?;
     let document = package.as_document();
 
     // Access the root element
-    let root_element = document.root().children().into_iter()
+    let root_element = document
+        .root()
+        .children()
+        .into_iter()
         .find_map(|e| e.element())
         .ok_or("No root element found")?;
 
@@ -171,7 +182,11 @@ fn process_joints(xml: &str, joint_names: &Option<[&str; 6]>) -> Result<HashMap<
 }
 
 // Recursive function to collect joint data
-fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_names: &Option<[&str; 6]>) -> Result<(), Box<dyn Error>> {
+fn collect_joints(
+    element: dom::Element,
+    joints: &mut Vec<JointData>,
+    joint_names: &Option<[&str; 6]>,
+) -> Result<(), Box<dyn Error>> {
     let origin_tag = QName::new("origin");
     let joint_tag = QName::new("joint");
     let axis_tag = QName::new("axis");
@@ -179,7 +194,8 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
 
     for child in element.children().into_iter().filter_map(|e| e.element()) {
         if child.name() == joint_tag {
-            let urdf_name = &child.attribute("name")
+            let urdf_name = &child
+                .attribute("name")
                 .map(|attr| attr.value().to_string())
                 .unwrap_or_else(|| "Unnamed".to_string());
             let name = if joint_names.is_some() {
@@ -189,16 +205,23 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
                 // Otherwise effort is done to "simplify" the names into joint1 to joint6
                 preprocess_joint_name(urdf_name)
             };
-            let axis_element = child.children().into_iter()
+            let axis_element = child
+                .children()
+                .into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == axis_tag));
-            let origin_element = child.children().into_iter()
+            let origin_element = child
+                .children()
+                .into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == origin_tag));
-            let limit_element = child.children().into_iter()
+            let limit_element = child
+                .children()
+                .into_iter()
                 .find_map(|e| e.element().filter(|el| el.name() == limit_tag));
 
             let mut joint_data = JointData {
                 name,
-                vector: origin_element.map_or_else(|| Ok(Vector3::default()), get_xyz_from_origin)?,
+                vector: origin_element
+                    .map_or_else(|| Ok(Vector3::default()), get_xyz_from_origin)?,
                 sign_correction: axis_element.map_or(Ok(1), get_axis_sign)?,
                 from: 0.,
                 to: 0., // 0 to 0 in our notation is 'full circle'
@@ -211,8 +234,10 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    println!("Joint limits defined but not not readable for {}: {}",
-                             joint_data.name, e);
+                    println!(
+                        "Joint limits defined but not not readable for {}: {}",
+                        joint_data.name, e
+                    );
                 }
             }
 
@@ -225,10 +250,11 @@ fn collect_joints(element: dom::Element, joints: &mut Vec<JointData>, joint_name
     Ok(())
 }
 
-
 fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>> {
     let xyz_attr = element.attribute("xyz").ok_or("xyz attribute not found")?;
-    let coords: Vec<f64> = xyz_attr.value().split_whitespace()
+    let coords: Vec<f64> = xyz_attr
+        .value()
+        .split_whitespace()
         .map(str::parse)
         .collect::<Result<_, _>>()?;
 
@@ -244,11 +270,13 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
 }
 
 fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
-    let axis_attr = axis_element.attribute("xyz").ok_or({
-        "'xyz' attribute not found in element supposed to represent the axis"
-    })?;
+    let axis_attr = axis_element
+        .attribute("xyz")
+        .ok_or("'xyz' attribute not found in element supposed to represent the axis")?;
 
-    let axis_values: Vec<f64> = axis_attr.value().split_whitespace()
+    let axis_values: Vec<f64> = axis_attr
+        .value()
+        .split_whitespace()
         .map(str::parse)
         .collect::<Result<_, _>>()?;
 
@@ -274,27 +302,34 @@ fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
 
     // Check if the input matches the special format
     if let Some(caps) = re.captures(attr_value) {
-        let degrees_str = caps.get(1)
-            .ok_or(ParameterError::WrongAngle(format!("Bad representation: {}",
-                                                      attr_value).to_string()))?.as_str();
-        let degrees: f64 = degrees_str.parse()
+        let degrees_str = caps
+            .get(1)
+            .ok_or(ParameterError::WrongAngle(
+                format!("Bad representation: {}", attr_value).to_string(),
+            ))?
+            .as_str();
+        let degrees: f64 = degrees_str
+            .parse()
             .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
         Ok(degrees.to_radians())
     } else {
         // Try to parse the input as a plain number in that case it is in radians
-        let radians: f64 = attr_value.parse()
+        let radians: f64 = attr_value
+            .parse()
             .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
         Ok(radians)
     }
 }
 
 fn get_limits(element: dom::Element) -> Result<(f64, f64), ParameterError> {
-    let lower_attr = element.attribute("lower")
+    let lower_attr = element
+        .attribute("lower")
         .ok_or_else(|| ParameterError::MissingField("lower limit not found".into()))?
         .value();
     let lower_limit = parse_angle(lower_attr)?;
 
-    let upper_attr = element.attribute("upper")
+    let upper_attr = element
+        .attribute("upper")
         .ok_or_else(|| ParameterError::MissingField("upper limit not found".into()))?
         .value();
     let upper_limit = parse_angle(upper_attr)?;
@@ -309,8 +344,13 @@ fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, 
         if let Some(existing) = map.get(&joint.name) {
             // Check if the existing entry is different from the new one
             if existing != &joint {
-                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData,
-                                                        format!("Duplicate joint name with different data found: {}", joint.name))));
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Duplicate joint name with different data found: {}",
+                        joint.name
+                    ),
+                )));
             }
         } else {
             map.insert(joint.name.clone(), joint);
@@ -320,10 +360,10 @@ fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, 
     Ok(map)
 }
 
-/// OPW parameters as extrancted from URDF file, including constraints 
+/// OPW parameters as extrancted from URDF file, including constraints
 /// (joint offsets are not directly defined in URDF). This structure
 /// can provide robot parameters, constraints and sign corrections,
-/// or alterntively can be converted to the robot directly. 
+/// or alterntively can be converted to the robot directly.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct URDFParameters {
     pub a1: f64,
@@ -336,7 +376,7 @@ pub struct URDFParameters {
     pub sign_corrections: [i8; 6],
     pub from: Joints, // Array to store the lower limits
     pub to: Joints,   // Array to store the upper limits
-    pub dof: i8
+    pub dof: i8,
 }
 
 impl URDFParameters {
@@ -352,23 +392,15 @@ impl URDFParameters {
                 c4: self.c4,
                 sign_corrections: self.sign_corrections,
                 offsets: *offsets,
-                dof: self.dof
+                dof: self.dof,
             },
-            Constraints::new(
-                self.from,
-                self.to,
-                sorting_weight,
-            ),
+            Constraints::new(self.from, self.to, sorting_weight),
         )
     }
 
     /// Return extracted constraints.
     pub fn constraints(self, sorting_weight: f64) -> Constraints {
-        Constraints::new(
-            self.from,
-            self.to,
-            sorting_weight,
-        )
+        Constraints::new(self.from, self.to, sorting_weight)
     }
 
     /// Return extracted parameters
@@ -383,30 +415,34 @@ impl URDFParameters {
             c4: self.c4,
             sign_corrections: self.sign_corrections,
             offsets: *offsets,
-            dof: self.dof
+            dof: self.dof,
         }
     }
 }
 
-fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
-                           -> Result<URDFParameters, String> {
+fn populate_opw_parameters(
+    joint_map: HashMap<String, JointData>,
+    joint_names: &Option<[&str; 6]>,
+) -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters::default();
 
-    let names = joint_names.unwrap_or_else(
-        || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
-    
+    let names =
+        joint_names.unwrap_or_else(|| ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
+
     let is_six_dof = joint_map.contains_key(names[5]);
     opw_parameters.c4 = 0.0; // joint6 would be something like "tcp" for the 5 DOF robot. Otherwise, 0 is assumed.
 
     for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
+            .get(*name)
+            .ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;
         opw_parameters.to[j] = joint.to;
 
-        match j + 1 { // Joint number 1 to 6 inclusive
+        match j + 1 {
+            // Joint number 1 to 6 inclusive
             1 => {
                 opw_parameters.c1 = joint.vector.non_zero()?;
             }
@@ -414,10 +450,10 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
                 opw_parameters.a1 = joint.vector.non_zero()?;
             }
             3 => {
-                // There is more divergence here. 
+                // There is more divergence here.
                 match joint.vector.non_zero() {
                     Ok(value) => {
-                        // If there is only one value, it is value for c2. Most of the 
+                        // If there is only one value, it is value for c2. Most of the
                         // modern robots we tested do follow this design.
                         opw_parameters.c2 = value;
                         opw_parameters.b = 0.0;
@@ -466,43 +502,46 @@ fn populate_opw_parameters(joint_map: HashMap<String, JointData>, joint_names: &
     }
 
     if is_six_dof {
-        opw_parameters.dof = 6    
+        opw_parameters.dof = 6
     } else {
         opw_parameters.dof = 5;
-        
+
         // Set reasonable values for non-existing joint 6.
         // Constraint checker will still be checking this range.
         opw_parameters.sign_corrections[5] = 0; // Always suppress
         // With from=to, constraint is suppressed.
-        opw_parameters.from[5] = 0.0; 
-        opw_parameters.to[5] = 0.0;       
+        opw_parameters.from[5] = 0.0;
+        opw_parameters.to[5] = 0.0;
     }
-    
 
     Ok(opw_parameters)
 }
 
 #[allow(dead_code)]
 // This function is not in use and exists for references only (old version)
-fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint_names: &Option<[&str; 6]>)
-                                    -> Result<URDFParameters, String> {
+fn populate_opw_parameters_explicit(
+    joint_map: HashMap<String, JointData>,
+    joint_names: &Option<[&str; 6]>,
+) -> Result<URDFParameters, String> {
     let mut opw_parameters = URDFParameters {
         b: 0.0, // We only support robots with b = 0 so far.
         ..Default::default()
     };
 
-    let names = joint_names.unwrap_or_else(
-        || ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
+    let names =
+        joint_names.unwrap_or_else(|| ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
 
     for (j, name) in names.iter().enumerate() {
         let joint = joint_map
-            .get(*name).ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
+            .get(*name)
+            .ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
 
         opw_parameters.sign_corrections[j] = joint.sign_correction as i8;
         opw_parameters.from[j] = joint.from;
         opw_parameters.to[j] = joint.to;
 
-        match j + 1 { // Joint number 1 to 6 inclusive
+        match j + 1 {
+            // Joint number 1 to 6 inclusive
             1 => {
                 opw_parameters.c1 = joint.vector.z;
             }
@@ -512,7 +551,7 @@ fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint
             3 => {
                 opw_parameters.c2 = joint.vector.z;
                 opw_parameters.b = joint.vector.y;
-                //opw_parameters.c2 = joint.vector.x; // Kuka                
+                //opw_parameters.c2 = joint.vector.x; // Kuka
             }
             4 => {
                 opw_parameters.a2 = -joint.vector.z;
@@ -534,12 +573,12 @@ fn populate_opw_parameters_explicit(joint_map: HashMap<String, JointData>, joint
     Ok(opw_parameters)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_process_joints() {
         let xml = r#"
             <robot>
@@ -556,8 +595,7 @@ mod tests {
             </robot>
         "#;
 
-        let joint_data = process_joints(xml, &None)
-            .expect("Failed to process XML joints");
+        let joint_data = process_joints(xml, &None).expect("Failed to process XML joints");
 
         assert_eq!(joint_data.len(), 2, "Should have extracted two joints");
 
@@ -642,8 +680,14 @@ mod tests {
             </robot>
         "#;
 
-        let joints = ["left_joint_0", "left_joint_1", "left_joint_2",
-            "left_joint_3", "left_joint_4", "left_joint_5"];
+        let joints = [
+            "left_joint_0",
+            "left_joint_1",
+            "left_joint_2",
+            "left_joint_3",
+            "left_joint_4",
+            "left_joint_5",
+        ];
 
         let opw_parameters =
             from_urdf(xml.to_string(), &Some(joints)).expect("Failed to parse parameters");
@@ -669,7 +713,10 @@ mod tests {
         "#;
 
         let result = process_joints(xml, &None);
-        assert!(result.is_err(), "Malformed multi-axis definition must be rejected");
+        assert!(
+            result.is_err(),
+            "Malformed multi-axis definition must be rejected"
+        );
     }
 
     #[test]
@@ -687,5 +734,3 @@ mod tests {
         assert!(result.is_err(), "Non-unit axis definition must be rejected");
     }
 }
-
-  

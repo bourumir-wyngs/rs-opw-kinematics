@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "1.8.20"
+version = "2.0.0"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -15,7 +15,7 @@ readme = "README.md"
 exclude = ["Cargo.lock"]
 
 [dependencies]
-nalgebra = ">=0.32.1, < 0.35"
+glam = "=0.30.10"
 rand = ">=0.10, < 0.11"
 anyhow = "1.0"
 
@@ -35,14 +35,13 @@ regex = { version = ">=1.10, <=1.12", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 
 # Needed for collision and deprecated mesh-loading helpers that return Parry TriMesh
-parry3d = { version = "0.25", optional = true }
+parry3d = { version = "0.26", optional = true }
 
 # Paralellization of collision
 rayon = { version = ">= 1.10, <1.13", optional = true }
 
-# For loading meshes, needed for collision and visualization. Name "use-parry-18_19" is historical and actually supports
-# parry up to 0.25 inclusive.
-rs-read-trimesh = { version = "= 2.0.9", features = ["use-parry-18_19"], default-features = false, optional = true }
+# For loading meshes, needed for collision and visualization.
+rs-read-trimesh = { version = "= 2.0.9", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
 bevy = { version = "0.18", default-features = false, features = [
@@ -53,7 +52,7 @@ bevy = { version = "0.18", default-features = false, features = [
 bevy_egui = { version = "0.39", optional = true }
 
 # Needed for stroke planning
-bitflags = ">=2.9, < 2.12"
+bitflags = { version = ">=2.9, < 2.12", optional = true }
 
 # Copyright 2017 Takashi Ogura Apache 2 license. This is now integrated in the code (src/path_plan/rrt_to.rs)
 # as we needed changes there. Dependencies for this code:
@@ -80,23 +79,16 @@ bevy_egui = ["dep:bevy_egui"]
 kdtree = ["dep:kdtree"]
 num-traits = ["dep:num-traits"]
 tracing = ["dep:tracing"]
-allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "ply-rs-bw", "rs-read-trimesh", "stl_io", "garde", "serde", "parry3d"]
+allow_filesystem = ["yaml-rust2", "sxd-document", "regex", "clap", "rs-read-trimesh", "garde", "serde", "parry3d"]
 collisions = ["parry3d", "rayon"]
 visualization = ["bevy", "bevy_egui", "collisions", "allow_filesystem"]
-# Preserve the historical feature relationship for semver compatibility.
-stroke_planning = ["rrt"]
-# Backward-compatible name for stroke planning / RRT-based path planning.
-rrt = ["kdtree", "num-traits", "tracing", "collisions"]
-
-# No longer used (rs-read-trimesh does all), exists not to break semver only
-ply-rs-bw = []
-stl_io = []
+stroke_planning = ["dep:bitflags", "kdtree", "num-traits", "tracing", "collisions"]
 
 [package.metadata]
 status = "maintained"
 
 # To disable filesystem, collision and visualization support:
-# rs-opw-kinematics = { version = "1.8.20", default-features = false }
+# rs-opw-kinematics = { version = "2", default-features = false }
 
 [profile.release]
 

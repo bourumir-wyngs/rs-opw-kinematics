@@ -2,11 +2,11 @@
 mod tests {
     extern crate rand;
 
-    use std::mem;
-    use rand::{RngExt, SeedableRng};
-    use rand::rngs::StdRng;
     use crate::constraints::{BY_CONSTRAINS, Constraints};
     use crate::utils::as_radians;
+    use rand::rngs::StdRng;
+    use rand::{RngExt, SeedableRng};
+    use std::mem;
 
     // Define the data structure for a test case
     struct TestCase {
@@ -30,7 +30,8 @@ mod tests {
                 let mut a: i32 = rng.random_range(0..360);
                 let mut b: i32 = rng.random_range(0..360);
 
-                while (a - b).abs() < 2 { // Leave at least on value in between
+                while (a - b).abs() < 2 {
+                    // Leave at least on value in between
                     b = rng.random_range(0..360); // generate again
                 }
 
@@ -51,7 +52,8 @@ mod tests {
                         if rng.random_bool(0.5) && a > 0 {
                             // below a
                             break rng.random_range(0..a);
-                        } else if b < 360 - 2 { // 360 and 359 would not generate as expected
+                        } else if b < 360 - 2 {
+                            // 360 and 359 would not generate as expected
                             // above b
                             break rng.random_range(b + 1..360);
                         };
@@ -164,7 +166,6 @@ mod tests {
                 expected_results: [false; 6],
                 passing: false,
             },
-            
         ];
 
         for case in cases {
@@ -174,22 +175,19 @@ mod tests {
 
     #[test]
     fn test_over_360() {
-        let cases: Vec<TestCase> = vec![
-            TestCase {
-                id: 0,
-                from_angles: [-60; 6],
-                to_angles: [60; 6],
-                check_angles: [-60 + 360, 60, -59 + 360, 59, 0, 0],
-                expected_results: [true; 6],
-                passing: true,
-            },
-        ];
+        let cases: Vec<TestCase> = vec![TestCase {
+            id: 0,
+            from_angles: [-60; 6],
+            to_angles: [60; 6],
+            check_angles: [-60 + 360, 60, -59 + 360, 59, 0, 0],
+            expected_results: [true; 6],
+            passing: true,
+        }];
 
         for case in cases {
             test_case(&case, 0);
         }
     }
-
 
     fn test_generated_constraints_shifted_by(offset: i32) {
         let seed = [0u8; 32];
@@ -211,9 +209,15 @@ mod tests {
         let actual = constraints.compliant(&as_radians(case.check_angles));
         if actual != case.passing {
             println!("Case mimatch: expected {}, actual {}", case.passing, actual);
-            println!("ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
-                     case.id, case.from_angles, case.to_angles, case.check_angles,
-                     case.expected_results, case.passing);
+            println!(
+                "ID: {}, From: {:?}, To: {:?}, Check: {:?}, Result: {:?} Passing {:?}",
+                case.id,
+                case.from_angles,
+                case.to_angles,
+                case.check_angles,
+                case.expected_results,
+                case.passing
+            );
             println!("Deep check");
 
             // To make analysis of the glitch easier, we set contraints and all angles
@@ -221,16 +225,21 @@ mod tests {
             for p in 0..6 {
                 let from = case.to_angles[p];
                 let to = case.from_angles[p];
-                let focused_constraints =
-                    Constraints::new(
-                        as_radians([to + offset; 6]),
-                        as_radians([from + offset; 6]),
-                        BY_CONSTRAINS);
+                let focused_constraints = Constraints::new(
+                    as_radians([to + offset; 6]),
+                    as_radians([from + offset; 6]),
+                    BY_CONSTRAINS,
+                );
                 let angle = case.check_angles[p];
                 let joints = as_radians([angle + offset; 6]);
-                println!("{}: {} .. {} : {} ? = {}", p,
-                         case.from_angles[p], case.to_angles[p], angle + offset,
-                         focused_constraints.compliant(&joints));
+                println!(
+                    "{}: {} .. {} : {} ? = {}",
+                    p,
+                    case.from_angles[p],
+                    case.to_angles[p],
+                    angle + offset,
+                    focused_constraints.compliant(&joints)
+                );
             }
             panic!("Test case {} failed", case.id);
         }

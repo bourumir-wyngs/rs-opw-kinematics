@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion};
 use crate::frame::Frame;
 use crate::kinematic_traits::{Kinematics, Pose};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
-use crate::tests::test_utils::are_isometries_approx_equal;
-use crate::tool::{Base};
+use crate::tests::test_utils::are_poses_approx_equal;
+use crate::tool::Base;
+use glam::{DQuat, DVec3};
+use std::sync::Arc;
 
 const SMALL: f64 = 1e-6;
 
@@ -35,32 +35,32 @@ fn test_forward_kinematics_straight_up() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
+        parameters.c4,
     );
 
     // Expected positions
     let expected_positions = [
-        (0.0, 0.0, c1), // 1
-        (a1, b, c1),  // 2
-        (a1, b, c1 + c2),  // 3 
-        (a1 + a2, b, c1 + c2),  // 4
-        (a1 + a2, b, c1 + c2 + c3),  // 5
-        (a1 + a2, b, c1 + c2 + c3 + c4),  // 6
+        (0.0, 0.0, c1),                  // 1
+        (a1, b, c1),                     // 2
+        (a1, b, c1 + c2),                // 3
+        (a1 + a2, b, c1 + c2),           // 4
+        (a1 + a2, b, c1 + c2 + c3),      // 5
+        (a1 + a2, b, c1 + c2 + c3 + c4), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
+    let standing = DQuat::IDENTITY;
 
     // Check that the quaternion (rotation) is identity quaternion for all poses
     for (i, pose) in poses.iter().enumerate() {
         check_rotation(standing, i, &pose.rotation);
     }
-    
+
     // Check also if the tcp-only version provides the same output
-    let tcp = opw_kinematics.forward(&joints); 
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+    let tcp = opw_kinematics.forward(&joints);
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -90,23 +90,23 @@ fn test_forward_kinematics_straight_up_2() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
+        parameters.c4,
     );
 
     // Expected positions
     let expected_positions = [
-        (0.0, 0.0, c1), // 1
-        (a1, b, c1),  // 2
-        (a1, b, c1 + c2),  // 3 
-        (a1 + a2, b, c1 + c2),  // 4
-        (a1 + a2, b, c1 + c2 + c3),  // 5
-        (a1 + a2, b, c1 + c2 + c3 + c4),  // 6
+        (0.0, 0.0, c1),                  // 1
+        (a1, b, c1),                     // 2
+        (a1, b, c1 + c2),                // 3
+        (a1 + a2, b, c1 + c2),           // 4
+        (a1 + a2, b, c1 + c2 + c3),      // 5
+        (a1 + a2, b, c1 + c2 + c3 + c4), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
+    let standing = DQuat::IDENTITY;
 
     // Check that the quaternion (rotation) is identity quaternion for all poses
     for (i, pose) in poses.iter().enumerate() {
@@ -115,9 +115,8 @@ fn test_forward_kinematics_straight_up_2() {
 
     // Check also if the tcp-only version provides the same output
     let tcp = opw_kinematics.forward(&joints);
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
-
 
 #[test]
 fn test_forward_kinematics_j2_rotated_90_degrees() {
@@ -144,25 +143,25 @@ fn test_forward_kinematics_j2_rotated_90_degrees() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
+        parameters.c4,
     );
     let poses = opw_kinematics.forward_with_joint_poses(&joints);
 
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
-        (0.0, 0.0, c1), // 1
-        (a1, b, c1), // 2
-        (a1 + c2, b, c1), // 3
-        (a1 + c2, b, c1 - a2), // 4
-        (a1 + c2 + c3, b, c1 - a2), // 5
+        (0.0, 0.0, c1),                  // 1
+        (a1, b, c1),                     // 2
+        (a1 + c2, b, c1),                // 3
+        (a1 + c2, b, c1 - a2),           // 4
+        (a1 + c2 + c3, b, c1 - a2),      // 5
         (a1 + c2 + c3 + c4, b, c1 - a2), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
-    let lying = UnitQuaternion::from_euler_angles(0.0, std::f64::consts::FRAC_PI_2, 0.0);
+    let standing = DQuat::IDENTITY;
+    let lying = DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2);
 
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
@@ -177,7 +176,7 @@ fn test_forward_kinematics_j2_rotated_90_degrees() {
 
     // Check also if the tcp-only version provides the same output
     let tcp = opw_kinematics.forward(&joints);
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));    
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -205,25 +204,25 @@ fn test_forward_kinematics_j2_rotated_90_degrees_2() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
+        parameters.c4,
     );
     let poses = opw_kinematics.forward_with_joint_poses(&joints);
 
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
-        (0.0, 0.0, c1), // 1
-        (a1, 0.0, c1), // 2
-        (a1 + c2, b, c1), // 3
-        (a1 + c2, b, c1 - a2), // 4
-        (a1 + c2 + c3, b, c1 - a2), // 5
+        (0.0, 0.0, c1),                  // 1
+        (a1, 0.0, c1),                   // 2
+        (a1 + c2, b, c1),                // 3
+        (a1 + c2, b, c1 - a2),           // 4
+        (a1 + c2 + c3, b, c1 - a2),      // 5
         (a1 + c2 + c3 + c4, b, c1 - a2), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
-    let lying = UnitQuaternion::from_euler_angles(0.0, std::f64::consts::FRAC_PI_2, 0.0);
+    let standing = DQuat::IDENTITY;
+    let lying = DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2);
 
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
@@ -238,7 +237,7 @@ fn test_forward_kinematics_j2_rotated_90_degrees_2() {
 
     // Check also if the tcp-only version provides the same output
     let tcp = opw_kinematics.forward(&joints);
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -250,10 +249,7 @@ fn test_frame_forward_kinematics() {
     let robot_without_frame = OPWKinematics::new(parameters);
 
     // Tool extends 1 meter in the Z direction
-    let frame_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, frame_offset),
-        UnitQuaternion::identity(),
-    );
+    let frame_translation = Frame::translation(DVec3::ZERO, DVec3::new(0.0, 0.0, frame_offset));
 
     // Create the Tool instance with the transformation
     let robot_with_frame = Frame {
@@ -274,24 +270,24 @@ fn test_frame_forward_kinematics() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
+        parameters.c4,
     );
 
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2
     let expected_positions = [
-        (0.0, 0.0, c1), // 1
-        (a1, b, c1), // 2
-        (a1 + c2, b, c1), // 3
-        (a1 + c2, b, c1 - a2), // 4
-        (a1 + c2 + c3, b, c1 - a2), // 5
-        (a1 + c2 + c3 + c4 + frame_offset, b, c1 - a2), // 6
+        (0.0, 0.0, c1),                                 // 1
+        (a1, b, c1),                                    // 2
+        (a1 + c2, b, c1),                               // 3
+        (a1 + c2, b, c1 - a2),                          // 4
+        (a1 + c2 + c3, b, c1 - a2),                     // 5
+        (a1 + c2 + c3 + c4, b, c1 - a2 + frame_offset), // 6
     ];
 
     // Check all poses for correct X, Y, and Z translation
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
-    let lying = UnitQuaternion::from_euler_angles(0.0, std::f64::consts::FRAC_PI_2, 0.0);
+    let standing = DQuat::IDENTITY;
+    let lying = DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2);
 
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
@@ -306,7 +302,7 @@ fn test_frame_forward_kinematics() {
 
     // Check also if the tcp-only version provides the same output
     let tcp = robot_with_frame.forward(&joints);
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 #[test]
@@ -317,10 +313,7 @@ fn test_base_forward_kinematics() {
     let robot_without_base = OPWKinematics::new(parameters);
 
     // 1 meter high pedestal
-    let base_translation = Isometry3::from_parts(
-        Translation3::new(0.0, 0.0, base_height),
-        UnitQuaternion::identity(),
-    );
+    let base_translation = Pose::from_translation(DVec3::new(0.0, 0.0, base_height));
 
     // Create the Base instance with the transformation
     let robot_with_base = Base {
@@ -341,23 +334,23 @@ fn test_base_forward_kinematics() {
         parameters.c1,
         parameters.c2,
         parameters.c3,
-        parameters.c4
-    );    
+        parameters.c4,
+    );
 
     // Expected positions: Robot should extend horizontally due to 90-degree rotation of J2, plus the base offset in Z direction
     let expected_positions = [
-        (0.0, 0.0, c1 + base_height), // 1
-        (a1, b, c1 + base_height), // 2
-        (a1 + c2, b, c1 + base_height), // 3
-        (a1 + c2, b, c1 - a2 + base_height), // 4
-        (a1 + c2 + c3, b, c1 - a2 + base_height), // 5
+        (0.0, 0.0, c1 + base_height),                  // 1
+        (a1, b, c1 + base_height),                     // 2
+        (a1 + c2, b, c1 + base_height),                // 3
+        (a1 + c2, b, c1 - a2 + base_height),           // 4
+        (a1 + c2 + c3, b, c1 - a2 + base_height),      // 5
         (a1 + c2 + c3 + c4, b, c1 - a2 + base_height), // 6
     ];
 
     check_xyz(poses, expected_positions);
 
-    let standing: UnitQuaternion<f64> = UnitQuaternion::identity();
-    let lying = UnitQuaternion::from_euler_angles(0.0, std::f64::consts::FRAC_PI_2, 0.0);
+    let standing = DQuat::IDENTITY;
+    let lying = DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2);
 
     // Check quaternions for each pose (after J2 rotation)
     for (i, pose) in poses.iter().enumerate() {
@@ -372,11 +365,10 @@ fn test_base_forward_kinematics() {
 
     // Check also if the tcp-only version provides the same output
     let tcp = robot_with_base.forward(&joints);
-    assert!(are_isometries_approx_equal(&tcp, &poses[5], SMALL));
+    assert!(are_poses_approx_equal(&tcp, &poses[5], SMALL));
 }
 
 fn create_parameters() -> Parameters {
-    
     Parameters {
         a1: 0.150,
         a2: 0.00017,
@@ -391,30 +383,37 @@ fn create_parameters() -> Parameters {
 
 fn check_xyz(poses: [Pose; 6], expected_positions: [(f64, f64, f64); 6]) {
     for (i, &(expected_x, expected_y, expected_z)) in expected_positions.iter().enumerate() {
-        let translation = poses[i].translation.vector;
+        let translation = poses[i].translation;
 
         // X, Y, and Z coordinates should match the expected positions
-        assert!((translation[0] - expected_x).abs() < SMALL, "Pose {} X- expected {}, got {}", i + 1, expected_x, translation[0]);
-        assert!((translation[1] - expected_y).abs() < SMALL, "Pose {} Y- expected {}, got {}", i + 1, expected_y, translation[1]);
-        assert!((translation[2] - expected_z).abs() < SMALL, "Pose {} Z- expected {}, got {}", i + 1, expected_z, translation[2]);
+        assert!(
+            (translation[0] - expected_x).abs() < SMALL,
+            "Pose {} X- expected {}, got {}",
+            i + 1,
+            expected_x,
+            translation[0]
+        );
+        assert!(
+            (translation[1] - expected_y).abs() < SMALL,
+            "Pose {} Y- expected {}, got {}",
+            i + 1,
+            expected_y,
+            translation[1]
+        );
+        assert!(
+            (translation[2] - expected_z).abs() < SMALL,
+            "Pose {} Z- expected {}, got {}",
+            i + 1,
+            expected_z,
+            translation[2]
+        );
     }
 }
 
-fn check_rotation(standing: UnitQuaternion<f64>, i: usize, quaternion: &UnitQuaternion<f64>) {
+fn check_rotation(standing: DQuat, i: usize, quaternion: &DQuat) {
     assert!(
-        (quaternion.w - standing.w).abs() < SMALL,
-        "Pose {} quaternion w mismatch", i + 1
-    );
-    assert!(
-        (quaternion.i - standing.i).abs() < SMALL,
-        "Pose {} quaternion i mismatch", i + 1
-    );
-    assert!(
-        (quaternion.j - standing.j).abs() < SMALL,
-        "Pose {} quaternion j mismatch", i + 1
-    );
-    assert!(
-        (quaternion.k - standing.k).abs() < SMALL,
-        "Pose {} quaternion k mismatch", i + 1
+        quaternion.angle_between(standing) < SMALL,
+        "Pose {} quaternion mismatch",
+        i + 1
     );
 }

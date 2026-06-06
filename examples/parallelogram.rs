@@ -1,26 +1,23 @@
 //! Supporting robotic arms with a parallelogram mechanism.
 
-use std::sync::Arc;
-use rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose, J2, J3};
+use rs_opw_kinematics::glam::EulerRot;
+use rs_opw_kinematics::kinematic_traits::{J2, J3, Joints, Kinematics, Pose};
 use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parallelogram::Parallelogram;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::utils::dump_joints;
-use rs_opw_kinematics::parallelogram::Parallelogram;
+use std::sync::Arc;
 
 fn euler_angles_in_degrees(pose: &Pose) -> (f64, f64, f64) {
-    let euler_angles = pose.rotation.euler_angles();
+    let euler_angles = pose.rotation.to_euler(EulerRot::XYZ);
     (
         euler_angles.0.to_degrees(), // roll
         euler_angles.1.to_degrees(), // pitch
-        euler_angles.2.to_degrees()  // yaw
+        euler_angles.2.to_degrees(), // yaw
     )
 }
 
-fn print_orientation_change(
-    initial: (f64, f64, f64),
-    modified: (f64, f64, f64),
-    label: &str
-) {
+fn print_orientation_change(initial: (f64, f64, f64), modified: (f64, f64, f64), label: &str) {
     let roll_change = modified.0 - initial.0;
     let pitch_change = modified.1 - initial.1;
     let yaw_change = modified.2 - initial.2;
@@ -32,7 +29,7 @@ fn print_orientation_change(
 }
 
 fn calculate_travel_distance(pose_initial: &Pose, pose_modified: &Pose) -> f64 {
-    (pose_initial.translation.vector - pose_modified.translation.vector).norm()
+    (pose_initial.translation - pose_modified.translation).length()
 }
 
 fn main() {
@@ -44,7 +41,7 @@ fn main() {
         robot: Arc::new(OPWKinematics::new(Parameters::irb2400_10())),
         driven: J2,
         coupled: J3,
-        scaling: 1.0
+        scaling: 1.0,
     };
 
     // Initial joint positions in degrees
@@ -74,25 +71,29 @@ fn main() {
     let modified_pose_with_parallelogram: Pose = robot_with_parallelogram.forward(&modified_joints);
 
     // Get modified orientation in degrees for both robots
-    let modified_orientation_no_parallelogram = euler_angles_in_degrees(&modified_pose_no_parallelogram);
-    let modified_orientation_with_parallelogram = euler_angles_in_degrees(&modified_pose_with_parallelogram);
+    let modified_orientation_no_parallelogram =
+        euler_angles_in_degrees(&modified_pose_no_parallelogram);
+    let modified_orientation_with_parallelogram =
+        euler_angles_in_degrees(&modified_pose_with_parallelogram);
 
     // Print orientation changes for both robots
     println!("\nOrientation changes after joint change:");
     print_orientation_change(
         initial_orientation_no_parallelogram,
         modified_orientation_no_parallelogram,
-        "Robot without parallelogram"
+        "Robot without parallelogram",
     );
     print_orientation_change(
         initial_orientation_with_parallelogram,
         modified_orientation_with_parallelogram,
-        "Robot with parallelogram"
+        "Robot with parallelogram",
     );
 
     // Calculate and print travel distances
-    let travel_distance_no_parallelogram = calculate_travel_distance(&pose_no_parallelogram, &modified_pose_no_parallelogram);
-    let travel_distance_with_parallelogram = calculate_travel_distance(&pose_with_parallelogram, &modified_pose_with_parallelogram);
+    let travel_distance_no_parallelogram =
+        calculate_travel_distance(&pose_no_parallelogram, &modified_pose_no_parallelogram);
+    let travel_distance_with_parallelogram =
+        calculate_travel_distance(&pose_with_parallelogram, &modified_pose_with_parallelogram);
 
     println!("\nTravel distances after joint change:");
     println!(

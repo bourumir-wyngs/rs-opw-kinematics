@@ -3,9 +3,11 @@ use std::f64::consts::PI;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use nalgebra::{Isometry3, Quaternion, Translation3, UnitQuaternion};
+use glam::{DQuat, DVec3};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+
+use crate::pose::Pose as KinematicPose;
 
 // ---- Domain types ----
 
@@ -22,8 +24,8 @@ pub(crate) struct Pose {
 pub struct Case {
     pub id: i32,
     pub(crate) parameters: String,
-    pub(crate) joints: [f64; 6],          // assumed degrees from YAML with angle_conversions
-    pub(crate) _solutions: Vec<[f64; 6]>,  // currently not used
+    pub(crate) joints: [f64; 6], // assumed degrees from YAML with angle_conversions
+    pub(crate) _solutions: Vec<[f64; 6]>, // currently not used
     pub(crate) pose: Pose,
 }
 
@@ -39,29 +41,29 @@ impl Case {
 // ---- Pose conversions ----
 
 impl Pose {
-    pub fn as_isometry(&self) -> Isometry3<f64> {
-        let translation = Translation3::new(self.translation[0], self.translation[1], self.translation[2]);
-
-        // Adjusting quaternion creation to match [x, y, z, w] ordering
-        let quaternion = UnitQuaternion::from_quaternion(Quaternion::new(
-            self.quaternion[3], // w
-            self.quaternion[0], // x
-            self.quaternion[1], // y
-            self.quaternion[2], // z
-        ));
-
-        Isometry3::from_parts(translation, quaternion)
+    pub fn as_pose(&self) -> KinematicPose {
+        KinematicPose::from_parts(
+            DVec3::new(
+                self.translation[0],
+                self.translation[1],
+                self.translation[2],
+            ),
+            DQuat::from_xyzw(
+                self.quaternion[0],
+                self.quaternion[1],
+                self.quaternion[2],
+                self.quaternion[3],
+            ),
+        )
     }
 
-    pub fn from_isometry(isometry: &Isometry3<f64>) -> Self {
-        let translation = isometry.translation.vector;
-
-        // Extract the quaternion from isometry (rotation part)
-        let quaternion = isometry.rotation.quaternion();
+    pub fn from_pose(pose: &KinematicPose) -> Self {
+        let translation = pose.translation;
+        let quaternion = pose.rotation;
 
         Pose {
             translation: [translation.x, translation.y, translation.z],
-            quaternion: [quaternion.i, quaternion.j, quaternion.k, quaternion.w], // [x, y, z, w] ordering
+            quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
         }
     }
 }
@@ -139,32 +141,30 @@ pub(crate) fn create_parameter_map() -> HashMap<String, Parameters> {
     PARAMS.iter().map(|(k, v)| (String::from(*k), *v)).collect()
 }
 
-// ---- Isometry comparison ----
+// ---- Pose comparison ----
 
 const TWO_PI: f64 = 2.0 * PI;
 
-/// Compare two isometries with separate tolerances.
+/// Compare two poses with separate tolerances.
 /// - `trans_tol_m`: max allowed Euclidean distance in meters
 /// - `rot_tol_rad`: max allowed rotation angle difference in radians
-pub fn are_isometries_close(a: &Isometry3<f64>, b: &Isometry3<f64>, trans_tol_m: f64, rot_tol_rad: f64) -> bool {
-    let tdiff = (a.translation.vector - b.translation.vector).norm();
+pub fn are_poses_close(
+    a: &KinematicPose,
+    b: &KinematicPose,
+    trans_tol_m: f64,
+    rot_tol_rad: f64,
+) -> bool {
+    let tdiff = (a.translation - b.translation).length();
     if tdiff > trans_tol_m {
         return false;
     }
-    // Relative rotation a⁻¹ ∘ b ∈ SO(3)
-    let rdiff = a.rotation.inverse() * b.rotation;
-    let mut angle = rdiff.angle(); // in [0, π]
-    // Be tolerant to tiny numerical drift
-    if angle.is_nan() {
-        angle = 0.0;
-    }
-    angle <= rot_tol_rad
+    a.angular_distance(*b) <= rot_tol_rad
 }
 
 /// Backwards-compatible wrapper using a single `tolerance` (meters & radians).
 #[inline]
-pub fn are_isometries_approx_equal(a: &Isometry3<f64>, b: &Isometry3<f64>, tolerance: f64) -> bool {
-    are_isometries_close(a, b, tolerance, tolerance)
+pub fn are_poses_approx_equal(a: &KinematicPose, b: &KinematicPose, tolerance: f64) -> bool {
+    are_poses_close(a, b, tolerance, tolerance)
 }
 
 // ---- Joint solution comparison ----
@@ -188,7 +188,11 @@ fn normalize_angle_rad(a: f64) -> f64 {
 ///
 /// Returns:
 /// - `Some(index)` of the matching solution, or `None` if not found
-pub fn found_joints_approx_equal(solutions: &Solutions, expected: &Joints, tolerance: f64) -> Option<i32> {
+pub fn found_joints_approx_equal(
+    solutions: &Solutions,
+    expected: &Joints,
+    tolerance: f64,
+) -> Option<i32> {
     'outer: for (idx, sol) in solutions.iter().enumerate() {
         for j in 0..6 {
             let d = normalize_angle_rad(sol[j] - expected[j]).abs();
