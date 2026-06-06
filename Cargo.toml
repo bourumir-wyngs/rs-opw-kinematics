@@ -15,7 +15,8 @@ readme = "README.md"
 exclude = ["Cargo.lock"]
 
 [dependencies]
-glam = "=0.30.10"
+# Cannot use newer due bevy
+glam = "=0.30"
 rand = ">=0.10, < 0.11"
 anyhow = "1.0"
 
@@ -41,7 +42,10 @@ parry3d = { version = "0.26", optional = true }
 rayon = { version = ">= 1.10, <1.13", optional = true }
 
 # For loading meshes, needed for collision and visualization.
-rs-read-trimesh = { version = "= 2.0.9", optional = true }
+rs-read-trimesh = { version = "= 2.0.9", features = ["use-parry-26"], default-features = false, optional = true }
+
+# rs-read-trimesh =  { git = "https://github.com/bourumir-wyngs/rs-read-trimesh",
+#    features = ["use-parry-26"], default-features = false,  branch = "master", optional = true }
 
 # Needed for visualization. Only relevant packages are included.
 bevy = { version = "0.18", default-features = false, features = [
