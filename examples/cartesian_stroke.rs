@@ -4,9 +4,9 @@ use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     rs_opw_kinematics::cartesian::{
-        AnnotatedJoints, Cartesian, PathFlags, DEFAULT_CARTESIAN_LAYER_STATES,
-        DEFAULT_MAX_SOLUTIONS_AWAIT, DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
-        DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES, DEFAULT_TRANSITION_COSTS,
+        AnnotatedJoints, Cartesian, DEFAULT_CARTESIAN_LAYER_STATES, DEFAULT_MAX_SOLUTIONS_AWAIT,
+        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        DEFAULT_TRANSITION_COSTS,
     },
     rs_opw_kinematics::collisions::CollisionBody,
     rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
@@ -111,36 +111,6 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
 }
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
-fn describe_flags(flags: PathFlags) -> String {
-    const FLAG_MAP: &[(PathFlags, &str)] = &[
-        (PathFlags::ONBOARDING, "ONBOARDING"),
-        (PathFlags::TRACE, "TRACE"),
-        (PathFlags::LIN_INTERP, "LIN_INTERP"),
-        (PathFlags::LAND, "LAND"),
-        (PathFlags::LANDING, "LANDING"),
-        (PathFlags::PARK, "PARK"),
-        (PathFlags::PARKING, "PARKING"),
-        (PathFlags::FORWARDS, "FORWARDS"),
-        (PathFlags::BACKWARDS, "BACKWARDS"),
-        (PathFlags::RECONFIGURING, "RECONFIGURING"),
-        (PathFlags::ORIGINAL, "ORIGINAL"),
-        (PathFlags::DEBUG, "DEBUG"),
-    ];
-
-    let names = FLAG_MAP
-        .iter()
-        .filter(|(value, _)| flags.contains(*value))
-        .map(|(_, name)| *name)
-        .collect::<Vec<_>>();
-
-    if names.is_empty() {
-        "NONE".to_string()
-    } else {
-        names.join("|")
-    }
-}
-
-#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn main() -> Result<()> {
     fn tcp_pose(x: f64, y: f64, z: f64, zz: f64, yy: f64, xx: f64) -> Pose {
         Pose::from_parts(
@@ -228,7 +198,7 @@ fn main() -> Result<()> {
                     index,
                     utils::to_degrees(&step.joints),
                     step.move_into,
-                    describe_flags(step.flags)
+                    step.flags
                 );
             }
             println!("Took {:?}", elapsed);
