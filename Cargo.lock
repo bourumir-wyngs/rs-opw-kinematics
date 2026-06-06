@@ -4478,9 +4478,9 @@ dependencies = [
 
 [[package]]
 name = "rs-read-trimesh"
-version = "2.0.9"
+version = "2.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9068939eba10f98fdbd0ca7d53a5cbaa70c85a37091388c1995d16747e1ab8fc"
+checksum = "c38d33350b5b959de8d42516e21a33234934234edd939307ef3e1a02ed4479fa"
 dependencies = [
  "dae-parser",
  "parry3d",

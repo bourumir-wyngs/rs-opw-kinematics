@@ -42,7 +42,7 @@ parry3d = { version = "0.26", optional = true }
 rayon = { version = ">= 1.10, <1.13", optional = true }
 
 # For loading meshes, needed for collision and visualization.
-rs-read-trimesh = { version = "= 2.0.9", features = ["use-parry-26"], default-features = false, optional = true }
+rs-read-trimesh = { version = "= 2.0.10", features = ["use-parry-26"], default-features = false, optional = true }
 
 # rs-read-trimesh =  { git = "https://github.com/bourumir-wyngs/rs-read-trimesh",
 #    features = ["use-parry-26"], default-features = false,  branch = "master", optional = true }
