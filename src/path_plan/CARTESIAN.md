@@ -35,16 +35,19 @@ The current strategy is suffix-first:
 2. Compute IK strategies for `land` using `robot.inverse_continuing(land, from)`.
 3. Build the annotated Cartesian pose sequence from `land`, `steps`, and `park`.
 4. For each landing IK strategy, try to plan the Cartesian suffix first.
-5. Stop suffix probing once `max_solutions_await` feasible suffixes have been collected.
+5. In the fast pass, stop suffix probing once `max_solutions_await` feasible suffixes have been collected.
 6. Rank the feasible suffixes.
-7. Try onboarding RRT only for the best few feasible suffixes.
+7. Try onboarding RRT for the best few feasible suffixes.
+8. If no acceptable complete path is found, try remaining collected suffixes and then retry with an uncapped suffix set.
 
 This order matters. RRT is usually more expensive than checking a small Cartesian IK graph, so the planner avoids
 spending RRT time reaching a landing configuration whose remaining Cartesian suffix is impossible.
 
 Landing strategies are probed in parallel with Rayon. A suffix-stage `AtomicBool` cancellation flag is passed through
-the Cartesian graph planner and suffix reconfiguration RRT. Once `max_solutions_await` feasible suffixes have been
-collected, the flag is set and still-running suffix probes return early where they can.
+the Cartesian graph planner and suffix reconfiguration RRT. During the fast pass, once `max_solutions_await` feasible
+suffixes have been collected, the flag is set and still-running suffix probes return early where they can. This cap is
+a performance optimization; if capped suffixes do not produce an acceptable complete path, the planner retries without
+the suffix cap before returning failure.
 
 ## Pose Expansion
 
@@ -131,9 +134,11 @@ RRT uses:
 - `smooth` to spend a bounded number of shortcut checks simplifying a successful raw RRT path. A value of `0`
   disables this post-processing.
 
-Only the best `max_onboarding_suffix_candidates` suffixes are tried for onboarding, and the feasible suffix pool is
-itself capped by `max_solutions_await`. This keeps a large set of feasible suffixes from causing many expensive RRT
-attempts.
+The best `max_onboarding_suffix_candidates` suffixes are tried first for onboarding, and the fast-pass feasible suffix
+pool is capped by `max_solutions_await`. This keeps a large set of feasible suffixes from causing many expensive RRT
+attempts on the common path. If those candidates do not produce an acceptable complete path, the planner continues with
+remaining collected suffixes and then an uncapped suffix retry so the fast-pass caps do not become correctness
+boundaries.
 
 ## Ranking
 
@@ -164,9 +169,12 @@ The workflow is:
 1. Generate landing IK candidates.
 2. Run Cartesian suffix planning from each landing candidate.
 3. Keep only suffixes that are feasible.
-4. Cancel still-running suffix probes after `max_solutions_await` feasible suffixes have been collected.
+4. In the fast pass, cancel still-running suffix probes after `max_solutions_await` feasible suffixes have been
+   collected.
 5. Rank those suffixes.
-6. Run onboarding RRT only for the best `max_onboarding_suffix_candidates` suffixes.
+6. Run onboarding RRT first for the best `max_onboarding_suffix_candidates` suffixes.
+7. If no acceptable complete path is found, continue through remaining collected suffixes and then retry all landing
+   strategies without the suffix cap.
 
 This favors cheap deterministic IK graph work before expensive randomized joint-space search.
 
@@ -176,9 +184,10 @@ Landing IK strategies are independent, so suffix planning for them is done with 
 flag is passed into Cartesian graph planning and suffix reconfiguration RRT so expensive workers can stop once the
 planner has collected enough suffix solutions.
 
-`max_solutions_await` controls how many feasible suffix solutions the planner waits for before setting that cancellation
-flag. The default is 3. A smaller value returns from the parallel suffix phase earlier, while a larger value gives the
-ranker more candidate suffixes to compare.
+`max_solutions_await` controls how many feasible suffix solutions the fast pass waits for before setting that
+cancellation flag. The default is 3. A smaller value returns from the parallel suffix phase earlier, while a larger
+value gives the ranker more candidate suffixes to compare. The cap is not a final completeness boundary: capped
+onboarding failure triggers an uncapped suffix retry before the planner returns failure.
 
 ### Dynamic Programming Instead of Greedy IK
 
@@ -269,8 +278,8 @@ The planner checks sampled configurations, not every continuous point in space. 
 - `max_reconfiguration_prefix_candidates`: number of previous graph states to try for reconfiguration.
 - `max_onboarding_suffix_candidates`: number of feasible Cartesian suffixes to try with onboarding RRT.
 - `max_cartesian_layer_states`: beam width for dynamic-programming layers.
-- `max_solutions_await`: number of feasible suffix solutions to collect before cancelling remaining suffix probes
-  (default 3).
+- `max_solutions_await`: number of feasible suffix solutions to collect in the fast pass before cancelling remaining
+  suffix probes (default 3). Failed capped onboarding triggers an uncapped suffix retry.
 - `include_linear_interpolation`: controls whether internally checked interpolated poses appear in the output.
 - `debug`: enables diagnostic output for failed transitions and planning choices.
 
