@@ -1,24 +1,35 @@
-use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
+use anyhow::Result;
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     rs_opw_kinematics::collisions::CollisionBody,
-    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
-    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
+    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
+    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
     rs_opw_kinematics::glam::{DVec3, Vec3},
-    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
-    rs_opw_kinematics::kinematic_traits::{Joints, Kinematics, Pose},
+    rs_opw_kinematics::kinematic_traits::{Joints, Pose},
+    rs_opw_kinematics::kinematic_traits::{J2, J3, J4, J6, J_BASE, J_TOOL},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::pose::Pose32,
-    rs_opw_kinematics::rrt::dual_rrt_connect,
+    rs_opw_kinematics::rrt::RRTPlanner,
     rs_opw_kinematics::utils,
     rs_opw_kinematics::utils::dump_joints,
     rs_read_trimesh::load_trimesh,
     std::sync::atomic::AtomicBool,
     std::time::Instant,
+};
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+use {
+    std::io::{self, IsTerminal},
+    std::thread::sleep,
+    std::time::Duration,
 };
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
@@ -116,64 +127,22 @@ fn plan_path(
     kinematics: &KinematicsWithShape,
     start: Joints,
     goal: Joints,
-) -> Result<Vec<Vec<f64>>, String> {
-    let collision_free = |joint_angles: &[f64]| -> bool {
-        let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
-        !kinematics.collides(joints)
-    };
-
-    // Constraint compliant random joint configuration generator.
-    let random_joint_angles = || -> Vec<f64> {
-        // RRT requires vector and we return array so convert
-        kinematics
-            .constraints()
-            .expect("Set joint ranges on kinematics")
-            .random_angles()
-            .to_vec()
-    };
-
-    // Plan the path with RRT
+) -> Result<Vec<Joints>, String> {
     let stop = AtomicBool::new(false);
-    dual_rrt_connect(
-        &start,
-        &goal,
-        collision_free,
-        random_joint_angles,
-        3_f64.to_radians(), // Step size in joint space
-        2000,               // Max iterations
-        &stop,
-    )
+    RRTPlanner {
+        step_size_joint_space: 3_f64.to_radians(),
+        max_try: 2000,
+        smooth: 500,
+        debug: true,
+    }
+    .plan_rrt(&start, &goal, kinematics, &stop)
 }
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
-fn convert_result(data: Result<Vec<Vec<f64>>, String>) -> Result<Vec<Joints>, String> {
-    data.and_then(|vectors| {
-        vectors
-            .into_iter()
-            .map(|vec| {
-                if vec.len() == 6 {
-                    // Convert Vec<f64> to [f64; 6] if length is 6
-                    Ok([vec[0], vec[1], vec[2], vec[3], vec[4], vec[5]])
-                } else {
-                    Err("One of the inner vectors does not have 6 elements.".to_string())
-                }
-            })
-            .collect()
-    })
-}
-
-#[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
-fn print_summary(planning_result: &Result<Vec<[f64; 6]>, String>) {
-    match planning_result {
-        Ok(path) => {
-            println!("Steps:");
-            for step in path {
-                dump_joints(step);
-            }
-        }
-        Err(error_message) => {
-            println!("Error: {}", error_message);
-        }
+fn print_summary(path: &[Joints]) {
+    println!("Steps:");
+    for step in path {
+        dump_joints(step);
     }
 }
 
@@ -185,28 +154,101 @@ fn main() -> Result<()> {
     // This is a pretty tough path that requires to lift the initially low placed
     // tool over the obstacle and then lower again. The direct path is interrupted
     // by an obstacle.
-    println!("** Tough example **");
     let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
     let goal = utils::joints(&[40.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
-    example(start, goal, &kinematics)?;
-
-    // Simple short step
-    println!("** Simple example **");
-    let start = utils::joints(&[-120.0, -90.0, -92.51, 18.42, 82.23, 189.35]);
-    let goal = utils::joints(&[-120.0, -80.0, -90., 18.42, 82.23, 189.35]);
-    example(start, goal, &kinematics)?;
+    example(
+        "Bow deeply before these stones, robot! (building plan ...)",
+        start,
+        goal,
+        kinematics,
+    )?;
 
     Ok(())
 }
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
-fn example(start: Joints, goal: Joints, kinematics: &KinematicsWithShape) -> Result<()> {
+fn example(name: &str, start: Joints, goal: Joints, kinematics: KinematicsWithShape) -> Result<()> {
+    println!("\n** {} **", name);
+
     let started = Instant::now();
-    let path = plan_path(kinematics, start, goal);
+    let path = plan_path(&kinematics, start, goal);
     let spent = started.elapsed();
-    let result = convert_result(path);
-    print_summary(&result);
-    println!("Took {:?}", &spent);
+
+    match path {
+        Ok(path) => {
+            println!("Took {:?}", &spent);
+            print_summary(&path);
+            play_planned_path(kinematics, &path)?;
+        }
+        Err(message) => {
+            println!("Planning failed: {}", message);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+fn play_planned_path(robot: KinematicsWithShape, path: &[Joints]) -> Result<()> {
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let tcp_box = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
+    let handle = rs_opw_kinematics::visualization::visualize_robot_async(
+        robot,
+        utils::to_degrees(&path[0]),
+        tcp_box,
+    );
+
+    println!("Playing planned path...");
+    for joints in path {
+        if !handle.is_running() {
+            return Ok(());
+        }
+        handle
+            .set_joint_angles(utils::to_degrees(joints))
+            .map_err(|err| anyhow!(err))?;
+        sleep(Duration::from_millis(50));
+    }
+
+    wait_for_visualization(&handle)?;
+    handle.close().map_err(|err| anyhow!(err))
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+fn wait_for_visualization(
+    handle: &rs_opw_kinematics::visualization::VisualizationHandle,
+) -> Result<()> {
+    if io::stdin().is_terminal() {
+        println!("Window is running. Press Enter here to close it...");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        return Ok(());
+    }
+
+    println!("Window is running. Close the window to exit.");
+    while handle.is_running() {
+        sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    not(feature = "visualization")
+))]
+fn play_planned_path(_robot: KinematicsWithShape, _path: &[Joints]) -> Result<()> {
+    println!("Build configuration does not support visualization");
     Ok(())
 }
 
