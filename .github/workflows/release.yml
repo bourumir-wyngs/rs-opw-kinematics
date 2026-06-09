@@ -1,0 +1,151 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@cargo-semver-checks
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check tag matches Cargo.toml version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+
+          if [ -z "${package_version}" ]; then
+            echo "Could not read package version from Cargo.toml" >&2
+            exit 1
+          fi
+
+          if [ "${GITHUB_REF}" != "refs/tags/${package_version}" ]; then
+            echo "Ref ${GITHUB_REF} does not match Cargo.toml version ${package_version}." >&2
+            echo "Run this workflow manually from tag ${package_version}." >&2
+            exit 1
+          fi
+
+      - name: Prefetch dependencies
+        run: cargo fetch
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Run tests with all features
+        run: cargo test --all-features --all-targets --verbose
+
+      - name: Run URDF extractor
+        run: cargo run src/tests/data/fanuc/lrmate200ib_macro.xacro
+
+      - name: Build without default features
+        run: cargo build --no-default-features --verbose
+
+      - name: Run tests without default features
+        run: cargo test --no-default-features --verbose
+
+      - name: Run URDF extractor without arguments
+        run: cargo run
+
+      - name: Build all examples
+        run: cargo build --examples
+
+      - name: Build all examples without default features
+        run: cargo build --examples --no-default-features
+
+      - name: Select semver baseline
+        id: semver-baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git rev-parse --verify --quiet "2.0.0^{commit}" >/dev/null; then
+            echo "baseline_rev=2.0.0" >> "$GITHUB_OUTPUT"
+            echo "release_type=patch" >> "$GITHUB_OUTPUT"
+            echo "Using 2.0.0 as semver baseline."
+          elif git rev-parse --verify --quiet "1.3.0^{commit}" >/dev/null; then
+            echo "baseline_rev=1.3.0" >> "$GITHUB_OUTPUT"
+            echo "release_type=major" >> "$GITHUB_OUTPUT"
+            echo "::notice::2.0.0 baseline ref not found; checking this release as a major release against 1.3.0."
+          else
+            echo "::error::Neither 2.0.0 nor fallback 1.3.0 semver baseline refs exist."
+            exit 1
+          fi
+
+      - name: Check semver compatibility against selected baseline
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --only-explicit-features
+
+      - name: Check semver compatibility against selected baseline with yaml-rust2
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --only-explicit-features --features yaml-rust2
+
+      - name: Verify crate packaging
+        run: cargo publish --dry-run
+
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: verify
+    environment: publish
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Authenticate to crates.io
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish
