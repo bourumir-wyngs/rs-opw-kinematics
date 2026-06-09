@@ -1,18 +1,18 @@
-use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
+use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     rs_opw_kinematics::cartesian::{
-        Cartesian, DEFAULT_CARTESIAN_LAYER_STATES, DEFAULT_MAX_SOLUTIONS_AWAIT,
+        AnnotatedJoints, Cartesian, DEFAULT_CARTESIAN_LAYER_STATES, DEFAULT_MAX_SOLUTIONS_AWAIT,
         DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         DEFAULT_TRANSITION_COSTS,
     },
     rs_opw_kinematics::collisions::CollisionBody,
-    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
-    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
-    rs_opw_kinematics::glam::{DQuat, DVec3, Vec3},
-    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6, Pose},
+    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
+    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::glam::{DQuat, DVec3, EulerRot, Vec3},
+    rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::pose::Pose32,
@@ -21,6 +21,17 @@ use {
     rs_read_trimesh::load_trimesh,
     std::time::Instant,
     std::vec::Vec,
+};
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+use {
+    std::io::{self, IsTerminal},
+    std::thread::sleep,
+    std::time::Duration,
 };
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
@@ -101,10 +112,15 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
 
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 fn main() -> Result<()> {
-    fn tcp_pose(x: f64, y: f64, z: f64) -> Pose {
+    fn tcp_pose(x: f64, y: f64, z: f64, zz: f64, yy: f64, xx: f64) -> Pose {
         Pose::from_parts(
             DVec3::new(x, y, z),
-            DQuat::from_rotation_z(-90.0_f64.to_radians()),
+            DQuat::from_euler(
+                EulerRot::ZYX,
+                zz.to_radians(),
+                yy.to_radians(),
+                xx.to_radians(),
+            ),
         )
     }
 
@@ -117,14 +133,22 @@ fn main() -> Result<()> {
     // "Landing" pose close to the surface, from where Cartesian landing on the surface
     // is possible and easy. Robot will change into one of the possible alternative configurations
     // between start and land.
-    let land = tcp_pose(1.50, 0.0, 1.7);
+    let land = tcp_pose(1.50, 0.0, 1.6, 0.0, 0.0, 0.0);
 
+    let yy = 0.0;
+    let xx = 0.0;
+    let zz = 90.0;
     let steps: Vec<Pose> = [
-        tcp_pose(1.50, 0.0, 1.9),
-        tcp_pose(1.00, 0.0, 1.9),
-        tcp_pose(1.00, 1.15, 1.9005),
-        tcp_pose(1.50, 1.15, 1.9005),
-        tcp_pose(1.50, 0.0, 1.9005),
+        tcp_pose(1.50, 0.0, 1.7, -zz, yy, xx),
+        tcp_pose(1.00, 0.0, 1.7, -zz, yy, xx),
+        tcp_pose(1.00, 1.15, 1.7, -zz, yy, xx),
+        tcp_pose(1.50, 1.15, 1.7, -zz, yy, xx),
+        tcp_pose(1.50, 0.0, 1.7, -zz, yy, xx),
+        tcp_pose(1.50, 0.0, 2.0, zz, -yy, -xx),
+        tcp_pose(1.00, 0.0, 2.0, zz, -yy, -xx),
+        tcp_pose(1.00, 1.15, 2.0, zz, -yy, -xx),
+        tcp_pose(1.50, 1.15, 2.0, zz, -yy, -xx),
+        tcp_pose(1.50, 0.0, 2.0, zz, -yy, -xx),
     ]
     .into();
 
@@ -133,10 +157,10 @@ fn main() -> Result<()> {
 
     // Creat Cartesian planner
     let planner = Cartesian {
-        robot: &k,                               // The robot, instance of KinematicsWithShape
+        robot: &k,                                // The robot, instance of KinematicsWithShape
         check_step_m: 0.05, // Pose distance check accuracy in meters (for translation)
-        check_step_rad: 4.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
-        max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
+        check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        max_transition_cost: 15_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
         linear_recursion_depth: 8,
@@ -148,7 +172,7 @@ fn main() -> Result<()> {
             smooth: 0,
             debug: false,
         },
-        allow_reconfigure: true, // If true, failed Cartesian stroke segments may be
+        allow_reconfigure: false, // If true, failed Cartesian stroke segments may be
         // reconfigured through RRT joint-space movement.
         max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
@@ -164,18 +188,90 @@ fn main() -> Result<()> {
     let started = Instant::now();
     let path = planner.plan(&start, &land, steps, &park);
     let elapsed = started.elapsed();
+    drop(planner);
 
     match path {
         Ok(path) => {
-            for joints in path {
-                println!("{:?}", &joints);
+            for (index, step) in path.iter().enumerate() {
+                println!(
+                    "{:03}: {:?}  {:?}  {}",
+                    index,
+                    utils::to_degrees(&step.joints),
+                    step.move_into,
+                    step.flags
+                );
             }
+            println!("Took {:?}", elapsed);
+            play_planned_path(k, &path)?;
         }
         Err(message) => {
             println!("Failed: {}", message);
         }
     }
-    println!("Took {:?}", elapsed);
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+fn play_planned_path(robot: KinematicsWithShape, path: &[AnnotatedJoints]) -> Result<()> {
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let tcp_box = [-2.0..=2.0, -2.0..=2.0, 1.0..=2.0];
+    let handle = rs_opw_kinematics::visualization::visualize_robot_async(
+        robot,
+        utils::to_degrees(&path[0].joints),
+        tcp_box,
+    );
+
+    println!("Playing planned path...");
+    for step in path {
+        if !handle.is_running() {
+            return Ok(());
+        }
+        handle
+            .set_joint_angles(utils::to_degrees(&step.joints))
+            .map_err(|err| anyhow!(err))?;
+        sleep(Duration::from_millis(50));
+    }
+
+    wait_for_visualization(&handle)?;
+    handle.close().map_err(|err| anyhow!(err))
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    feature = "visualization"
+))]
+fn wait_for_visualization(
+    handle: &rs_opw_kinematics::visualization::VisualizationHandle,
+) -> Result<()> {
+    if io::stdin().is_terminal() {
+        println!("Window is running. Press Enter here to close it...");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        return Ok(());
+    }
+
+    println!("Window is running. Close the window to exit.");
+    while handle.is_running() {
+        sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "stroke_planning",
+    feature = "rs-read-trimesh",
+    not(feature = "visualization")
+))]
+fn play_planned_path(_robot: KinematicsWithShape, _path: &[AnnotatedJoints]) -> Result<()> {
+    println!("Build configuration does not support visualization");
     Ok(())
 }
 
