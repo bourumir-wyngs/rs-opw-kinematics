@@ -155,40 +155,41 @@ fn main() -> Result<()> {
     // "Parking" pose, Cartesian lifting from the surface at the end of the stroke.
     let park = land;
 
-    // Creat Cartesian planner
-    let planner = Cartesian {
-        robot: &k,                                // The robot, instance of KinematicsWithShape
-        check_step_m: 0.05, // Pose distance check accuracy in meters (for translation)
-        check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
-        max_transition_cost: 15_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
-        // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
-        transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
-        linear_recursion_depth: 8,
+    let (path, elapsed) = {
+        // Create Cartesian planner
+        let planner = Cartesian {
+            robot: &k,                                // The robot, instance of KinematicsWithShape
+            check_step_m: 0.05, // Pose distance check accuracy in meters (for translation)
+            check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+            max_transition_cost: 15_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
+            // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
+            transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
+            linear_recursion_depth: 8,
 
-        // RRT planner that computes the non-Cartesian path from starting position to landing pose
-        rrt: RRTPlanner {
-            step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
-            max_try: 100,
-            smooth: 0,
+            // RRT planner that computes the non-Cartesian path from starting position to landing pose
+            rrt: RRTPlanner {
+                step_size_joint_space: 2.0_f64.to_radians(), // RRT planner step in joint space
+                max_try: 100,
+                smooth: 0,
+                debug: false,
+            },
+            allow_reconfigure: false, // If true, failed Cartesian stroke segments may be
+            // reconfigured through RRT joint-space movement.
+            max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+            preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
+            // Fast-pass beam width; plan() retries without it before failing or falling back.
+            max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
+            max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
+            include_linear_interpolation: true, // If true, intermediate Cartesian poses are
+            // included in the output. Otherwise, they are checked but not included in the output
             debug: false,
-        },
-        allow_reconfigure: false, // If true, failed Cartesian stroke segments may be
-        // reconfigured through RRT joint-space movement.
-        max_reconfiguration_prefix_candidates: DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        preferred_onboarding_suffix_candidates: DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
-        // Fast-pass beam width; plan() retries without it before failing or falling back.
-        max_cartesian_layer_states: DEFAULT_CARTESIAN_LAYER_STATES,
-        max_solutions_await: DEFAULT_MAX_SOLUTIONS_AWAIT,
-        include_linear_interpolation: true, // If true, intermediate Cartesian poses are
-        // included in the output. Otherwise, they are checked but not included in the output
-        debug: false,
-    };
+        };
 
-    // plan path
-    let started = Instant::now();
-    let path = planner.plan(&start, &land, steps, &park);
-    let elapsed = started.elapsed();
-    drop(planner);
+        // plan path
+        let started = Instant::now();
+        let path = planner.plan(&start, &land, steps, &park);
+        (path, started.elapsed())
+    };
 
     match path {
         Ok(path) => {
