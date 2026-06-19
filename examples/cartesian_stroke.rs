@@ -1,6 +1,6 @@
+use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
-use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use {
     rs_opw_kinematics::cartesian::{
@@ -9,10 +9,10 @@ use {
         DEFAULT_TRANSITION_COSTS,
     },
     rs_opw_kinematics::collisions::CollisionBody,
-    rs_opw_kinematics::collisions::{CheckMode, SafetyDistances, NEVER_COLLIDES},
-    rs_opw_kinematics::constraints::{Constraints, BY_PREV},
+    rs_opw_kinematics::collisions::{CheckMode, NEVER_COLLIDES, SafetyDistances},
+    rs_opw_kinematics::constraints::{BY_PREV, Constraints},
     rs_opw_kinematics::glam::{DQuat, DVec3, EulerRot, Vec3},
-    rs_opw_kinematics::kinematic_traits::{Pose, J2, J3, J4, J6, J_BASE, J_TOOL},
+    rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6, Pose},
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::pose::Pose32,

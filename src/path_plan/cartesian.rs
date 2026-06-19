@@ -11,8 +11,8 @@ use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -1599,14 +1599,13 @@ impl Cartesian<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
+        AnnotatedJoints, AnnotatedPose, Cartesian, DEFAULT_MAX_SOLUTIONS_AWAIT,
+        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+        DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome,
         add_or_update_state, append_suffix_candidates_by_strategy_order,
         best_state_indices_by_cost, canceled_cartesian_graph_failure, interpolation_flags_for_edge,
         is_stroke_interrupting_reconfiguration, limit_layer_states_by_cost,
         reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
-        AnnotatedJoints, AnnotatedPose, Cartesian, LayerState, MoveKind, PathFlags, PlanRank,
-        SuffixPlanningOutcome, DEFAULT_MAX_SOLUTIONS_AWAIT,
-        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        DEFAULT_TRANSITION_COSTS,
     };
     use crate::collisions::{CheckMode, RobotBody, SafetyDistances};
     use crate::constraints::Constraints;
@@ -1616,8 +1615,8 @@ mod tests {
     use glam::DVec3;
     use parry3d::math::Vector;
     use parry3d::shape::TriMesh;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn output_filter_honors_linear_interpolation_flag() {
@@ -1890,9 +1889,11 @@ mod tests {
         let far_from_first_suffix =
             SuffixPlanningOutcome::new(joints(0.0), suffix, &DEFAULT_TRANSITION_COSTS);
 
-        assert!(already_at_first_suffix
-            .rank
-            .is_better_than(&far_from_first_suffix.rank));
+        assert!(
+            already_at_first_suffix
+                .rank
+                .is_better_than(&far_from_first_suffix.rank)
+        );
         assert!(
             already_at_first_suffix.rank.total_transition_cost
                 < far_from_first_suffix.rank.total_transition_cost
@@ -2002,14 +2003,18 @@ mod tests {
 
         assert_eq!(previous_values, vec![1.0, 2.0]);
         assert_eq!(failure.candidates.len(), 2);
-        assert!(failure
-            .candidates
-            .iter()
-            .all(|candidate| candidate.planned_prefix.len() == 1));
-        assert!(failure
-            .candidates
-            .iter()
-            .all(|candidate| candidate.transition.solutions.is_empty()));
+        assert!(
+            failure
+                .candidates
+                .iter()
+                .all(|candidate| candidate.planned_prefix.len() == 1)
+        );
+        assert!(
+            failure
+                .candidates
+                .iter()
+                .all(|candidate| candidate.transition.solutions.is_empty())
+        );
     }
 
     #[test]
@@ -2089,12 +2094,14 @@ mod tests {
         assert_eq!(path[0].move_into, MoveKind::Joint);
         assert_eq!(path[1].move_into, MoveKind::Cartesian);
         assert_eq!(path[2].move_into, MoveKind::Cartesian);
-        assert!(path
-            .iter()
-            .all(|step| !step.flags.contains(PathFlags::LIN_INTERP)));
-        assert!(path
-            .windows(2)
-            .all(|window| window[0].joints != window[1].joints));
+        assert!(
+            path.iter()
+                .all(|step| !step.flags.contains(PathFlags::LIN_INTERP))
+        );
+        assert!(
+            path.windows(2)
+                .all(|window| window[0].joints != window[1].joints)
+        );
     }
 
     #[test]
