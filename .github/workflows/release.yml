@@ -26,7 +26,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev
+          sudo apt-get install -y libwayland-dev pkg-config
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -113,10 +113,10 @@ jobs:
           fi
 
       - name: Check semver compatibility against selected baseline
-        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --only-explicit-features
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}"
 
       - name: Check semver compatibility against selected baseline with yaml-rust2
-        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --only-explicit-features --features yaml-rust2
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --feature yaml-rust2
 
       - name: Verify crate packaging
         run: cargo publish --dry-run
