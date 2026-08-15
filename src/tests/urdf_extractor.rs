@@ -18,6 +18,24 @@ fn read_urdf(path: &str) -> URDFParameters {
 }
 
 #[test]
+fn test_non_finite_urdf_values_are_rejected() {
+    let source = include_str!("data/fanuc/m10ia_macro.xacro");
+    let inputs = [
+        source.replacen(r#"upper="3.14""#, r#"upper="-inf""#, 1),
+        source.replacen(r#"xyz="0 0 0.450""#, r#"xyz="0 0 NaN""#, 1),
+    ];
+
+    for xml in inputs {
+        let error = urdf::from_urdf(xml, &None)
+            .expect_err("non-finite URDF values must be rejected before robot construction");
+        assert!(
+            error.to_string().to_lowercase().contains("finite"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[test]
 fn test_extraction_m10ia() {
     let opw_parameters = read_urdf("src/tests/data/fanuc/m10ia_macro.xacro");
 

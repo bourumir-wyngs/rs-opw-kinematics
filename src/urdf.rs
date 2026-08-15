@@ -227,18 +227,15 @@ fn collect_joints(
                 to: 0., // 0 to 0 in our notation is 'full circle'
             };
 
-            match limit_element.map(get_limits).transpose() {
-                Ok(Some((from, to))) => {
-                    joint_data.from = from;
-                    joint_data.to = to;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    println!(
-                        "Joint limits defined but not not readable for {}: {}",
-                        joint_data.name, e
-                    );
-                }
+            if let Some(limit_element) = limit_element {
+                let (from, to) = get_limits(limit_element).map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Invalid limits for joint {}: {error}", joint_data.name),
+                    )
+                })?;
+                joint_data.from = from;
+                joint_data.to = to;
             }
 
             joints.push(joint_data);
@@ -255,7 +252,7 @@ fn get_xyz_from_origin(element: dom::Element) -> Result<Vector3, Box<dyn Error>>
     let coords: Vec<f64> = xyz_attr
         .value()
         .split_whitespace()
-        .map(str::parse)
+        .map(|value| parse_finite_xml_number(value, "origin coordinate"))
         .collect::<Result<_, _>>()?;
 
     if coords.len() != 3 {
@@ -277,7 +274,7 @@ fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     let axis_values: Vec<f64> = axis_attr
         .value()
         .split_whitespace()
-        .map(str::parse)
+        .map(|value| parse_finite_xml_number(value, "axis coordinate"))
         .collect::<Result<_, _>>()?;
 
     if axis_values.len() != 3 {
@@ -295,13 +292,25 @@ fn get_axis_sign(axis_element: dom::Element) -> Result<i32, Box<dyn Error>> {
     }
 }
 
+fn parse_finite_xml_number(value: &str, field: &str) -> Result<f64, Box<dyn Error>> {
+    let parsed = value.parse::<f64>()?;
+    if !parsed.is_finite() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("URDF {field} must be finite, got {value}"),
+        )
+        .into());
+    }
+    Ok(parsed)
+}
+
 fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
     // Regular expression to match the ${radians(<number>)} format that is common in xacro
     let re = Regex::new(r"^\$\{radians\((-?\d+(\.\d+)?)\)\}$")
         .map_err(|_| ParameterError::ParseError("Invalid regex pattern".to_string()))?;
 
     // Check if the input matches the special format
-    if let Some(caps) = re.captures(attr_value) {
+    let radians = if let Some(caps) = re.captures(attr_value) {
         let degrees_str = caps
             .get(1)
             .ok_or(ParameterError::WrongAngle(
@@ -311,14 +320,21 @@ fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
         let degrees: f64 = degrees_str
             .parse()
             .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
-        Ok(degrees.to_radians())
+        degrees.to_radians()
     } else {
         // Try to parse the input as a plain number in that case it is in radians
-        let radians: f64 = attr_value
+        attr_value
             .parse()
-            .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
-        Ok(radians)
+            .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?
+    };
+
+    if !radians.is_finite() {
+        return Err(ParameterError::WrongAngle(format!(
+            "{attr_value} (must be finite)"
+        )));
     }
+
+    Ok(radians)
 }
 
 fn get_limits(element: dom::Element) -> Result<(f64, f64), ParameterError> {

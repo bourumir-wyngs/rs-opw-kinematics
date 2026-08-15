@@ -115,20 +115,24 @@ impl Constraints {
 
         for j_idx in 0..6 {
             let a = from[j_idx];
-            let mut b = to[j_idx];
-            if a == b {
+            let b = to[j_idx];
+            if !a.is_finite() || !b.is_finite() {
+                // `Constraints::new` predates fallible construction. Keep invalid direct input
+                // from hanging and make it reject every angle instead.
+                centers[j_idx] = f64::NAN;
+                tolerances[j_idx] = f64::NAN;
+            } else if a == b {
                 tolerances[j_idx] = f64::INFINITY; // No constraint, not checked
             } else if a < b {
                 // Values do not wrap arround
                 centers[j_idx] = (a + b) / 2.0;
                 tolerances[j_idx] = (b - a) / 2.0;
             } else {
-                // Values wrap arround. Move b forward by period till it gets ahead.
-                while b < a {
-                    b += TWO_PI;
-                }
-                centers[j_idx] = (a + b) / 2.0;
-                tolerances[j_idx] = (b - a) / 2.0;
+                // Values wrap around. Compute the forward arc in constant time: repeatedly
+                // adding TWO_PI can never finish for infinities or sufficiently large values.
+                let span = (b.rem_euclid(TWO_PI) - a.rem_euclid(TWO_PI)).rem_euclid(TWO_PI);
+                centers[j_idx] = a + span / 2.0;
+                tolerances[j_idx] = span / 2.0;
             }
         }
         (centers, tolerances)
@@ -230,6 +234,43 @@ mod tests {
     use super::*;
     use crate::kinematic_traits::Solutions;
     use crate::utils::as_radians;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn test_invalid_or_huge_wrapping_bounds_do_not_hang() {
+        let (sender, receiver) = mpsc::channel();
+
+        let worker = std::thread::spawn(move || {
+            let mut non_finite_to = [1.0; 6];
+            non_finite_to[0] = f64::NEG_INFINITY;
+            let non_finite = Constraints::new([0.0; 6], non_finite_to, BY_CONSTRAINS);
+
+            let mut huge_from = [0.0; 6];
+            huge_from[0] = 1.0e20;
+            let huge = Constraints::new(huge_from, [0.0; 6], BY_CONSTRAINS);
+
+            sender
+                .send((
+                    non_finite.compliant(&[0.0; 6]),
+                    huge.centers[0].is_finite(),
+                    huge.tolerances[0].is_finite(),
+                ))
+                .expect("test receiver should still be available");
+        });
+
+        let (non_finite_is_compliant, huge_center_is_finite, huge_tolerance_is_finite) = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("constraint construction must not hang on invalid or huge bounds");
+        worker.join().expect("constraint worker should not panic");
+
+        assert!(
+            !non_finite_is_compliant,
+            "non-finite bounds must fail closed"
+        );
+        assert!(huge_center_is_finite);
+        assert!(huge_tolerance_is_finite);
+    }
 
     #[test]
     fn test_historical_failure_1() {
