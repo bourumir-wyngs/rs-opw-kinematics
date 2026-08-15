@@ -646,9 +646,8 @@ that takes URDF string rather than the file, provides error handling and much mo
 is constructed from the extracted values.
 
 YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
-not accounted for). The URDF reader has also been extended to support such robots, but joint names must always be
-explicitly provided. Instead of specifying a name for joint 6, the name of the tool center point (TCP) must be given.
-Both YAML and URDF readers still try to get the parameter c4 that is now distance from J5 axis till TCP.
+not accounted for). The URDF reader treats a model containing exactly five joint definitions but no joint 6 as 5DOF
+and assumes `c4` is zero. Extraction of a nonzero TCP offset for this case is not currently supported.
 
 **Important:** The URDF reader assumes a robot with a parallel base and spherical wrist and not an arbitrary robot.
 You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW

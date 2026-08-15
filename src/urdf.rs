@@ -19,6 +19,7 @@ use sxd_document::{QName, dom, parser};
 /// Simplified reading from URDF file. This function assumes sorting of results by closest to
 /// previous (BY_PREV) and no joint offsets (zero offsets). URDF file is expected in the input
 /// but XACRO file may also work. Robot joints must be named joint1 to joint6 in the file
+/// (or joint1 through joint5 for the zero-`c4` 5-DOF fallback)
 /// (as macro prefix, underscore and non-word chars is dropped, it can also be something like
 /// `${prefix}JOINT_1`). It may be more than one robot described in URDF file but they must all
 /// be identical.
@@ -61,7 +62,8 @@ pub fn from_urdf_file<P: AsRef<Path>>(path: P) -> Result<OPWKinematics, Paramete
 /// - `joint_names`: An optional array containing joint names. This may be required if
 ///   names do not follow typical naming convention, or there are multiple
 ///   robots defined in URDF.
-///   For 5 DOF robots, use the name of the tool center point instead of `joint6`
+///   A robot containing exactly five joint definitions is treated as 5-DOF when no
+///   matching sixth joint exists, with `c4` assumed to be zero.
 ///
 /// # Returns
 /// - Returns a `Result<URDFParameters, ParameterError>`. On success, it contains the OPW kinematics
@@ -445,10 +447,16 @@ fn populate_opw_parameters(
     let names =
         joint_names.unwrap_or_else(|| ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]);
 
-    let is_six_dof = joint_map.contains_key(names[5]);
-    opw_parameters.c4 = 0.0; // joint6 would be something like "tcp" for the 5 DOF robot. Otherwise, 0 is assumed.
+    let joint_count = if joint_map.contains_key(names[5]) {
+        6
+    } else if joint_map.len() == 5 {
+        5
+    } else {
+        return Err(format!("Joint 5 not found: {}", names[5]));
+    };
+    opw_parameters.c4 = 0.0; // Without a sixth joint or TCP transform, zero is the optimistic fallback.
 
-    for (j, name) in names.iter().enumerate() {
+    for (j, name) in names.iter().take(joint_count).enumerate() {
         let joint = joint_map
             .get(*name)
             .ok_or_else(|| format!("Joint {} not found: {}", j, name))?;
@@ -517,7 +525,7 @@ fn populate_opw_parameters(
         }
     }
 
-    if is_six_dof {
+    if joint_count == 6 {
         opw_parameters.dof = 6
     } else {
         opw_parameters.dof = 5;

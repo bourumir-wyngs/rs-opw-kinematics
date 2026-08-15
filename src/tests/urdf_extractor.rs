@@ -36,8 +36,67 @@ fn test_non_finite_urdf_values_are_rejected() {
 }
 
 #[test]
+fn test_extraction_with_only_five_joints() {
+    let xml = r#"
+        <robot name="five_dof">
+            <joint name="joint1" type="revolute">
+                <origin xyz="0 0 0.45"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="-1.0" upper="1.0"/>
+            </joint>
+            <joint name="joint2" type="revolute">
+                <origin xyz="0.15 0 0"/>
+                <axis xyz="0 1 0"/>
+                <limit lower="-1.1" upper="1.1"/>
+            </joint>
+            <joint name="joint3" type="revolute">
+                <origin xyz="0 0 0.6"/>
+                <axis xyz="0 -1 0"/>
+                <limit lower="-1.2" upper="1.2"/>
+            </joint>
+            <joint name="joint4" type="revolute">
+                <origin xyz="0 0 0.1"/>
+                <axis xyz="-1 0 0"/>
+                <limit lower="-1.3" upper="1.3"/>
+            </joint>
+            <joint name="joint5" type="revolute">
+                <origin xyz="0.615 0 0"/>
+                <axis xyz="0 -1 0"/>
+                <limit lower="-1.4" upper="1.4"/>
+            </joint>
+        </robot>
+    "#;
+
+    let parameters = urdf::from_urdf(xml.to_string(), &None)
+        .expect("a five-joint URDF should be extracted as a 5-DOF robot");
+
+    assert_eq!(parameters.a1, 0.15);
+    assert_eq!(parameters.a2, -0.1);
+    assert_eq!(parameters.b, 0.0);
+    assert_eq!(parameters.c1, 0.45);
+    assert_eq!(parameters.c2, 0.6);
+    assert_eq!(parameters.c3, 0.615);
+    assert_eq!(parameters.dof, 5);
+    assert_eq!(parameters.c4, 0.0);
+    assert_eq!(parameters.sign_corrections, [1, 1, -1, -1, -1, 0]);
+    assert_eq!(parameters.from, [-1.0, -1.1, -1.2, -1.3, -1.4, 0.0]);
+    assert_eq!(parameters.to, [1.0, 1.1, 1.2, 1.3, 1.4, 0.0]);
+
+    let ambiguous = xml.replacen(
+        "</robot>",
+        r#"<joint name="tool" type="fixed"/></robot>"#,
+        1,
+    );
+    assert!(
+        urdf::from_urdf(ambiguous, &None).is_err(),
+        "a larger model without a recognizable joint6 must not be inferred as 5-DOF"
+    );
+}
+
+#[test]
 fn test_extraction_m10ia() {
     let opw_parameters = read_urdf("src/tests/data/fanuc/m10ia_macro.xacro");
+    assert_eq!(opw_parameters.dof, 6);
 
     // opw_kinematics_geometric_parameters:
     //   a1: 0.15
