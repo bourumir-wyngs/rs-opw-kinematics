@@ -148,7 +148,8 @@ impl Kinematics for OPWKinematics {
                     let s_n;
                     if let Some(Singularity::A) = singularity {
                         let mut now = *candidate;
-                        if are_angles_close(now[J5], 0.) {
+                        let j5_is_zero = are_angles_close(now[J5], 0.);
+                        if j5_is_zero {
                             // J5 = 0 singularity, J4 and J6 rotate same direction
                             s = previous[J4] + previous[J6];
                             s_n = now[J4] + now[J6];
@@ -171,7 +172,11 @@ impl Kinematics for OPWKinematics {
                         let j_d = angle / 2.0;
 
                         now[J4] = previous[J4] + j_d;
-                        now[J6] = previous[J6] - j_d;
+                        now[J6] = if j5_is_zero {
+                            previous[J6] + j_d
+                        } else {
+                            previous[J6] - j_d
+                        };
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
@@ -1034,6 +1039,91 @@ mod tests {
             "q4 - q6 mismatch: got {}, want {}",
             best_diff,
             target_diff
+        );
+    }
+
+    #[test]
+    fn test_inverse_continuing_adds_blended_solution_at_j5_zero() {
+        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
+
+        let robot = OPWKinematics::new(Parameters::irb2400_10());
+
+        // At J5 = 0, the orientation depends on J4 + J6. The target changes
+        // that sum while `previous` supplies the preferred wrist distribution.
+        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.4];
+        let delta = 0.20_f64;
+        let target: Joints = [
+            previous[0],
+            previous[1],
+            previous[2],
+            previous[J4] + delta,
+            previous[J5],
+            previous[J6] + delta,
+        ];
+        let pose = robot.forward(&target);
+
+        let base = robot.inverse(&pose);
+        assert!(
+            !base.is_empty(),
+            "baseline IK returned no solutions for the target pose"
+        );
+
+        let cont = robot.inverse_continuing(&pose, &previous);
+        assert_eq!(
+            cont.len(),
+            base.len() + 1,
+            "expected one additional blended continuity solution at the J5≈0 singularity"
+        );
+
+        // The continuity solution is the minimum joint-space change from
+        // `previous`, so sorting should place it first.
+        let mut best = cont[0];
+        for j in 0..6 {
+            normalize_near(&mut best[j], previous[j]);
+        }
+
+        assert!(
+            best[J5].abs() < 1e-6,
+            "expected a J5≈0 continuity solution, got J5={}",
+            best[J5]
+        );
+
+        // The remap must move J4 and J6 in the same direction by equal
+        // amounts. An opposite-sign update preserves the old sum and fails
+        // the final forward-pose validation.
+        let d4 = best[J4] - previous[J4];
+        let d6 = best[J6] - previous[J6];
+        assert!(
+            (d4 - d6).abs() < 1e-6,
+            "expected same-direction update at J5≈0, got δ4={} δ6={}",
+            d4,
+            d6
+        );
+
+        let mut best_sum = best[J4] + best[J6];
+        let target_sum = target[J4] + target[J6];
+        normalize_near(&mut best_sum, target_sum);
+        assert!(
+            (best_sum - target_sum).abs() < 1e-6,
+            "q4 + q6 mismatch: got {}, want {}",
+            best_sum,
+            target_sum
+        );
+
+        let resolved_pose = robot.forward(&best);
+        let translation_error = (resolved_pose.translation - pose.translation).length();
+        let angular_error = resolved_pose.angular_distance(pose);
+        assert!(
+            translation_error <= DISTANCE_TOLERANCE,
+            "resolved FK translation error {} exceeds tolerance {}",
+            translation_error,
+            DISTANCE_TOLERANCE
+        );
+        assert!(
+            angular_error <= ANGULAR_TOLERANCE,
+            "resolved FK angular error {} exceeds tolerance {}",
+            angular_error,
+            ANGULAR_TOLERANCE
         );
     }
 
