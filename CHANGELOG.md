@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.3] - 2026-09-01
+
+### Fixed
+
+- Reduced docs.rs dependency-compilation memory usage while retaining the
+  complete default-feature API documentation, including visualization.
+
 ## [2.0.2] - 2026-09-01
 
 ### Fixed

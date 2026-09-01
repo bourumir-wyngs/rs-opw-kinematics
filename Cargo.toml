@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "2.0.2"
+version = "2.0.3"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]
@@ -89,6 +89,11 @@ stroke_planning = ["dep:bitflags", "kdtree", "num-traits", "tracing", "collision
 
 [package.metadata]
 status = "maintained"
+
+[package.metadata.docs.rs]
+# Keep the visualization API documented without compiling Bevy dependencies
+# with the memory-intensive development profile used by local builds.
+rustc-args = ["-C", "opt-level=0", "-C", "debuginfo=0"]
 
 # To disable filesystem, collision and visualization support:
 # rs-opw-kinematics = { version = "2", default-features = false }
