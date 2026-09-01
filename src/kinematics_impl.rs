@@ -16,30 +16,42 @@ pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
     parameters: Parameters,
     constraints: Option<Constraints>,
+    /// Linear tolerance scaled to the total size of the robot geometry.
+    distance_tolerance: f64,
 }
 
 impl OPWKinematics {
     /// Creates a new `OPWKinematics` instance with the given parameters.
     #[allow(dead_code)]
     pub fn new(parameters: Parameters) -> Self {
-        OPWKinematics {
-            parameters,
-            constraints: None,
-        }
+        Self::from_parameters(parameters, None)
     }
 
     /// Create a new instance that takes also Constraints.
     /// If constraints are set, all solutions returned by this solver are constraint compliant.
     pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
-        OPWKinematics {
+        Self::from_parameters(parameters, Some(constraints))
+    }
+
+    fn from_parameters(parameters: Parameters, constraints: Option<Constraints>) -> Self {
+        let geometry_length = parameters.a1.abs()
+            + parameters.a2.abs()
+            + parameters.b.abs()
+            + parameters.c1.abs()
+            + parameters.c2.abs()
+            + parameters.c3.abs()
+            + parameters.c4.abs();
+
+        Self {
             parameters,
-            constraints: Some(constraints),
+            constraints,
+            distance_tolerance: geometry_length * RELATIVE_DISTANCE_TOLERANCE,
         }
     }
 }
 
-const MM: f64 = 0.001;
-const DISTANCE_TOLERANCE: f64 = 0.001 * MM;
+/// Linear errors up to one part per million of the total robot geometry are accepted.
+const RELATIVE_DISTANCE_TOLERANCE: f64 = 1E-6;
 const ANGULAR_TOLERANCE: f64 = 1E-6;
 
 // Use for singularity checks.
@@ -119,19 +131,19 @@ impl Kinematics for OPWKinematics {
             prev
         };
 
-        const SINGULARITY_SHIFT: f64 = DISTANCE_TOLERANCE / 8.;
-        const SINGULARITY_SHIFTS: [[f64; 3]; 4] = [
+        let singularity_shift = self.distance_tolerance / 8.;
+        let singularity_shifts: [[f64; 3]; 4] = [
             [0., 0., 0.],
-            [SINGULARITY_SHIFT, 0., 0.],
-            [0., SINGULARITY_SHIFT, 0.],
-            [0., 0., SINGULARITY_SHIFT],
+            [singularity_shift, 0., 0.],
+            [0., singularity_shift, 0.],
+            [0., 0., singularity_shift],
         ];
 
         let mut solutions: Vec<Joints> = Vec::with_capacity(9);
         let pt = pose.translation;
 
         let rotation = pose.rotation;
-        'shifts: for d in SINGULARITY_SHIFTS {
+        'shifts: for d in singularity_shifts {
             let shifted =
                 Pose::from_parts(DVec3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
             let ik = self.inverse_intern(&shifted);
@@ -180,8 +192,12 @@ impl Kinematics for OPWKinematics {
 
                         // Check last time if the pose is ok
                         let check_pose = self.forward(&now);
-                        if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE)
-                            && self.constraints_compliant(now)
+                        if compare_poses(
+                            pose,
+                            &check_pose,
+                            self.distance_tolerance,
+                            ANGULAR_TOLERANCE,
+                        ) && self.constraints_compliant(now)
                         {
                             // Guard against the case our solution is out of constraints.
                             solutions.push(now);
@@ -580,7 +596,12 @@ impl OPWKinematics {
             }
             if valid {
                 let check_pose = self.forward(solution);
-                if compare_poses(pose, &check_pose, DISTANCE_TOLERANCE, ANGULAR_TOLERANCE) {
+                if compare_poses(
+                    pose,
+                    &check_pose,
+                    self.distance_tolerance,
+                    ANGULAR_TOLERANCE,
+                ) {
                     result.push(*solution);
                 } else {
                     if DEBUG {
@@ -760,7 +781,7 @@ impl OPWKinematics {
             }
             if valid {
                 let check_xyz = self.forward(solution).translation;
-                if Self::compare_xyz_only(&pose.translation, &check_xyz, DISTANCE_TOLERANCE) {
+                if Self::compare_xyz_only(&pose.translation, &check_xyz, self.distance_tolerance) {
                     result.push(*solution);
                 } else {
                     if DEBUG {
@@ -917,6 +938,152 @@ mod tests {
     use crate::kinematic_traits::{Joints, Kinematics};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
+
+    fn scale_geometry(mut parameters: Parameters, scale: f64) -> Parameters {
+        parameters.a1 *= scale;
+        parameters.a2 *= scale;
+        parameters.b *= scale;
+        parameters.c1 *= scale;
+        parameters.c2 *= scale;
+        parameters.c3 *= scale;
+        parameters.c4 *= scale;
+        parameters
+    }
+
+    #[test]
+    fn distance_tolerance_scales_with_robot_geometry() {
+        let parameters = Parameters::irb2400_10();
+        let robot = OPWKinematics::new(parameters);
+        let expected = 2.395 * RELATIVE_DISTANCE_TOLERANCE;
+        assert!(
+            (robot.distance_tolerance - expected).abs() <= expected * f64::EPSILON,
+            "distance tolerance {} does not match expected {}",
+            robot.distance_tolerance,
+            expected
+        );
+
+        let scale = 1_000_000.0;
+        let scaled_parameters = scale_geometry(parameters, scale);
+        let scaled_robot = OPWKinematics::new(scaled_parameters);
+        let expected_scaled = robot.distance_tolerance * scale;
+        assert!(
+            (scaled_robot.distance_tolerance - expected_scaled).abs()
+                <= expected_scaled * f64::EPSILON,
+            "scaled distance tolerance {} does not match expected {}",
+            scaled_robot.distance_tolerance,
+            expected_scaled
+        );
+
+        let constraints = Constraints::new([0.0; 6], [0.0; 6], BY_PREV);
+        let constrained_robot = OPWKinematics::new_with_constraints(scaled_parameters, constraints);
+        assert_eq!(
+            constrained_robot.distance_tolerance,
+            scaled_robot.distance_tolerance
+        );
+    }
+
+    #[test]
+    fn inverse_continuing_scales_singularity_recovery_with_geometry() {
+        let parameters = scale_geometry(Parameters::irb2400_10(), 1_000.0);
+        let robot = OPWKinematics::new(parameters);
+        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.4];
+        let target: Joints = [0.0, 0.1, 0.2, 0.5, 0.0, 0.6];
+        let pose = robot.forward(&target);
+
+        let base = robot.inverse(&pose);
+        let continuing = robot.inverse_continuing(&pose, &previous);
+        assert_eq!(
+            continuing.len(),
+            base.len() + 1,
+            "expected one additional singularity recovery solution for scaled geometry"
+        );
+
+        let recovered = continuing
+            .iter()
+            .find(|solution| are_angles_close(solution[J5], 0.0))
+            .expect("expected a recovered J5≈0 solution for scaled geometry");
+        let resolved_pose = robot.forward(recovered);
+        let translation_error = (resolved_pose.translation - pose.translation).length();
+        let angular_error = resolved_pose.angular_distance(pose);
+        assert!(
+            translation_error <= robot.distance_tolerance,
+            "resolved FK translation error {} exceeds scaled tolerance {}",
+            translation_error,
+            robot.distance_tolerance
+        );
+        assert!(
+            angular_error <= ANGULAR_TOLERANCE,
+            "resolved FK angular error {} exceeds tolerance {}",
+            angular_error,
+            ANGULAR_TOLERANCE
+        );
+    }
+
+    #[test]
+    fn inverse_cross_validation_scales_with_robot_geometry() {
+        let parameters = Parameters::irb2400_10();
+        let scaled_parameters = scale_geometry(parameters, 1E12);
+        let robot = OPWKinematics::new(parameters);
+        let scaled_robot = OPWKinematics::new(scaled_parameters);
+        let joints: Joints = [0.37, -0.61, 0.83, -1.11, 0.72, 1.39];
+
+        let solutions = robot.inverse(&robot.forward(&joints));
+        let scaled_pose = scaled_robot.forward(&joints);
+        let scaled_solutions = scaled_robot.inverse(&scaled_pose);
+        assert!(
+            !solutions.is_empty(),
+            "baseline inverse returned no solutions"
+        );
+        assert_eq!(
+            scaled_solutions.len(),
+            solutions.len(),
+            "inverse solution count changed when the robot geometry was scaled"
+        );
+
+        for solution in scaled_solutions {
+            let resolved_pose = scaled_robot.forward(&solution);
+            let translation_error = (resolved_pose.translation - scaled_pose.translation).length();
+            assert!(
+                translation_error <= scaled_robot.distance_tolerance,
+                "resolved FK translation error {} exceeds scaled tolerance {}",
+                translation_error,
+                scaled_robot.distance_tolerance
+            );
+        }
+    }
+
+    #[test]
+    fn inverse_5dof_cross_validation_scales_with_robot_geometry() {
+        let parameters = Parameters::irb2400_10();
+        let scaled_parameters = scale_geometry(parameters, 1E12);
+        let robot = OPWKinematics::new(parameters);
+        let scaled_robot = OPWKinematics::new(scaled_parameters);
+        let joints: Joints = [0.37, -0.61, 0.83, -1.11, 0.72, 1.39];
+
+        let solutions = robot.inverse_5dof(&robot.forward(&joints), joints[J6]);
+        let scaled_pose = scaled_robot.forward(&joints);
+        let scaled_solutions = scaled_robot.inverse_5dof(&scaled_pose, joints[J6]);
+        assert!(
+            !solutions.is_empty(),
+            "baseline 5-DOF inverse returned no solutions"
+        );
+        assert_eq!(
+            scaled_solutions.len(),
+            solutions.len(),
+            "5-DOF inverse solution count changed when the robot geometry was scaled"
+        );
+
+        for solution in scaled_solutions {
+            let resolved_translation = scaled_robot.forward(&solution).translation;
+            let translation_error = (resolved_translation - scaled_pose.translation).length();
+            assert!(
+                translation_error <= scaled_robot.distance_tolerance,
+                "resolved 5-DOF FK translation error {} exceeds scaled tolerance {}",
+                translation_error,
+                scaled_robot.distance_tolerance
+            );
+        }
+    }
 
     #[test]
     fn theta5_from_cosine_clamps_roundoff_outside_unit_interval() {
@@ -1114,10 +1281,10 @@ mod tests {
         let translation_error = (resolved_pose.translation - pose.translation).length();
         let angular_error = resolved_pose.angular_distance(pose);
         assert!(
-            translation_error <= DISTANCE_TOLERANCE,
+            translation_error <= robot.distance_tolerance,
             "resolved FK translation error {} exceeds tolerance {}",
             translation_error,
-            DISTANCE_TOLERANCE
+            robot.distance_tolerance
         );
         assert!(
             angular_error <= ANGULAR_TOLERANCE,
