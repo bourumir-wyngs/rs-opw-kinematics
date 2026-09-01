@@ -13,4 +13,21 @@ All notable changes to this project will be documented in this file.
   offsets to one part per million of the robot's total absolute OPW geometry,
   preserving reliable 5-DOF and 6-DOF solutions for very large robots.
 
+## [2.0.1] - 2026-08-15
 
+### Changed
+
+- Updated optional `serde-saphyr` support from `0.0.27` to `>=0.1, <2` and
+  refreshed locked dependencies.
+
+### Fixed
+
+- Rejected non-finite URDF origin, axis, and joint-limit values. Malformed
+  limits now return parsing errors instead of being printed and silently
+  treated as unconstrained.
+- Prevented constraint construction from hanging on non-finite or extremely
+  large wrapped bounds by using constant-time modular normalization. Invalid
+  bounds now fail closed.
+- Fixed URDF extraction for models containing exactly five joints and no sixth
+  joint. They are now recognized as 5-DOF with `c4 = 0`; extracting a nonzero
+  TCP offset for this fallback remains unsupported.
