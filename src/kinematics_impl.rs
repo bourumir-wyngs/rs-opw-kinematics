@@ -102,6 +102,12 @@ fn theta5_from_cosine(m: f64) -> f64 {
     (1.0 - m * m).sqrt().atan2(m)
 }
 
+pub(crate) fn shifted_pose(pose: &Pose, shift: [f64; 3]) -> Pose {
+    let local_shift = DVec3::new(shift[0], shift[1], shift[2]);
+    let global_shift = pose.rotation * local_shift;
+    Pose::from_parts(pose.translation + global_shift, pose.rotation)
+}
+
 impl Kinematics for OPWKinematics {
     /// Return the solution that is constraint compliant anv values are valid
     /// (no NaNs, etc) but otherwise not sorted.
@@ -140,14 +146,10 @@ impl Kinematics for OPWKinematics {
         ];
 
         let mut solutions: Vec<Joints> = Vec::with_capacity(9);
-        let pt = pose.translation;
-
-        let rotation = pose.rotation;
-        'shifts: for d in singularity_shifts {
-            let shifted =
-                Pose::from_parts(DVec3::new(pt.x + d[0], pt.y + d[1], pt.z + d[2]), rotation);
+        'shifts: for shift in singularity_shifts {
+            let shifted = shifted_pose(pose, shift);
             let ik = self.inverse_intern(&shifted);
-            // Self::dump_shifted_solutions(d, &ik);
+            // Self::dump_shifted_solutions(shift, &ik);
             if solutions.is_empty() {
                 // Unshifted version that comes first is always included into results
                 solutions.extend(&ik);
@@ -162,12 +164,12 @@ impl Kinematics for OPWKinematics {
                         let mut now = *candidate;
                         let j5_is_zero = are_angles_close(now[J5], 0.);
                         if j5_is_zero {
-                            // J5 = 0 singularity, J4 and J6 rotate same direction
+                            // J5 = 0 singularity, J4 and J6 rotate in same direction
                             s = previous[J4] + previous[J6];
                             s_n = now[J4] + now[J6];
                         } else {
-                            // J5 = -180 or 180 singularity, even if the robot would need
-                            // specific design to rotate J5 to this angle without self-colliding.
+                            // J5 = -180 or 180 singularity, even if the robot needs
+                            // a specific design to rotate J5 to this angle without self-colliding.
                             // J4 and J6 rotate in opposite directions
                             s = previous[J4] - previous[J6];
                             s_n = now[J4] - now[J6];
@@ -1303,3 +1305,7 @@ mod tests {
         let _ = robot.inverse_continuing(&pose, &previous);
     }
 }
+
+#[cfg(test)]
+#[path = "tests/wrist_singularity.rs"]
+mod wrist_singularity_tests;

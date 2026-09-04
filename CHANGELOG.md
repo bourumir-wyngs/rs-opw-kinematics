@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.4]
+
+### Changed
+
+- Changed `inverse_continuing` singularity-recovery position shifts to follow
+  the target pose's local TCP axes instead of the global coordinate axes.
+
 ## [2.0.3] - 2026-09-01
 
 ### Fixed
@@ -18,7 +25,7 @@ All notable changes to this project will be documented in this file.
   J4 + J6, while retaining opposite-direction remapping at J5 = ±π.
 - Scaled inverse-kinematics position tolerances and singularity-recovery
   offsets to one part per million of the robot's total absolute OPW geometry,
-  preserving reliable 5-DOF and 6-DOF solutions for very large robots.
+  preserving reliable 5-DOF and 6-DOF solutions for huge (crane-size) robots.
 
 ## [2.0.1] - 2026-08-15
 
