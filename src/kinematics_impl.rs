@@ -61,6 +61,8 @@ const WRIST_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON;
 const WRIST_POLE_OVERLAP_THR: f64 = ANGULAR_TOLERANCE;
 // Merge roundoff duplicates without losing resolvable nonzero wrist bends.
 const JOINT_DUPLICATE_THR: f64 = 64.0 * f64::EPSILON;
+// Allow only arithmetic roundoff when a recovered pole phase touches a limit.
+const POLE_PHASE_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON * (1.0 + 2.0 * PI);
 
 #[derive(Clone, Copy)]
 struct RotationMatrix {
@@ -506,17 +508,41 @@ impl OPWKinematics {
         &self,
         pose: &Pose,
         near: &J4J6Near,
+        wrist_constraints: Option<Constraints>,
     ) -> impl Iterator<Item = Joints> + use<> {
         let params = self.parameters;
         let matrix = RotationMatrix::from_quat(pose.rotation);
         let arm_branches = self.arm_branches(pose);
         let near = *near;
         arm_branches.into_iter().flat_map(move |arm| {
-            Self::wrist_branch(&matrix, arm, &near).map(move |wrist| {
+            Self::wrist_branch(&matrix, arm, &near).filter_map(move |wrist| {
                 let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
-                std::array::from_fn(|i| {
+                let mut joints = std::array::from_fn(|i| {
                     (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
-                })
+                });
+                // At a pole the entire J4/J6 phase line describes the same pose.
+                // Fit that line to the limits before the final constraint filter;
+                // filtering just the equal split can discard a reachable pose.
+                if let Some(constraints) = wrist_constraints
+                    && (wrist.q5 == 0.0 || wrist.q5.abs() == PI)
+                    && near.j4.is_finite()
+                    && near.j6.is_finite()
+                {
+                    // Solve in user joint coordinates so circular limits, offsets,
+                    // and reversed joint directions use the same convention.
+                    let sign = if wrist.q5 == 0.0 { 1.0 } else { -1.0 }
+                        * params.sign_corrections[J4] as f64
+                        * params.sign_corrections[J6] as f64;
+                    let reference = [
+                        (near.j4 + params.offsets[J4]) * params.sign_corrections[J4] as f64,
+                        (near.j6 + params.offsets[J6]) * params.sign_corrections[J6] as f64,
+                    ];
+                    let phase = wrapped_angle(joints[J4]) + sign * wrapped_angle(joints[J6]);
+                    let pair = nearest_feasible_pole(phase, sign, reference, &constraints)?;
+                    joints[J4] = pair[0];
+                    joints[J6] = pair[1];
+                }
+                Some(joints)
             })
         })
     }
@@ -526,7 +552,10 @@ impl OPWKinematics {
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for (si, mut solution) in self.inverse_candidates(pose, near).enumerate() {
+        for (si, mut solution) in self
+            .inverse_candidates(pose, near, self.constraints)
+            .enumerate()
+        {
             let mut valid = true;
             for angle in solution.iter_mut() {
                 let mut current = *angle;
@@ -568,7 +597,9 @@ impl OPWKinematics {
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for (si, mut solution) in self.inverse_candidates(pose, near).enumerate() {
+        // J6 is fixed below and its orientation is ignored; do not constrain
+        // the provisional six-axis wrist phase in this path.
+        for (si, mut solution) in self.inverse_candidates(pose, near, None).enumerate() {
             solution[J6] = j6; // J6 goes directly to response and is not more adjusted
             let mut valid = true;
             for angle in solution.iter_mut().take(5) {
@@ -660,6 +691,138 @@ impl OPWKinematics {
             .as_ref()
             .map_or(&JOINTS_AT_ZERO, |c| &c.centers)
     }
+}
+
+fn wrapped_angle(angle: f64) -> f64 {
+    (angle + PI).rem_euclid(2.0 * PI) - PI
+}
+
+/// Allowed displacements from a reference, bounded to the nearest full turn.
+/// A circular range may cross the +/-pi cut, so include its neighboring copies.
+fn wrist_limit_intervals(
+    center: f64,
+    tolerance: f64,
+    reference: f64,
+    sign: f64,
+) -> impl Iterator<Item = (f64, f64)> + Clone {
+    let (center, tolerance) = if tolerance >= PI {
+        // Includes the infinite tolerance used for an unconstrained joint.
+        (0.0, PI)
+    } else {
+        (
+            wrapped_angle(sign * (wrapped_angle(center) - reference)),
+            tolerance,
+        )
+    };
+    [-2.0 * PI, 0.0, 2.0 * PI]
+        .into_iter()
+        .filter_map(move |shift| {
+            let lower = (center + shift - tolerance).max(-PI);
+            let upper = (center + shift + tolerance).min(PI);
+            (center.is_finite() && tolerance >= 0.0 && lower <= upper).then_some((lower, upper))
+        })
+}
+
+/// Intersects J4 + sign*J6 = phase (modulo 2*pi) with both circular limits,
+/// choosing the feasible pair with the least squared motion from the reference.
+fn nearest_feasible_pole(
+    phase: f64,
+    sign: f64,
+    reference: [f64; 2],
+    constraints: &Constraints,
+) -> Option<[f64; 2]> {
+    let near = reference.map(wrapped_angle);
+    let correction = wrapped_angle(phase - near[0] - sign * near[1]);
+    let intervals4 = wrist_limit_intervals(
+        constraints.centers[J4],
+        constraints.tolerances[J4],
+        near[0],
+        1.0,
+    );
+    let intervals6 = wrist_limit_intervals(
+        constraints.centers[J6],
+        constraints.tolerances[J6],
+        near[1],
+        sign,
+    );
+
+    // Constraint comparisons are inclusive but exact. Check the actual angle
+    // representations used by inverse and inverse_continuing so conversion
+    // roundoff cannot turn a feasible endpoint into a rejected solution.
+    let compliant = |pair: [f64; 2]| {
+        let mut joints = constraints.centers;
+        for (joint, angle) in [J4, J6].into_iter().zip(pair) {
+            joints[joint] = angle;
+            while joints[joint] > PI {
+                joints[joint] -= 2.0 * PI;
+            }
+            while joints[joint] < -PI {
+                joints[joint] += 2.0 * PI;
+            }
+        }
+        if !constraints.compliant(&joints) {
+            return false;
+        }
+        normalize_near(&mut joints[J4], reference[0]);
+        normalize_near(&mut joints[J6], reference[1]);
+        constraints.compliant(&joints)
+    };
+
+    let mut best = None;
+    let mut best_distance = f64::INFINITY;
+    let inward = |value: f64, lower: f64, upper: f64, margin: f64| {
+        value + (lower + (upper - lower) / 2.0 - value).clamp(-margin, margin)
+    };
+    for (lower4, upper4) in intervals4 {
+        for (lower6, upper6) in intervals6.clone() {
+            // x = J4 - near4 and y = sign*(J6 - near6) lie in [-pi, pi].
+            // Their sum can require either neighboring phase winding.
+            for winding in [-1.0, 0.0, 1.0] {
+                let sum = correction + winding * 2.0 * PI;
+                let lower = lower4.max(sum - upper6);
+                let upper = upper4.min(sum - lower6);
+                // A phase recovered with roundoff can miss a touching corner
+                // by a few ulps. Keep that corner eligible without widening
+                // either joint limit; check the final phase residual below.
+                if lower - upper > POLE_PHASE_ROUNDOFF_THR {
+                    continue;
+                }
+                let mut x = (sum / 2.0)
+                    .clamp(lower.min(upper), lower.max(upper))
+                    .clamp(lower4, upper4);
+                let mut y = (sum - x).clamp(lower6, upper6);
+                let make_pair = |x, y| [near[0] + x, near[1] + sign * y];
+                let mut pair = make_pair(x, y);
+                if !compliant(pair) && lower < upper {
+                    // Move a rejected endpoint slightly inside its feasible
+                    // segment, preserving the phase whenever possible.
+                    let margin =
+                        JOINT_DUPLICATE_THR * (1.0 + reference[0].abs().max(reference[1].abs()));
+                    x = inward(x, lower, upper, margin);
+                    y = sum - x;
+                    pair = make_pair(x, y);
+                }
+                if !compliant(pair) {
+                    // At a touching corner, rounding may put both joints just
+                    // outside. Nudge each inward by only a bounded roundoff
+                    // amount; strict constraints and FK validation still apply.
+                    let margin = POLE_PHASE_ROUNDOFF_THR / 4.0;
+                    x = inward(x, lower4, upper4, margin);
+                    y = inward(y, lower6, upper6, margin);
+                    pair = make_pair(x, y);
+                }
+                let distance = x * x + y * y;
+                if distance < best_distance
+                    && (x + y - sum).abs() <= POLE_PHASE_ROUNDOFF_THR
+                    && compliant(pair)
+                {
+                    best = Some(pair);
+                    best_distance = distance;
+                }
+            }
+        }
+    }
+    best
 }
 
 /// Normalizes the angle `now` to be as close as possible to `must_be_near`

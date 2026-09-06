@@ -283,7 +283,7 @@ fn inverse_deduplicates_coincident_arm_branches_at_wrist_poles() {
             // otherwise uniqueness of the public results would be vacuous.
             let near = J4J6Near::from_joints(&reference, &parameters);
             let valid_candidates: Vec<_> = robot
-                .inverse_candidates(&pose, &near)
+                .inverse_candidates(&pose, &near, None)
                 .filter(|candidate| {
                     candidate.iter().all(|joint| joint.is_finite())
                         && compare_poses(
@@ -460,6 +460,315 @@ fn inverse_and_centered_continuation_use_constraint_wrist_centers() {
                 assert_pose(&robot, solution, &pose);
             }
         }
+    }
+}
+
+#[test]
+fn constrained_zero_pole_projects_onto_feasible_wrist_continuum() {
+    let constraints = Constraints::from_degrees(
+        [
+            9.0..=11.0,
+            19.0..=21.0,
+            29.0..=31.0,
+            5.0..=15.0,
+            -1.0..=1.0,
+            60.0..=100.0,
+        ],
+        BY_PREV,
+    );
+    let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+    let target = [10.0, 20.0, 30.0, 40.0, 0.0, 65.0].map(f64::to_radians);
+    let pose = robot.forward(&target);
+    // The phase is 105 degrees. Equal splitting from the constraint centers
+    // gives (17.5, 87.5), outside J4's limits. The nearest feasible pair is
+    // (15, 90); an interior pair establishes reachability independently.
+    let feasible = [10.0, 20.0, 30.0, 14.0, 0.0, 91.0].map(f64::to_radians);
+    assert!(constraints.compliant(&feasible));
+    assert_pose(&robot, &feasible, &pose);
+    let expected = [10.0, 20.0, 30.0, 15.0, 0.0, 90.0].map(f64::to_radians);
+    for solutions in [
+        robot.inverse(&pose),
+        robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+        robot.inverse_continuing(&pose, &constraints.centers),
+    ] {
+        assert_contains_joints(&solutions, &expected);
+        assert_contains_joints(&solutions[..1], &expected);
+        for solution in &solutions {
+            assert!(constraints.compliant(solution));
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+
+    // Explicit continuation must use its reference rather than the centers,
+    // and retain the previous turn count on every joint.
+    let previous = [370.0, -340.0, 750.0, 726.0, 360.0, -622.0].map(f64::to_radians);
+    let expected = [370.0, -340.0, 750.0, 726.5, 360.0, -621.5].map(f64::to_radians);
+    let solutions = robot.inverse_continuing(&pose, &previous);
+    let best = solutions.first().expect("reachable constrained zero pole");
+    for (actual, expected) in best.iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-7, "got {best:?}");
+    }
+    for solution in &solutions {
+        assert!(constraints.compliant(solution));
+        assert_pose(&robot, solution, &pose);
+    }
+}
+
+#[test]
+fn constrained_pi_poles_project_onto_feasible_wrist_difference() {
+    let constraints = Constraints::from_degrees(
+        [
+            9.0..=11.0,
+            19.0..=21.0,
+            29.0..=31.0,
+            5.0..=15.0,
+            179.0..=181.0,
+            60.0..=100.0,
+        ],
+        BY_PREV,
+    );
+    let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+    for pole_degrees in [180.0, -180.0] {
+        let target = [10.0, 20.0, 30.0, 40.0, pole_degrees, 125.0].map(f64::to_radians);
+        let pose = robot.forward(&target);
+        // The difference changes from -70 to -85 degrees. Equal splitting
+        // gives (2.5, 87.5), below J4's lower bound; clamp along the pole line.
+        let expected = [10.0, 20.0, 30.0, 5.0, pole_degrees, 90.0].map(f64::to_radians);
+        let feasible = [10.0, 20.0, 30.0, 6.0, pole_degrees, 91.0].map(f64::to_radians);
+        assert!(constraints.compliant(&feasible));
+        assert_pose(&robot, &feasible, &pose);
+        for solutions in [
+            robot.inverse(&pose),
+            robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+        ] {
+            assert_contains_joints(&solutions, &expected);
+            assert_contains_joints(&solutions[..1], &expected);
+            for solution in &solutions {
+                assert!(constraints.compliant(solution));
+                assert_pose(&robot, solution, &pose);
+            }
+        }
+
+        // An explicit reference inside the limits has a different optimum.
+        let previous = [10.0, 20.0, 30.0, 12.0, pole_degrees, 99.0].map(f64::to_radians);
+        let expected = [10.0, 20.0, 30.0, 13.0, pole_degrees, 98.0].map(f64::to_radians);
+        let solutions = robot.inverse_continuing(&pose, &previous);
+        let best = solutions.first().expect("reachable constrained pi pole");
+        for (actual, expected) in best.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-7, "got {best:?}");
+        }
+        for solution in &solutions {
+            assert!(constraints.compliant(solution));
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+}
+
+#[test]
+fn constrained_pole_intersects_wrapped_ranges_and_preserves_turns() {
+    let constraints = Constraints::from_degrees(
+        [
+            9.0..=11.0,
+            19.0..=21.0,
+            29.0..=31.0,
+            175.0..=-175.0,
+            -1.0..=1.0,
+            350.0..=30.0,
+        ],
+        BY_PREV,
+    );
+    let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+    let target = [10.0, 20.0, 30.0, 210.0, 0.0, -5.0].map(f64::to_radians);
+    let pose = robot.forward(&target);
+    // The centers are (180, 370), so the unconstrained projection (187.5,
+    // 377.5) falls beyond J4's wrapped arc. Its upper endpoint is 185 degrees.
+    let expected = [10.0, 20.0, 30.0, 185.0, 0.0, 380.0].map(f64::to_radians);
+    let feasible = [10.0, 20.0, 30.0, 184.0, 0.0, 21.0].map(f64::to_radians);
+    assert!(constraints.compliant(&feasible));
+    assert_pose(&robot, &feasible, &pose);
+    for solutions in [
+        robot.inverse(&pose),
+        robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+    ] {
+        assert_contains_joints(&solutions, &expected);
+        assert_contains_joints(&solutions[..1], &expected);
+        for solution in &solutions {
+            assert!(constraints.compliant(solution));
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+
+    let previous = [10.0, 20.0, 30.0, 539.0, 0.0, -719.0].map(f64::to_radians);
+    let expected = [10.0, 20.0, 30.0, 545.0, 0.0, -700.0].map(f64::to_radians);
+    let solutions = robot.inverse_continuing(&pose, &previous);
+    let best = solutions.first().expect("reachable wrapped wrist limits");
+    for (actual, expected) in best.iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-7, "got {best:?}");
+    }
+    for solution in &solutions {
+        assert!(constraints.compliant(solution));
+        assert_pose(&robot, solution, &pose);
+    }
+}
+
+#[test]
+fn constrained_pole_projects_with_offsets_and_opposite_joint_signs() {
+    let mut parameters = model_parameters();
+    parameters.offsets = [0.2, -0.3, 0.4, 0.45, -0.6, -0.35];
+    parameters.sign_corrections = [-1, 1, -1, -1, -1, 1];
+    for pole_degrees in [0.0, 180.0, -180.0] {
+        let lower = from_model(
+            [9.0, 19.0, 29.0, 5.0, pole_degrees - 1.0, 60.0].map(f64::to_radians),
+            &parameters,
+        );
+        let upper = from_model(
+            [11.0, 21.0, 31.0, 15.0, pole_degrees + 1.0, 100.0].map(f64::to_radians),
+            &parameters,
+        );
+        // Joint limits are expressed in user coordinates. Negative signs
+        // reverse both endpoints when converting these short model arcs.
+        let constraints = Constraints::new(
+            std::array::from_fn(|i| lower[i].min(upper[i])),
+            std::array::from_fn(|i| lower[i].max(upper[i])),
+            BY_PREV,
+        );
+        let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+        let (target_j6, expected_j4) = if pole_degrees == 0.0 {
+            (65.0, 15.0)
+        } else {
+            (125.0, 5.0)
+        };
+        let target = from_model(
+            [10.0, 20.0, 30.0, 40.0, pole_degrees, target_j6].map(f64::to_radians),
+            &parameters,
+        );
+        let expected = from_model(
+            [10.0, 20.0, 30.0, expected_j4, pole_degrees, 90.0].map(f64::to_radians),
+            &parameters,
+        );
+        let pose = robot.forward(&target);
+        for solutions in [
+            robot.inverse(&pose),
+            robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+        ] {
+            assert_contains_joints(&solutions, &expected);
+            assert_contains_joints(&solutions[..1], &expected);
+            for solution in &solutions {
+                assert!(constraints.compliant(solution));
+                assert_pose(&robot, solution, &pose);
+            }
+        }
+
+        let turns = [1.0, -1.0, 2.0, -2.0, 1.0, -1.0];
+        let previous = std::array::from_fn(|i| constraints.centers[i] + turns[i] * 2.0 * PI);
+        let expected: Joints = std::array::from_fn(|i| expected[i] + turns[i] * 2.0 * PI);
+        let solutions = robot.inverse_continuing(&pose, &previous);
+        let best = solutions
+            .first()
+            .expect("reachable transformed wrist limits");
+        for (actual, expected) in best.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-7, "got {best:?}");
+        }
+        for solution in &solutions {
+            assert!(constraints.compliant(solution));
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+}
+
+#[test]
+fn constrained_poles_reject_disjoint_wrist_phase_ranges() {
+    for (pole_degrees, target_j6) in [(0.0, 80.0), (180.0, 140.0)] {
+        let constraints = Constraints::from_degrees(
+            [
+                9.0..=11.0,
+                19.0..=21.0,
+                29.0..=31.0,
+                5.0..=15.0,
+                pole_degrees - 1.0..=pole_degrees + 1.0,
+                60.0..=100.0,
+            ],
+            BY_PREV,
+        );
+        let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+        let target = [10.0, 20.0, 30.0, 40.0, pole_degrees, target_j6].map(f64::to_radians);
+        let pose = robot.forward(&target);
+        // The required sum 120 exceeds the largest permitted sum 115;
+        // the required difference -100 is below the minimum difference -95.
+        for solutions in [
+            robot.inverse(&pose),
+            robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+            robot.inverse_continuing(&pose, &target),
+        ] {
+            assert!(solutions.is_empty(), "unexpected solution: {solutions:?}");
+        }
+    }
+}
+
+#[test]
+fn constrained_poles_keep_single_feasible_boundary_point() {
+    for (pole_degrees, boundary_j4) in [(0.0, 0.25), (180.0, 0.125), (-180.0, 0.125)] {
+        let mut lower = [9.0, 19.0, 29.0, 0.0, pole_degrees - 1.0, 0.0].map(f64::to_radians);
+        let mut upper = [11.0, 21.0, 31.0, 0.0, pole_degrees + 1.0, 0.0].map(f64::to_radians);
+        // Exactly representable radian wrist bounds avoid rounding in the
+        // constraint constructor obscuring the closed-endpoint intersection.
+        lower[J4] = 0.125;
+        upper[J4] = 0.25;
+        lower[J6] = 1.0;
+        upper[J6] = 1.5;
+        let constraints = Constraints::new(lower, upper, BY_PREV);
+        let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+        let mut expected = [10.0, 20.0, 30.0, 0.0, pole_degrees, 0.0].map(f64::to_radians);
+        expected[J4] = boundary_j4;
+        expected[J6] = 1.5;
+        assert!(constraints.compliant(&expected));
+        let pose = robot.forward(&expected);
+        // At sum 1.75 or difference -1.375 the feasible pole line touches both
+        // closed wrist bounds at one point, with no interior segment.
+        for solutions in [
+            robot.inverse(&pose),
+            robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+        ] {
+            assert_contains_joints(&solutions, &expected);
+            for solution in &solutions {
+                assert!(constraints.compliant(solution));
+                assert_pose(&robot, solution, &pose);
+            }
+        }
+    }
+}
+
+#[test]
+fn constrained_pole_searches_beyond_shortest_phase_correction() {
+    let constraints = Constraints::from_degrees(
+        [
+            9.0..=11.0,
+            19.0..=21.0,
+            29.0..=31.0,
+            0.0..=100.0,
+            -1.0..=1.0,
+            0.0..=100.0,
+        ],
+        BY_PREV,
+    );
+    let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), constraints);
+    let target = [10.0, 20.0, 30.0, 40.0, 0.0, 20.0].map(f64::to_radians);
+    let previous = [10.0, 20.0, 30.0, 170.0, 0.0, 170.0].map(f64::to_radians);
+    let expected = [10.0, 20.0, 30.0, 30.0, 0.0, 30.0].map(f64::to_radians);
+    let pose = robot.forward(&target);
+    // The shortest phase correction is +80 degrees, whose line has no
+    // permitted point. A -280 degree correction reaches the feasible segment;
+    // the closest point on that segment splits it equally between J4 and J6.
+    let solutions = robot.inverse_continuing(&pose, &previous);
+    let best = solutions
+        .first()
+        .expect("reachable non-shortest pole phase");
+    for (actual, expected) in best.iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-7, "got {best:?}");
+    }
+    for solution in &solutions {
+        assert!(constraints.compliant(solution));
+        assert_pose(&robot, solution, &pose);
     }
 }
 

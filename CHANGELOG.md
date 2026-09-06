@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
 - Prevent large J4/J6 jumps at exact wrist poles when J1–J3 recovery amplifies
   roundoff. Overlapping pole and regular candidates are FK-validated and
   deduplicated before continuation ranks them against the previous joints.
+- Recover reachable wrist-pole poses whose equal J4/J6 correction violates a
+  joint limit by choosing the nearest feasible pair along the pole phase line,
+  including wrapped limits and reversed joint directions.
 
 ## [2.0.3] - 2026-09-01
 
