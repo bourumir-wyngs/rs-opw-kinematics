@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-09-6
+
+- This release contains substantial rewrite of the singularity recovering algorithm.
+  Instead of "shifted pose" approach we now recover when calculating wrist joint
+  (J4, J5, J6) positions, while base (J1, J2, J3) is never affected by J5 = 0 ± 180 singularity.
+  This eliminates specific edge cases when robotic arm is too extended to recover by shift.
+- Visualization is no longer a default feature. Being it default was intended
+  to encourage onboarding, but now very long build times look annoying. Examples
+  that were previously displaying visualization now print the hint how to activate
+  if if running on default features.
+
+### Fixed
+
+- Preserve small, resolvable nonzero J5 bends and their individual J4/J6 angles
+  near both wrist poles instead of rounding them to a singularity.
+
 ## [2.0.3] - 2026-09-01
 
 ### Fixed

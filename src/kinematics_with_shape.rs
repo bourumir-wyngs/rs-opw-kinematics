@@ -4,7 +4,7 @@
 
 use crate::collisions::{BaseBody, CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
-use crate::kinematic_traits::{J6, Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{J6, Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::pose::Pose32;
@@ -331,10 +331,6 @@ impl Kinematics for KinematicsWithShape {
 
     fn constraints(&self) -> &Option<Constraints> {
         self.kinematics.constraints()
-    }
-
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.kinematics.kinematic_singularity(qs)
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::constraints::{BY_CONSTRAINS, Constraints};
-    use crate::kinematic_traits::{Kinematics, Solutions};
+    use crate::kinematic_traits::{Joints, Kinematics};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
-    use crate::utils::{as_radians, dump_solutions, dump_solutions_degrees};
+    use crate::utils::as_radians;
     use std::f64::consts::PI;
 
     #[test]
@@ -17,58 +17,74 @@ mod tests {
         let joints = as_radians([10, 20, 30, 40, 0, 60]);
         let not_above = as_radians([11, 22, 33, 44, 5, 65]);
 
-        //let robot = OPWKinematics::new_with_constraints(parameters,
-        //  Constraints::new(not_below, not_above, BY_CONSTRAINS));
-        let robot = OPWKinematics::new(parameters);
-        let pose = robot.forward(&joints);
+        let unconstrained_robot = OPWKinematics::new(parameters);
+        let pose = unconstrained_robot.forward(&joints);
 
-        let solutions = robot.inverse_continuing(&pose, &joints);
-        verify(
-            &solutions,
-            vec![
-                [10.00, 20.00, 30.00, 40.00, 0.00, 60.00],
-                [10.00, 51.75, -30.00, -0.00, 28.25, 100.00],
-                [10.00, 51.75, -30.00, 180.00, -28.25, -80.00],
-            ],
-        );
+        let unconstrained = unconstrained_robot.inverse_continuing(&pose, &joints);
+        assert!(joints_close(
+            unconstrained.first().expect("expected inverse solutions"),
+            &joints,
+            1e-7,
+        ));
+
+        // Recovering wrist poles preserves branches previously lost to roundoff.
+        // Require the expected branches without fixing their count or complete order.
+        let regular_branches: [Joints; 2] = [
+            [10.00, 51.75, -30.00, 0.00, 28.25, 100.00],
+            [10.00, 51.75, -30.00, 180.00, -28.25, -80.00],
+        ];
+        for expected in regular_branches {
+            let expected = expected.map(f64::to_radians);
+            assert!(
+                unconstrained.iter().any(|solution| joints_close(
+                    solution,
+                    &expected,
+                    0.01_f64.to_radians()
+                )),
+                "missing regular branch {expected:?}: {unconstrained:?}"
+            );
+        }
 
         let constraints = Constraints::new(not_below, not_above, BY_CONSTRAINS);
         assert!(constraints.compliant(&joints));
-        let robot = OPWKinematics::new_with_constraints(parameters, constraints);
-        let solutions = robot.inverse_continuing(&pose, &joints);
-        verify(&solutions, vec![[10.00, 20.00, 30.00, 40.00, 0.00, 60.00]]);
-    }
+        assert!(
+            unconstrained
+                .iter()
+                .any(|solution| !constraints.compliant(solution)),
+            "fixture must include a branch rejected by joint limits"
+        );
+        let constrained_robot = OPWKinematics::new_with_constraints(parameters, constraints);
+        let constrained = constrained_robot.inverse_continuing(&pose, &joints);
+        assert!(joints_close(
+            constrained
+                .first()
+                .expect("expected a constraint-compliant inverse solution"),
+            &joints,
+            1e-7,
+        ));
+        assert!(
+            constrained
+                .iter()
+                .all(|solution| constraints.compliant(solution))
+        );
 
-    fn verify(actual: &Solutions, expected: Solutions) {
-        let tolerance = 1.0;
-        let mut solution_matches = true;
-
-        if actual.len() != expected.len() {
-            solution_matches = false;
-        } else {
-            for sol_idx in 0..expected.len() {
-                for joint_idx in 0..6 {
-                    let computed = actual[sol_idx][joint_idx].to_degrees();
-                    let asserted = expected[sol_idx][joint_idx];
-
-                    let diff = (computed - asserted).abs();
-                    if diff >= tolerance && (diff - 2. * PI).abs() > tolerance {
-                        // For angles, 360 degree difference means the same angle.
-                        solution_matches = false;
-                        break;
-                    }
-                }
+        for (robot, solutions) in [
+            (&unconstrained_robot, &unconstrained),
+            (&constrained_robot, &constrained),
+        ] {
+            for solution in solutions {
+                assert!(solution.iter().all(|angle| angle.is_finite()));
+                let resolved = robot.forward(solution);
+                assert!((resolved.translation - pose.translation).length() < 1e-6);
+                assert!(resolved.angular_distance(pose) < 1e-6);
             }
         }
+    }
 
-        if !solution_matches {
-            println!("Solutions do not match");
-            println!("Expected:");
-            dump_solutions_degrees(&expected);
-            println!("Actual");
-            dump_solutions(actual);
-            panic!("Solutions do not match");
-        }
+    fn joints_close(actual: &Joints, expected: &Joints, tolerance: f64) -> bool {
+        actual.iter().zip(expected).all(|(actual, expected)| {
+            ((actual - expected + PI).rem_euclid(2.0 * PI) - PI).abs() < tolerance
+        })
     }
 
     #[test]

@@ -2,17 +2,6 @@
 
 use crate::kinematic_traits::{Joints, Pose, Solutions};
 
-/// Checks the solution for validity. This is only internally needed as all returned
-/// solutions are already checked.
-pub(crate) mod opw_kinematics {
-    use crate::kinematic_traits::Joints;
-
-    /// Checks if all elements in the array are finite
-    pub fn is_valid(qs: &Joints) -> bool {
-        qs.iter().all(|&q| q.is_finite())
-    }
-}
-
 /// Convert array of f32's in degrees to Joints
 /// that are array of f64's in radians
 pub fn joints(angles: &[f32; 6]) -> Joints {
@@ -136,28 +125,4 @@ pub fn assert_pose_eq(
         panic!("Poses have too different angles");
     }
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::opw_kinematics::*;
-    use std::f64::consts::PI;
-
-    #[test]
-    fn test_is_valid_with_all_finite() {
-        let qs = [0.0, 1.0, -1.0, 0.5, -0.5, PI];
-        assert!(is_valid(&qs));
-    }
-
-    #[test]
-    fn test_is_valid_with_nan() {
-        let qs = [0.0, f64::NAN, 1.0, -1.0, 0.5, -0.5];
-        assert!(!is_valid(&qs));
-    }
-
-    #[test]
-    fn test_is_valid_with_infinity() {
-        let qs = [0.0, f64::INFINITY, 1.0, -1.0, 0.5, -0.5];
-        assert!(!is_valid(&qs));
-    }
 }

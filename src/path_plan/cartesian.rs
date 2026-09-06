@@ -1609,7 +1609,7 @@ mod tests {
     };
     use crate::collisions::{CheckMode, RobotBody, SafetyDistances};
     use crate::constraints::Constraints;
-    use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+    use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
     use crate::kinematics_with_shape::KinematicsWithShape;
     use crate::rrt::RRTPlanner;
     use glam::DVec3;
@@ -2250,11 +2250,6 @@ mod tests {
             &self.constraints
         }
 
-        /// Reports no singularity because singularity handling is outside these graph tests.
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
-        }
-
         /// Returns identity joint poses because collision checks are disabled in the test robot.
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
             [Pose::identity(); 6]
@@ -2295,10 +2290,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &self.constraints
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -2344,10 +2335,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &self.constraints
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
@@ -2420,10 +2407,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &self.constraints
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {

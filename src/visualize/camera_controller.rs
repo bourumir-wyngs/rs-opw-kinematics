@@ -39,7 +39,7 @@ pub fn camera_controller_system(
     mut egui_contexts: EguiContexts,
 ) {
     if let Ok(egui_ctx) = egui_contexts.ctx_mut()
-        && (egui_ctx.wants_pointer_input() || egui_ctx.wants_keyboard_input())
+        && (egui_ctx.egui_wants_pointer_input() || egui_ctx.egui_wants_keyboard_input())
     {
         return;
     }

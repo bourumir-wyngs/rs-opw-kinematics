@@ -40,7 +40,7 @@ use std::sync::Arc;
 use glam::DVec3;
 
 use crate::constraints::Constraints;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 
 /// Defines the fixed tool that can be attached to the last joint (joint 6) of robot.
 /// The tool moves with the robot, providing additional translation and, if needed,
@@ -102,11 +102,6 @@ impl Kinematics for Tool {
         self.robot.forward_with_joint_poses(joints)
     }
 
-    /// There is nothing that the tool would add to singularities
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.robot.kinematic_singularity(qs)
-    }
-
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
     }
@@ -145,10 +140,6 @@ impl Kinematics for Base {
         }
 
         poses
-    }
-
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.robot.kinematic_singularity(qs)
     }
 
     fn constraints(&self) -> &Option<Constraints> {
@@ -242,10 +233,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &None
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {

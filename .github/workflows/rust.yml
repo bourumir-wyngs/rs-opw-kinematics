@@ -27,6 +27,8 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run visualization tests and doctests
+      run: cargo test --features visualization --verbose
     - name: Run URDF extractor
       run: cargo run src/tests/data/fanuc/lrmate200ib_macro.xacro
     - name: Build without features
@@ -37,6 +39,8 @@ jobs:
       run: cargo run
     - name: Build all examples
       run: cargo build --examples
+    - name: Build all examples with visualization
+      run: cargo build --examples --features visualization
     - name: Build all examples no default features
       run: cargo build --examples --no-default-features
 

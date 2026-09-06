@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::kinematic_traits::{Kinematics, Singularity};
+    use crate::kinematic_traits::Kinematics;
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::tests::test_utils;
@@ -134,44 +134,62 @@ mod tests {
             });
             let kinematics = OPWKinematics::new(*parameters);
 
-            // Exclude singularity cases that are covered by another test
-            if kinematics
-                .kinematic_singularity(&case.joints_in_radians())
-                .is_none()
-            {
-                // Try forward on the initial data set first.
-                let solutions = kinematics.inverse(&case.pose.as_pose());
-                if test_utils::found_joints_approx_equal(
+            let joints = case.joints_in_radians();
+            let pose = case.pose.as_pose();
+            let solutions = kinematics.inverse(&pose);
+            assert!(
+                !solutions.is_empty(),
+                "No inverse solution for case {} on {}",
+                case.id,
+                case.parameters
+            );
+            for solution in &solutions {
+                assert!(
+                    test_utils::are_poses_approx_equal(
+                        &kinematics.forward(solution),
+                        &pose,
+                        0.00001,
+                    ),
+                    "Inverse solution does not reproduce the pose for case {} on {}: {:?}",
+                    case.id,
+                    case.parameters,
+                    solution
+                );
+            }
+
+            // Near a wrist pole, a valid J4/J6 pair need not match the original pair.
+            let q5 = joints[4] * parameters.sign_corrections[4] as f64 - parameters.offsets[4];
+            if q5.sin().abs() > 0.01_f64.to_radians().sin()
+                && test_utils::found_joints_approx_equal(
                     &solutions,
-                    &case.joints_in_radians(),
+                    &joints,
                     0.001_f64.to_radians(),
                 )
                 .is_none()
-                {
-                    println!(
-                        "**** No valid solution for case {} on {} ****",
-                        case.id, case.parameters
-                    );
-                    let joints_str = &case
-                        .joints
-                        .iter()
-                        .map(|&val| format!("{:5.2}", val))
-                        .collect::<Vec<String>>()
-                        .join(" ");
-                    println!("Expected joints: [{}]", joints_str);
+            {
+                println!(
+                    "**** No valid solution for case {} on {} ****",
+                    case.id, case.parameters
+                );
+                let joints_str = &case
+                    .joints
+                    .iter()
+                    .map(|&val| format!("{:5.2}", val))
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                println!("Expected joints: [{}]", joints_str);
 
-                    println!("Solutions Matrix:");
-                    for solution in &solutions {
-                        let mut row_str = String::new();
-                        for computed in solution {
-                            row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-                        }
-                        println!("[{}]", row_str.trim_end());
+                println!("Solutions Matrix:");
+                for solution in &solutions {
+                    let mut row_str = String::new();
+                    for computed in solution {
+                        row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
                     }
-
-                    println!("---");
-                    panic!("Inverse kinematics does not produce valid solution");
+                    println!("[{}]", row_str.trim_end());
                 }
+
+                println!("---");
+                panic!("Inverse kinematics does not produce valid solution");
             }
         }
     }
@@ -327,43 +345,6 @@ mod tests {
             "Fully matching joints must come first. Expected Some(0), got {:?}",
             found_matching
         );
-    }
-
-    #[test]
-    fn test_singularity_a() {
-        // Assuming joint[4] close to π triggers A type singularity
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, -PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 0.0, PI])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 3. * PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-    }
-
-    #[test]
-    fn test_no_singularity() {
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-        let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
-        assert_eq!(robot.kinematic_singularity(&joints), None);
     }
 
     #[test]

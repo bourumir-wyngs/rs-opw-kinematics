@@ -1,3 +1,6 @@
+//! Run with `cargo run --example complete_visible_robot --features visualization`
+//! to open the robot visualization window.
+
 use anyhow::Result;
 #[cfg(all(feature = "collisions", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
@@ -12,7 +15,7 @@ use {
     rs_opw_kinematics::kinematic_traits::{J_BASE, J_TOOL, J2, J3, J4, J6},
     rs_opw_kinematics::kinematic_traits::{Kinematics, Pose},
     // This example only makes sense with collisions feature enabled
-    // Visualization can optionally be disabled.
+    // Visualization can optionally be enabled.
     rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape,
     rs_opw_kinematics::parameters::opw_kinematics::Parameters,
     rs_opw_kinematics::pose::Pose32,
@@ -178,5 +181,7 @@ fn visualize(
     _initial_angles: [f32; 6],
     _tcp_box: [RangeInclusive<f64>; 3],
 ) {
-    println!("Build configuration does not support visualization")
+    println!(
+        "To open the window, run: cargo run --example complete_visible_robot --features visualization"
+    );
 }

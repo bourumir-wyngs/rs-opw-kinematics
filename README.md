@@ -26,23 +26,27 @@ data for the test suite. This documentation also incorporates the robot diagram 
 # Features
 
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
-- All returned solutions are valid, normalized, and cross-checked with forward kinematics.
+- Inverse solutions are cross-checked with forward kinematics: the full pose for 6 DOF,
+  and the tool position for 5 DOF. Continuation normalizes joint angles near the previous values.
 - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
 - Collision detection (with [Parry](https://parry.rs/)) allows excluding solutions where the robot would collide with
-  itself or environment objects. It is possible to set guaranteed safety distances between surfaces rather than
+  itself or environment objects. It is possible to configure minimum clearances between surfaces rather than
   just checking if they touch.
 - For the kinematic singularity at J5 = 0&deg; or J5 = &plusmn;180&deg; positions, this solver provides reasonable J4 and J6
   values close to the previous positions of these joints (and not arbitrary that may result in a large jerk on the real
   robot). Since 1.8.10, the "previous" rotation can be in a wide range well outside &plusmn;360&deg;.
 - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
   of the tool center point (TCP) rather than any specific link of the robot.
-- Planning a Cartesian stroke composed of linear segments, ensuring configuration consistency (no abrupt jumps) and collision-free movement. Alternative methods for executing the stroke are being explored, transitioning from the specified "onboarding" robot configuration to the first waypoint before the linear stroke.
+- Cartesian stroke planning with joint-transition limits, sampled collision checks,
+  and RRT connections from the starting configuration.
 - Jacobian, torques, and velocities
 - 5 DOF inverse kinematics.
-- Visualization (with [Bevy](https://bevyengine.org/)) allows quick check if the robot is properly configured.
+- Optional visualization (with [Bevy](https://bevyengine.org/)) helps check robot configuration;
+  enable it with the `visualization` feature.
 
-The solver currently uses 64-bit floats (Rust f64), providing the positional accuracy below 1&micro;m for the two
-robots tested.
+The solver uses 64-bit floats (Rust `f64`). Inverse-pose validation accepts position errors
+up to one millionth of the sum of the absolute OPW geometry parameters and, for 6 DOF,
+orientation errors up to `1e-6` radians.
 
 # Quick example
 
@@ -50,7 +54,7 @@ Cargo.toml:
 
 ```toml
 [dependencies]
-rs-opw-kinematics = "2"
+rs-opw-kinematics = "3"
 ```
 
 Simple "hello world" demonstrating singularity handling:
@@ -74,7 +78,7 @@ fn main() {
     // Get the pose produced by the joint configuration above.
     let pose = robot.forward(&joints);
 
-    println!("\nSolutions assuming we continue from somewhere close. No singularity effect.");
+    println!("\nSolutions near the previous joint configuration:");
     // Previous joint configuration used to select consistent J4/J6 at the J5 singularity.
     let when_continuing_from: Joints = [0.0, 0.11, 0.22, 0.3, 0.1, 0.5];
 
@@ -85,6 +89,14 @@ fn main() {
 
 Since version 1.8.10, the "previous" angles can be very large (including negative values). Test cases cover angles up to 90,000 degrees.
 
+For 6 DOF, both `inverse` and `inverse_continuing` recover wrist singularities without
+shifting the requested Cartesian position. In OPW model coordinates, after applying
+joint signs and offsets, the target fixes J4 + J6 at J5 = 0° and J4 - J6 at J5 = ±180°.
+Continuation splits the required correction equally between J4 and J6,
+using the previous values as a reference. Those values may need to change to reach the
+target pose. Plain `inverse` uses constraint centers, or zeros when unconstrained.
+Small, resolvable nonzero J5 bends retain their individual wrist angles.
+
 The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
 integrating collision checking and both joint-based and Cartesian path planning with collision avoidance.
@@ -93,8 +105,9 @@ See example [complete_visible_robot.rs](examples/complete_visible_robot.rs).
 ## Parameters
 
 This library uses seven kinematic parameters (_a1, a2, b, c1, c2, c3_, and _c4_). This solver assumes that the arm is
-at zero when all joints stick straight up in the air, as seen in the image below. It also assumes that all
-rotations are positive about the base axis of the robot. No other setup is required.
+at zero when all joints stick straight up in the air, as seen in the image below. Positive
+rotations follow the right-hand rule about each joint's own axis; sign corrections adapt
+this convention to the robot's joint directions.
 
 <img src="https://camo.githubusercontent.com/a60affbc3f6b93896f6e3c46e320ec0d36eb22b81c85cf8242dc0e315147c0ec/68747470733a2f2f626f7572756d69722d77796e67732e6769746875622e696f2f72732d6f70772d6b696e656d61746963732f646f63756d656e746174696f6e2f6f70772e676966" alt="OPW Kinematics GIF" width="300"/>
 
@@ -108,10 +121,13 @@ your robot's axes do not match the convention in the paper.
 For example, the ABB IRB2400 has the following values:
 
 ```rust
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+
 let parameters = Parameters {
     a1: 0.100, a2: -0.135, b: 0.000, c1: 0.615, c2: 0.705, c3: 0.755, c4: 0.085,
     offsets: [0.0, 0.0, -std::f64::consts::PI / 2.0, 0.0, 0.0, 0.0],
     sign_corrections: [1; 6],
+    dof: 6,
 };
 ``` 
 
@@ -164,11 +180,36 @@ let pose = Pose::from_parts(
 println!("TCP z = {:.3}", pose.translation.z);
 ```
 
+## Migrating to 3.0
+
+- Visualization is now opt-in. Enable `features = ["visualization"]` in your
+  dependency or pass `--features visualization` when running graphical examples.
+- Geometry and visualization now share `glam` 0.32.1 with Bevy 0.19 and
+  Parry 0.27. Prefer `rs_opw_kinematics::glam` imports; if you depend on
+  `glam` directly, use `glam = "0.32.1"`.
+- Remove uses of `kinematic_traits::Singularity` and
+  `Kinematics::kinematic_singularity`, including this method in custom trait
+  implementations. Wrist singularities are handled inside the inverse solver.
+- Remove the legacy `yaml-rust2` feature from dependency declarations. YAML loading
+  is provided by `allow_filesystem`, which remains enabled by default.
+- Replace `read_trimesh::load_trimesh_from_ply(path)` and
+  `read_trimesh::load_trimesh_from_stl(path)` with
+  `rs_read_trimesh::load_trimesh(path, 1.0)` and handle its `Result`.
+  Add `rs-read-trimesh` as a direct dependency with the matching Parry backend:
+
+```toml
+rs-read-trimesh = { version = "=2.0.10", default-features = false, features = ["use-parry-27"] }
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
+
 ## Migrating to 2.0
 
 Version 2.0 makes the geometry API glam-native and removes nalgebra from this
 crate's public API and direct dependencies. See also
 [RELEASE_NOTES_2.0.md](RELEASE_NOTES_2.0.md).
+The dependency versions in this section describe the 2.0 migration; for 3.0,
+use the versions in [Migrating to 3.0](#migrating-to-30).
 
 - Replace nalgebra `Isometry3`, `Translation3`, and `UnitQuaternion` poses with
   crate-owned `Pose` values created by `Pose::from_translation` or
@@ -263,7 +304,10 @@ angles) prepared for one location to make the same kind of movements in another 
 Frame in robotics is most commonly defined by the 3 pairs of points (to and from) if the transform includes
 also rotation, or just a single pair is enough if only shift (but not a rotation) is involved.
 
-Frame construction uses `rs_opw_kinematics::glam::DVec3` points and stores the resulting transform as `Pose`. Once constructed by specifying
+Frame construction uses `rs_opw_kinematics::glam::DVec3` points and stores the resulting transform as
+`FrameTransform`, which includes translation, rotation, and uniform scale.
+`Frame::translation` and `Frame::frame` construct rigid transforms;
+`Frame::try_from_tie` also supports uniform scaling. Once constructed by specifying
 original and transformed points, the Frame object can take "canonical" joint angles and calculated joint angles for the
 transformed (shifted and rotated) trajectory. See the [frame](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/frame/index.html) documentation and [example](examples/frame.rs) for details.
 
@@ -284,11 +328,18 @@ The 5 DOF robot can still be represented with the same diagram, and has the same
 to be fixed. Such a robot still can bring the tool to the needed location, also following the generic orientation
 but the rotation around the tool axis is not followed.
 
-Support for 5 DOF robots is now included through an additional 'dof' field in the
-parameter data structure. 5 DOF inverse kinematics can also be requested for 6 DOF
-robots, particularly when the last joint is in constant motion (e.g., for drilling), or when maintaining precise tool
-rotation would cause the robot to exceed its constraints. This method is also faster to compute. If the robot is
-flagged as 5 DOF robot, the value of the joint 6 will normally be 0 and ignored.
+Use `inverse_5dof(&pose, j6)` with a finite fixed J6 angle, or
+`inverse_continuing_5dof(&pose, &previous)` to retain the previous J6 angle and sort
+solutions near the previous configuration. These explicit methods also apply joint constraints.
+They can be used with 6 DOF models when exact tool-axis rotation is unnecessary.
+The `Parameters::dof` field identifies 5 DOF models; YAML and URDF loaders lock
+the sixth model joint for those robots. A manually constructed model's J6 behavior
+also depends on its sign correction and offset.
+
+For `OPWKinematics` models marked `dof = 5`, `inverse` fixes J6 at zero, while
+`inverse_continuing` retains the previous J6 value. Both filter joint constraints;
+continuation also normalizes angles near the previous values and sorts solutions
+according to the configured preference.
 
 ## Parallelogram
 
@@ -313,8 +364,8 @@ end-effector pose and orientation. This can be expressed as:
 J₃ = J₃' + s * J₂
 
 The scaling factor `s` determines how much influence J₂ has on J₃. A scaling
-factor of 1.0 is common, as this value ensures the end-effector’s
-orientation remains unchanged if only J₃ and J₂ move.
+factor of 1.0 compensates the driven J₂ motion so that, with J₃ and the other
+joints held fixed, moving J₂ does not change the end-effector orientation.
 
 See [Parallelogram](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/parallelogram/struct.Parallelogram.html) and [example](examples/parallelogram.rs).
 
@@ -346,13 +397,20 @@ Shorter distances can be specified for joints that naturally operate in proximit
 The code below demonstrates how to create this structure, complete with tool,
 base, and constraints (see also [example](examples/complete_visible_robot.rs)):
 
+It uses the default features and loads meshes from a local checkout of this repository.
+Add the mesh loader as a direct dependency:
+
+```toml
+rs-read-trimesh = { version = "=2.0.10", default-features = false, features = ["use-parry-27"] }
+```
+
 ```rust
 use rs_opw_kinematics::glam::{DVec3, Vec3};
 use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
 use rs_opw_kinematics::collisions::{
-    CollisionBody, SafetyDistances, CheckMode, J_BASE, J2, J3, J4, J6, J_TOOL, NEVER_COLLIDES,
+    CollisionBody, SafetyDistances, CheckMode, NEVER_COLLIDES,
 };
-use rs_opw_kinematics::kinematic_traits::Pose;
+use rs_opw_kinematics::kinematic_traits::{Pose, J_BASE, J2, J3, J4, J6, J_TOOL};
 use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
 use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 use rs_opw_kinematics::pose::Pose32;
@@ -427,7 +485,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
                 ((J4, J_TOOL), 0.02_f32),
                 ((J4, J6), 0.02_f32),
             ]),
-            mode: CheckMode::AllCollisions, // report all for visualization
+            mode: CheckMode::AllCollsions, // report all for visualization
             // mode: CheckMode::NoCheck, // fastest; disables collision checks
         },
     ))
@@ -435,55 +493,42 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
 ```
 
 ## Path planning
-There are currently few path planning libraries available in Rust. Instead of incorporating them directly into our project
-and writing the code around, we decided to explore the complexity of integrating these libraries as external dependencies
-(referenced only in examples). This approach allowed us to identify key "pain points" that complicate the integration of
-external path planners.
+Joint-space RRT and Cartesian stroke planning are included through the
+`stroke_planning` feature, enabled by default. Both use `KinematicsWithShape`
+for collision checks. No separate `rrt` or `pathfinding` dependency is required.
 
-We provide external support for two libraries, `rrt` and `pathfinding`. Although `rs-opw-kinematics` does not use either
-internally, we include examples demonstrating their usage. These two libraries are listed as
-development dependencies in `Cargo.toml`.
-
-### rrt
-The Rapidly-Exploring Random Tree (RRT) library, [rrt](https://github.com/openrr/rrt), is available under the
-Apache 2.0 license by Takashi Ogura and Mitsuharu Kojima. It can be used the following way:
+### RRT
+The integrated RRT implementation is derived from [rrt](https://github.com/openrr/rrt),
+licensed under Apache 2.0 by Takashi Ogura and Mitsuharu Kojima. Use `RRTPlanner`
+to plan between two joint configurations:
 
 ```rust
-use rrt::dual_rrt_connect;
+use rs_opw_kinematics::kinematic_traits::Joints;
+use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
+use rs_opw_kinematics::rrt::RRTPlanner;
 use std::sync::atomic::AtomicBool;
 
 fn plan_path(
   kinematics: &KinematicsWithShape,
   start: Joints, goal: Joints,
-) -> Result<Vec<Vec<f64>>, String> {
-  let collision_free = |joint_angles: &[f64]| -> bool {
-    let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
-    !kinematics.collides(joints)
-  };
-
-  // Constraint compliant random joint configuration generator. 
-  let random_joint_angles = || -> Vec<f64> {
-    // RRT requires vector and we return array so convert
-    return kinematics.constraints()
-            .expect("Set joint ranges on kinematics").random_angles().to_vec();
-  };
-
-  // Plan the path with RRT
+) -> Result<Vec<Joints>, String> {
   let stop = AtomicBool::new(false);
-  dual_rrt_connect(
-    &start, &goal, collision_free,
-    random_joint_angles, 3_f64.to_radians(), // Step size in joint space
-    2000,  // Max iterations
-    &stop,
-  )
+  RRTPlanner {
+    step_size_joint_space: 3_f64.to_radians(),
+    max_try: 2000,
+    smooth: 500, // Number of shortcut attempts; use 0 to retain the raw RRT path.
+    debug: false,
+  }
+  .plan_rrt(&start, &goal, kinematics, &stop)
 }
 ```
 
-This library requires producing random joint angles within constraints. We made constraints easily
-accessible from the instance of Kinematics, and provided `random_angles()` methods for them.
+The planner samples joint configurations from the robot's constraints. Configure
+joint ranges before planning. The lower-level `dual_rrt_connect` function is also
+available from `rs_opw_kinematics::rrt` for custom sampling and collision checks.
 
 See the [example](examples/path_planning_rrt.rs) for how to define the robot and other boilerplate code. The direct output
-will be a vector of vectors (not vector of `Joints`), each representing a step in the trajectory.
+is a `Vec<Joints>`, with each entry representing a step in the trajectory.
 
 ## Cartesian stroke
 Producing a robot's movement over the surface of an object performing a task (such as welding, painting, or washing)
@@ -498,7 +543,8 @@ This means that although alternative solutions exist, the initial configuration 
 determines how the stroke progresses. If the trajectory cannot be completed before finishing the stroke, it may still
 be possible to execute the stroke by starting with a different initial configuration.
 
-For this reason, the stroke planning in this library consists of the following steps:
+A planned path consists of the following parts. The planner first checks feasible
+Cartesian stroke configurations, then tries to connect them to the starting position with RRT.
 
 - **Starting from the "home" position and moving to the "landing" position**:  
   The landing position should be close to the working surface and slightly elevated to allow the robot to move safely
@@ -508,19 +554,35 @@ For this reason, the stroke planning in this library consists of the following s
 - **Executing the stroke**:  
   The robot transitions from the landing position to the first stroke position, moves between stroke positions, and
   finally returns to a "parking" position, lifting away from the surface.
-  - All strokes in this phase are Cartesian, even if the steps between stroke points are large.
-  - The planner generates sufficient intermediate poses to ensure the robot avoids collisions during long linear
-    movements and prevents unexpected configuration changes.
+  - Stroke segments use Cartesian motion. If `allow_reconfigure` is enabled,
+    a failed segment may be bridged by joint-space RRT movement. Set it to `false`
+    when the stroke must remain Cartesian.
+  - The planner samples intermediate poses to check collisions and joint transitions.
+    `check_step_m` and `check_step_rad` control the sampling density; obstacles
+    between checked configurations can be missed.
   - These "intermediate" poses are flagged and can be included in the output (for simpler robots) or excluded (for
     advanced robots capable of executing Cartesian strokes using their built-in software).
 
-You will find the complete code in `cartesian_stroke.rs` between examples.
+The following function takes a configured robot, starting joints, landing and
+parking poses, and the stroke poses. See [cartesian_stroke.rs](examples/cartesian_stroke.rs)
+for the complete setup.
 
 ```rust
+use rs_opw_kinematics::cartesian::{
+    Cartesian, DEFAULT_CARTESIAN_LAYER_STATES, DEFAULT_MAX_SOLUTIONS_AWAIT,
+    DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
+    DEFAULT_TRANSITION_COSTS,
+};
+use rs_opw_kinematics::kinematic_traits::{Joints, Pose};
+use rs_opw_kinematics::kinematics_with_shape::KinematicsWithShape;
+use rs_opw_kinematics::rrt::RRTPlanner;
+use std::time::Instant;
+
+fn plan_stroke(k: &KinematicsWithShape, start: Joints, land: Pose, steps: Vec<Pose>, park: Pose) {
     let planner = Cartesian {
-        robot: &k, // The robot, instance of KinematicsWithShape
-        check_step_m: 0.02, // Pose distance check accuracy in meters (for translation)
-        check_step_rad: 3.0_f64.to_radians(), // Pose distance check accuracy in radians (for rotation)
+        robot: k,
+        check_step_m: 0.02, // Translation sampling step in meters
+        check_step_rad: 3.0_f64.to_radians(), // Rotation sampling step in radians
         max_transition_cost: 3_f64.to_radians(), // Maximal transition costs (not tied to the parameter above)
         // (weighted sum of abs differences between 'from' and 'to' for all joints, radians).
         transition_coefficients: DEFAULT_TRANSITION_COSTS, // Joint weights to compute transition cost
@@ -554,8 +616,8 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
 
     match path {
         Ok(path) => {
-            for joints in path {
-                println!("{:?}", &joints);
+            for waypoint in path {
+                println!("{:?}: {:?}", waypoint.move_into, waypoint.joints);
             }
         }
         Err(message) => {
@@ -563,20 +625,43 @@ You will find the complete code in `cartesian_stroke.rs` between examples.
         }
     }
     println!("Took {:?}", elapsed);
+}
 ```
 
-It is important that while Parry3D can compute distances till collision objects and plan with safety margins,
-it is much slower than simply checking for collisions. Example explains how to create the SafetyDistances
-object that can be used for specifying how collisions should be checked. It is possible to specify the check with
-safety margin, or just check for collisions, or do not check for collisions at all if we concentrate on path and
-constraints to be sure everything is collision-free anyway.
+The result contains `AnnotatedJoints` waypoints. `joints` holds the angles,
+`move_into` selects Cartesian or joint-space motion from the preceding waypoint,
+and `flags` identifies waypoint roles. RRT reconfiguration waypoints carry
+`PathFlags::RECONFIGURING` and `MoveKind::Joint`.
+
+Distance checks for safety margins cost more than contact-only collision checks.
+`SafetyDistances` configures minimum clearances or contact-only checks;
+`CheckMode::NoCheck` disables collision checking. Joint constraints alone do not
+check collisions.
 
 Please see the [example](examples/cartesian_stroke.rs).
 
-**Note**: versions 1.8.2 and below may produce large rotation while the tool center point is formally following Cartesian path. This is fixed since 1.8.3. Under these rare conditions (that occur only near, but not at the J5 = 0 singularity point), the rotation (not translation) of the generated pose may differ from requested, by no more than the value of `Cartesian.check_step_rad` parameter.
+`check_step_rad` controls orientation sampling along Cartesian segments; it is
+not an allowance for inverse-kinematics orientation error near a wrist singularity.
 
 
 ## Visualization
+
+Visualization is disabled by default. Enable it in your dependency:
+
+```toml
+rs-opw-kinematics = { version = "3", features = ["visualization"] }
+```
+
+Run the examples with a visualization window:
+
+```sh
+cargo run --example complete_visible_robot --features visualization
+cargo run --example cartesian_stroke --features visualization
+cargo run --example path_planning_rrt --features visualization
+```
+
+Without this feature, the planning examples still compute and print their paths.
+
 [KinematicsWithShape](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/kinematics_with_shape/struct.KinematicsWithShape.html)
 is also straightforward to visualize, as it fully integrates both the kinematics and 3D meshes representing the robot.
 To display it, simply pass this structure to the built-in function
@@ -606,10 +691,10 @@ It is not intended as a production feature. Using Bevy, the visualization will d
 manipulate the robot.
 
 In the visualization window, you can adjust joint positions for forward kinematics or set the tool center point using
-Cartesian coordinates for inverse kinematics. Collision detection is active in both modes, but it functions differently:
-in inverse kinematics, movement is restricted to prevent collisions entirely (the robot will not move if a collision
-would occur). In forward kinematics, collisions are allowed, but colliding robot joints and environment objects will be
-highlighted.
+Cartesian coordinates for inverse kinematics. With collision checking enabled,
+inverse kinematics rejects colliding target configurations. It does not check the
+full motion between the old and new configurations. In forward kinematics,
+collisions are allowed, but colliding robot joints and environment objects are highlighted.
 
 When using inverse kinematics, you may observe unexpected large "jumps," or in some cases, no viable solution within the
 robot's reach, constraints, and collision boundaries. This simply reflects the inherent limitations and complexities of
@@ -619,7 +704,7 @@ real-world robotic movement.
 # Configuring the solver for your robot
 
 The project contains built-in definitions for Igus Rebel, ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx,
-FANUC R-2000iB/200R; Stäubli TX40, TX2-140, TX2-160, and TX2-160L with various levels of
+FANUC R-2000iB/200R; Stäubli RX160, TX40, TX2-140, TX2-160, and TX2-160L with various levels of
 testing. Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is
 described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
@@ -627,6 +712,10 @@ Many other robots are described in [ros-industrial/fanuc](https://github.com/ros
 This project contains the code for reading such configurations directly, including support for ROS-specific YAML constructs like deg(180), rad(pi), 1 + 2*(3 - 4/5), rad(pi/2) and similar that sometimes occurs there:
 
 ```rust
+  use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+  use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+
+  let filename = "robot.yaml";
   let parameters = Parameters::from_yaml_file(filename).expect("Failed to load parameters");
   println!("Reading:\n{}", &parameters.to_yaml());
   let robot = OPWKinematics::new(parameters);
@@ -656,23 +745,47 @@ values. Use visualization as explained before feeding the output to the physical
 
 # Disabling filesystem
 
+The default features enable filesystem access, collision detection, and stroke
+planning. Visualization requires the explicit `visualization` feature.
+
 For security and performance, some users prefer smaller libraries with fewer dependencies. If YAML and URDF readers
 are not in use and meshes for collision detection are obtained from somewhere else (
 or collision detection is not used), the filesystem access can be completely disabled in your Cargo.toml, importing the
 library like:
 
 ```toml
-rs-opw-kinematics = { version = "2", default-features = false }
+rs-opw-kinematics = { version = "3", default-features = false }
 ```
 
 In this case, import of URDF and YAML files will be inaccessible, visualization and
 collision detection will not work either, and used dependencies
 will be limited to the core kinematics dependency set.
 
+To retain collision checks and path planning while disabling the file readers:
+
+```toml
+rs-opw-kinematics = { version = "3", default-features = false, features = ["collisions", "stroke_planning"] }
+```
+
 # Testing
 
-The code of this project is tested against the test set (cases.yaml, 2048 cases per robot) that is
-believed to be correct for the two robots, KUKA KR 6 R700 sixx and ABB IRB 2400/10. It has been produced
-using independent C++ implementation by [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics). The
-testing suite checks if the solutions
-match.
+CI tests and builds examples with default features, with visualization enabled,
+and without default features. Run the same configurations locally:
+
+```sh
+cargo test
+cargo build --examples
+cargo test --features visualization
+cargo build --examples --features visualization
+cargo test --no-default-features
+cargo build --examples --no-default-features
+```
+
+The reference dataset (`cases.yaml`) contains 2,048 cases: 1,024 each for
+KUKA KR 6 R700 sixx and ABB IRB 2400/10. It was generated using the independent
+C++ implementation [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics).
+Tests compare forward poses, verify that inverse solutions reproduce the requested
+pose, and check original-joint recovery away from wrist poles. At a pole, equivalent
+J4/J6 distributions are accepted. Additional singularity tests use independent
+quaternion rotations and degree-based cases for recovery at 0° and ±180°,
+including required J4/J6 movement in both directions through zero.
