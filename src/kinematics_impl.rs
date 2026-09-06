@@ -53,8 +53,14 @@ impl OPWKinematics {
 const RELATIVE_DISTANCE_TOLERANCE: f64 = 1E-6;
 const ANGULAR_TOLERANCE: f64 = 1E-6;
 
-// Roundoff allowance for the sine terms extracted from a unit rotation matrix.
-const WRIST_SINGULARITY_THR: f64 = 64.0 * f64::EPSILON;
+// Below this floor the regular wrist atan2 pairs cannot be reliably resolved.
+const WRIST_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON;
+// Arm recovery can amplify roundoff beyond the matrix-only floor. Try pole
+// candidates throughout the pose tolerance, alongside resolvable regular bends.
+// Forward kinematics still validates every candidate.
+const WRIST_POLE_OVERLAP_THR: f64 = ANGULAR_TOLERANCE;
+// Merge roundoff duplicates without losing resolvable nonzero wrist bends.
+const JOINT_DUPLICATE_THR: f64 = 64.0 * f64::EPSILON;
 
 #[derive(Clone, Copy)]
 struct RotationMatrix {
@@ -405,9 +411,13 @@ impl OPWKinematics {
         ]
     }
 
-    /// Computes both model-space J4-J6 orientations for one arm branch.
-    /// At a wrist pole, resolves the coupled J4/J6 angles near the supplied reference.
-    fn wrist_branch(matrix: &RotationMatrix, arm: ArmBranch, near: &J4J6Near) -> [WristBranch; 2] {
+    /// Computes model-space J4-J6 candidates for one arm branch.
+    /// Near a wrist pole, also resolves the coupled J4/J6 angles near the reference.
+    fn wrist_branch(
+        matrix: &RotationMatrix,
+        arm: ArmBranch,
+        near: &J4J6Near,
+    ) -> impl Iterator<Item = WristBranch> + use<> {
         let (sin1, cos1) = arm.q1.sin_cos();
         let (sin23, cos23) = (arm.q2 + arm.q3).sin_cos();
 
@@ -427,8 +437,8 @@ impl OPWKinematics {
         let sin5_e2 = q6_x.hypot(q6_y);
         let q5 = sin5_e1.atan2(m.clamp(-1.0, 1.0));
 
-        let (q4, q6) = if sin5_e1 <= WRIST_SINGULARITY_THR
-            && sin5_e2 <= WRIST_SINGULARITY_THR
+        let pole = if sin5_e1 <= WRIST_POLE_OVERLAP_THR
+            && sin5_e2 <= WRIST_POLE_OVERLAP_THR
             && near.j4.is_finite()
             && near.j6.is_finite()
         {
@@ -454,47 +464,69 @@ impl OPWKinematics {
 
             // Equal splitting minimizes squared wrist motion. The existing
             // L1 solution sorter can tie on other splits of the same correction.
-            (near4 + correction / 2.0, near6 + sign * correction / 2.0)
+            // Offer an exact-pole candidate; the caller still checks it with FK.
+            Some(WristBranch {
+                q4: near4 + correction / 2.0,
+                q5: if m >= 0.0 { 0.0 } else { PI },
+                q6: near6 + sign * correction / 2.0,
+            })
         } else {
-            (q4_y.atan2(q4_x), q6_y.atan2(q6_x))
+            // Outside the overlap, or without a finite reference, use only regular solutions.
+            None
         };
 
-        [
-            WristBranch { q4, q5, q6 },
-            WristBranch {
-                q4: q4 + PI,
-                q5: -q5,
-                q6: q6 - PI,
-            },
-        ]
+        // Normal wrist IK: solve J4 and J6 individually using the nonzero J5 bend.
+        let regular = (pole.is_none()
+            || sin5_e1 > WRIST_ROUNDOFF_THR
+            || sin5_e2 > WRIST_ROUNDOFF_THR)
+            .then(|| WristBranch {
+                q4: q4_y.atan2(q4_x),
+                q5,
+                q6: q6_y.atan2(q6_x),
+            });
+
+        // Return two candidates when only one method applies, or four when
+        // pole recovery and regular solutions overlap. The iterator skips absent options
+        // without allocating a Vec for each arm branch.
+        [pole, regular].into_iter().flatten().flat_map(|wrist| {
+            // Each method contributes the original wrist and its flipped orientation.
+            [
+                wrist,
+                WristBranch {
+                    q4: wrist.q4 + PI,
+                    q5: -wrist.q5,
+                    q6: wrist.q6 - PI,
+                },
+            ]
+        })
+    }
+
+    /// Converts all arm/wrist candidates to joint coordinates before validation.
+    fn inverse_candidates(
+        &self,
+        pose: &Pose,
+        near: &J4J6Near,
+    ) -> impl Iterator<Item = Joints> + use<> {
+        let params = self.parameters;
+        let matrix = RotationMatrix::from_quat(pose.rotation);
+        let arm_branches = self.arm_branches(pose);
+        let near = *near;
+        arm_branches.into_iter().flat_map(move |arm| {
+            Self::wrist_branch(&matrix, arm, &near).map(move |wrist| {
+                let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
+                std::array::from_fn(|i| {
+                    (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
+                })
+            })
+        })
     }
 
     fn inverse_intern(&self, pose: &Pose, near: &J4J6Near) -> Solutions {
-        let params = &self.parameters;
-        let matrix = RotationMatrix::from_quat(pose.rotation);
-        let arm_branches = self.arm_branches(pose);
-        let wrist_branches = arm_branches.map(|arm| Self::wrist_branch(&matrix, arm, near));
-
-        let theta: [[f64; 6]; 8] = std::array::from_fn(|solution_index| {
-            let arm_index = solution_index % arm_branches.len();
-            let wrist_index = solution_index / arm_branches.len();
-            let arm = arm_branches[arm_index];
-            let wrist = wrist_branches[arm_index][wrist_index];
-            [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6]
-        });
-
-        let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
-        for (si, solution) in sols.iter_mut().enumerate() {
-            for (ji, joint) in solution.iter_mut().enumerate() {
-                *joint = (theta[si][ji] + params.offsets[ji]) * params.sign_corrections[ji] as f64;
-            }
-        }
-
         let mut result: Solutions = Vec::with_capacity(8);
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for (si, solution) in sols.iter_mut().enumerate() {
+        for (si, mut solution) in self.inverse_candidates(pose, near).enumerate() {
             let mut valid = true;
             for angle in solution.iter_mut() {
                 let mut current = *angle;
@@ -512,14 +544,14 @@ impl OPWKinematics {
                 }
             }
             if valid {
-                let check_pose = self.forward(solution);
+                let check_pose = self.forward(&solution);
                 if compare_poses(
                     pose,
                     &check_pose,
                     self.distance_tolerance,
                     ANGULAR_TOLERANCE,
                 ) {
-                    result.push(*solution);
+                    push_unique(&mut result, solution);
                 } else {
                     if DEBUG {
                         println!("********** Pose Failure sol {} *********", si);
@@ -532,32 +564,12 @@ impl OPWKinematics {
     }
 
     fn inverse_intern_5_dof(&self, pose: &Pose, j6: f64, near: &J4J6Near) -> Solutions {
-        let params = &self.parameters;
-        let matrix = RotationMatrix::from_quat(pose.rotation);
-        let arm_branches = self.arm_branches(pose);
-        let wrist_branches = arm_branches.map(|arm| Self::wrist_branch(&matrix, arm, near));
-
-        let theta: [[f64; 5]; 8] = std::array::from_fn(|solution_index| {
-            let arm_index = solution_index % arm_branches.len();
-            let wrist_index = solution_index / arm_branches.len();
-            let arm = arm_branches[arm_index];
-            let wrist = wrist_branches[arm_index][wrist_index];
-            [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5]
-        });
-
-        let mut sols: [[f64; 6]; 8] = [[f64::NAN; 6]; 8];
-        for (si, solution) in sols.iter_mut().enumerate() {
-            for (ji, joint) in solution.iter_mut().take(5).enumerate() {
-                *joint = (theta[si][ji] + params.offsets[ji]) * params.sign_corrections[ji] as f64;
-            }
-            solution[5] = j6; // J6 goes directly to response and is not more adjusted
-        }
-
         let mut result: Solutions = Vec::with_capacity(8);
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for (si, solution) in sols.iter_mut().enumerate() {
+        for (si, mut solution) in self.inverse_candidates(pose, near).enumerate() {
+            solution[J6] = j6; // J6 goes directly to response and is not more adjusted
             let mut valid = true;
             for angle in solution.iter_mut().take(5) {
                 let mut current = *angle;
@@ -575,9 +587,9 @@ impl OPWKinematics {
                 }
             }
             if valid {
-                let check_xyz = self.forward(solution).translation;
+                let check_xyz = self.forward(&solution).translation;
                 if Self::compare_xyz_only(&pose.translation, &check_xyz, self.distance_tolerance) {
-                    result.push(*solution);
+                    push_unique(&mut result, solution);
                 } else {
                     if DEBUG {
                         println!("********** Pose Failure 5DOF sol {} *********", si);
@@ -669,6 +681,18 @@ fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
         .zip(joint2.iter())
         .map(|(a, b)| (a - b).abs())
         .sum()
+}
+
+fn push_unique(solutions: &mut Solutions, candidate: Joints) {
+    let duplicate = solutions.iter().any(|solution| {
+        solution.iter().zip(candidate).all(|(existing, angle)| {
+            let difference = (existing - angle + PI).rem_euclid(2.0 * PI) - PI;
+            difference.abs() <= JOINT_DUPLICATE_THR
+        })
+    });
+    if !duplicate {
+        solutions.push(candidate);
+    }
 }
 
 fn compare_poses(ta: &Pose, tb: &Pose, distance_tolerance: f64, angular_tolerance: f64) -> bool {

@@ -74,7 +74,7 @@ fn singular_wrist_splits_phase_correction_from_independent_rotation() {
         let target = target_degrees.map(f64::to_radians);
         let expected = expected_degrees.map(f64::to_radians);
         let matrix = wrist_matrix_from_model(target[0], target[1], target[2]);
-        let branches = OPWKinematics::wrist_branch(&matrix, arm, &near);
+        let branches = OPWKinematics::wrist_branch(&matrix, arm, &near).collect::<Vec<_>>();
 
         assert!(
             branches.iter().any(|wrist| {
@@ -213,6 +213,111 @@ fn exact_wrist_poles_recover_nearest_pair_on_original_arm_branch() {
 }
 
 #[test]
+fn exact_wrist_poles_preserve_previous_despite_arm_recovery_error() {
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    // Recovering this nearly degenerate arm branch amplifies roundoff enough
+    // that the recovered wrist has a nonzero sine even at an exact pole.
+    for j5_degrees in [0.0, 180.0, -180.0] {
+        let previous = [
+            152.29350524023175,
+            -88.2055330183357,
+            -79.86287500709295,
+            22.963288826867934,
+            j5_degrees,
+            53.3190125785768,
+        ]
+        .map(f64::to_radians);
+        let pose = robot.forward(&previous);
+        let solutions = robot.inverse_continuing(&pose, &previous);
+        let best = solutions
+            .first()
+            .expect("the exact previous solution exists");
+
+        // Exercise the entire inverse path, including arm_branches(), and
+        // check ranking and unwrapped continuity of the first solution.
+        for joint in 0..6 {
+            assert!(
+                (best[joint] - previous[joint]).abs() < 1e-7,
+                "J5={j5_degrees} degrees: J{} jumped from {} to {} degrees",
+                joint + 1,
+                previous[joint].to_degrees(),
+                best[joint].to_degrees(),
+            );
+        }
+        for solution in &solutions {
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+}
+
+#[test]
+fn inverse_deduplicates_coincident_arm_branches_at_wrist_poles() {
+    let parameters = Parameters {
+        a1: 0.25,
+        a2: 0.0,
+        b: 0.0,
+        c1: 0.5,
+        c2: 0.5,
+        c3: 0.5,
+        c4: 0.125,
+        offsets: [0.0; 6],
+        sign_corrections: [1; 6],
+        dof: 6,
+    };
+    let robot = OPWKinematics::new(parameters);
+    let same_joints = |a: &Joints, b: &Joints| {
+        a.iter()
+            .zip(b.iter())
+            .all(|(&a, &b)| angle_error(a, b) < 1e-12)
+    };
+
+    for q5 in [0.0, PI, -PI] {
+        // At full arm extension, the two elbow branches coincide exactly.
+        let target = [0.0, 0.0, 0.0, 0.7, q5, -0.2];
+        let pose = robot.forward(&target);
+        for (solutions, reference) in [
+            (robot.inverse(&pose), [0.0; 6]),
+            (robot.inverse_continuing(&pose, &target), target),
+        ] {
+            // Establish that the fixture supplies duplicate valid candidates;
+            // otherwise uniqueness of the public results would be vacuous.
+            let near = J4J6Near::from_joints(&reference, &parameters);
+            let valid_candidates: Vec<_> = robot
+                .inverse_candidates(&pose, &near)
+                .filter(|candidate| {
+                    candidate.iter().all(|joint| joint.is_finite())
+                        && compare_poses(
+                            &pose,
+                            &robot.forward(candidate),
+                            robot.distance_tolerance,
+                            ANGULAR_TOLERANCE,
+                        )
+                })
+                .collect();
+            assert!(
+                valid_candidates.iter().enumerate().any(|(i, candidate)| {
+                    valid_candidates[i + 1..]
+                        .iter()
+                        .any(|other| same_joints(candidate, other))
+                }),
+                "q5={q5}: fixture must produce duplicate valid candidates"
+            );
+            assert!(!solutions.is_empty());
+            assert!(solutions.len() < valid_candidates.len());
+            for (i, solution) in solutions.iter().enumerate() {
+                assert_pose(&robot, solution, &pose);
+                assert!(
+                    solutions[i + 1..]
+                        .iter()
+                        .all(|other| !same_joints(solution, other)),
+                    "q5={q5}: duplicate output joint configurations: {solutions:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn singular_wrist_correction_wraps_and_preserves_reference_turns() {
     let robot = OPWKinematics::new(model_parameters());
     let near = J4J6Near {
@@ -227,7 +332,8 @@ fn singular_wrist_correction_wraps_and_preserves_reference_turns() {
         q3: target[2],
     };
     let branches =
-        OPWKinematics::wrist_branch(&RotationMatrix::from_quat(pose.rotation), arm, &near);
+        OPWKinematics::wrist_branch(&RotationMatrix::from_quat(pose.rotation), arm, &near)
+            .collect::<Vec<_>>();
     // The required sum crosses the +/-pi boundary; its shortest correction is
     // 4*pi - 12 radians, split equally between the two preferred angles.
     let correction = 2.0 * PI - 6.0;
@@ -371,7 +477,8 @@ fn small_resolvable_wrist_bends_keep_individual_angles() {
                 q3: target[2],
             };
             let branches =
-                OPWKinematics::wrist_branch(&RotationMatrix::from_quat(pose.rotation), arm, &near);
+                OPWKinematics::wrist_branch(&RotationMatrix::from_quat(pose.rotation), arm, &near)
+                    .collect::<Vec<_>>();
             assert!(
                 branches.iter().any(|wrist| {
                     angle_error(wrist.q4, target[J4]) < 1e-5
@@ -386,6 +493,36 @@ fn small_resolvable_wrist_bends_keep_individual_angles() {
                     &[arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6],
                     &pose,
                 );
+            }
+        }
+    }
+}
+
+#[test]
+fn small_resolvable_wrist_bends_survive_complete_inverse_recovery() {
+    let robot = OPWKinematics::new(model_parameters());
+    for bend in [1e-5, 1e-9] {
+        for q5 in [bend, -bend, PI - bend, PI + bend] {
+            let target = [0.4, 0.6, -0.3, 0.7, q5, -0.2];
+            let pose = robot.forward(&target);
+            // Prefer a different J4/J6 split so a pole approximation cannot
+            // stand in for the regular candidate with the genuine tiny bend.
+            let previous = [target[0], target[1], target[2], 0.0, q5, 0.0];
+            let solutions = robot.inverse_continuing(&pose, &previous);
+            assert!(
+                solutions.iter().any(|solution| {
+                    solution[..3]
+                        .iter()
+                        .zip(target[..3].iter())
+                        .all(|(&actual, &expected)| angle_error(actual, expected) < 1e-7)
+                        && angle_error(solution[J4], target[J4]) < 1e-5
+                        && angle_error(solution[J5], target[J5]) < 1e-12
+                        && angle_error(solution[J6], target[J6]) < 1e-5
+                }),
+                "resolvable q5={q5} lost its original arm and wrist branch: {solutions:?}"
+            );
+            for solution in &solutions {
+                assert_pose(&robot, solution, &pose);
             }
         }
     }

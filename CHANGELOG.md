@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
 
 - Preserve small, resolvable nonzero J5 bends and their individual J4/J6 angles
   near both wrist poles instead of rounding them to a singularity.
+- Prevent large J4/J6 jumps at exact wrist poles when J1–J3 recovery amplifies
+  roundoff. Overlapping pole and regular candidates are FK-validated and
+  deduplicated before continuation ranks them against the previous joints.
 
 ## [2.0.3] - 2026-09-01
 
