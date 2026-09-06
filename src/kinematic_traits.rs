@@ -68,6 +68,10 @@ pub trait Kinematics: Send + Sync {
     /// Use CONSTRAINT_CENTERED as previous if there is no previous position but we prefer
     /// to be as close to the center of constraints (or zeroes if not set) as
     /// possible. "Previous" can be in a wide range, say 90000 degrees.
+    /// OPWKinematics rejects non-finite references after resolving the sentinel
+    /// and validates the final angles after restoring their turns. Extremely
+    /// large finite references may yield no solutions if f64 precision is
+    /// insufficient to preserve the requested pose.
     fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions;
 
     /// Find forward kinematics (glam-backed f64 pose from joint positions).
@@ -80,6 +84,7 @@ pub trait Kinematics: Send + Sync {
     /// around joint 6. The position of the tool center point remains precise,
     /// but the rotation is approximate (rotation around the tool axis is ignored).
     /// The return value for joint 6 is set according to the provided parameter.
+    /// OPWKinematics rejects a non-finite fixed joint 6 value.
     /// This method is significantly faster
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions;
 
@@ -87,6 +92,8 @@ pub trait Kinematics: Send + Sync {
     /// around joint 6. The position of the tool center point remains precise,
     /// but the rotation is approximate (rotation around the tool axis is ignored).
     /// The return value for joint 6 is set based on the previous joint values.
+    /// OPWKinematics applies the same reference checks as `inverse_continuing`
+    /// and validates the final tool position and direction, allowing tool roll.
     /// This method is significantly faster
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
 

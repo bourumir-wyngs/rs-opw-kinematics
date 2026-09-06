@@ -398,6 +398,10 @@ pub struct URDFParameters {
 }
 
 impl URDFParameters {
+    /// Construct a solver using the extracted geometry and supplied joint offsets.
+    ///
+    /// # Panics
+    /// Panics if any joint offset is non-finite or outside ±2π radians (±360°).
     pub fn to_robot(self, sorting_weight: f64, offsets: &Joints) -> OPWKinematics {
         OPWKinematics::new_with_constraints(
             Parameters {

@@ -32,6 +32,7 @@ pub mod opw_kinematics {
 
         /// Offsets applied to each joint angle to adjust the reference zero position.
         /// There are 6 values corresponding to each joint in a 6-DOF robot.
+        /// Each offset must be finite and within [-2π, 2π] radians (±360°), inclusive.
         pub offsets: [f64; 6],
 
         /// Specifies the direction of positive rotation from the zero angle for each joint.

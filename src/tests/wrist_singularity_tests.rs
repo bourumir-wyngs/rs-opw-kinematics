@@ -1,5 +1,12 @@
-use super::*;
-use crate::kinematic_traits::{CONSTRAINT_CENTERED, J5};
+use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
+use crate::kinematic_traits::{CONSTRAINT_CENTERED, J2, J4, J5, J6, Joints, Kinematics, Pose};
+use crate::kinematics_impl::{
+    ANGULAR_TOLERANCE, ArmBranch, J4J6Near, OPWKinematics, RotationMatrix, calculate_distance,
+    compare_poses, normalize_near,
+};
+use crate::parameters::opw_kinematics::Parameters;
+use glam::{DQuat, DVec3};
+use std::f64::consts::PI;
 
 fn model_parameters() -> Parameters {
     let mut parameters = Parameters::irb2400_10();
@@ -34,6 +41,19 @@ fn assert_pose(robot: &OPWKinematics, joints: &Joints, target: &Pose) {
     assert!(
         actual.angular_distance(*target) <= ANGULAR_TOLERANCE,
         "orientation mismatch for {joints:?}"
+    );
+}
+
+fn assert_five_dof_pose(robot: &OPWKinematics, joints: &Joints, target: &Pose) {
+    assert!(joints.iter().all(|joint| joint.is_finite()));
+    let actual = robot.forward(joints);
+    assert!(
+        (actual.translation - target.translation).length() <= robot.distance_tolerance,
+        "translation mismatch for {joints:?}"
+    );
+    assert!(
+        (actual.rotation * DVec3::Z - target.rotation * DVec3::Z).length() <= ANGULAR_TOLERANCE,
+        "tool-axis mismatch for {joints:?}"
     );
 }
 
@@ -281,9 +301,8 @@ fn inverse_deduplicates_coincident_arm_branches_at_wrist_poles() {
         ] {
             // Establish that the fixture supplies duplicate valid candidates;
             // otherwise uniqueness of the public results would be vacuous.
-            let near = J4J6Near::from_joints(&reference, &parameters);
             let valid_candidates: Vec<_> = robot
-                .inverse_candidates(&pose, &near, None)
+                .inverse_candidates(&pose, &reference, None)
                 .filter(|candidate| {
                     candidate.iter().all(|joint| joint.is_finite())
                         && compare_poses(
@@ -677,6 +696,66 @@ fn constrained_pole_projects_with_offsets_and_opposite_joint_signs() {
 }
 
 #[test]
+fn constrained_pole_uses_original_reference_after_offset_roundtrip() {
+    let mut parameters = model_parameters();
+    parameters.offsets[J4] = 0.4977127594596098;
+    parameters.offsets[J6] = -0.2850598842442724;
+    parameters.sign_corrections[J4] = -1;
+    let constraints = Constraints::new(
+        [
+            0.15,
+            0.4,
+            0.65,
+            0.4181030310493927,
+            -0.1,
+            -0.30075397288156247,
+        ],
+        [
+            0.35,
+            0.6,
+            0.85,
+            0.7904064910935993,
+            0.1,
+            0.47759475787368677,
+        ],
+        BY_PREV,
+    );
+    let target = [0.25, 0.5, 0.75, 0.5769756721919006, 0.0, 0.2666219665660442];
+    let previous = [
+        0.25,
+        0.5,
+        0.75,
+        0.5402470406450871,
+        0.0,
+        -0.1961656696032879,
+    ];
+    assert!(constraints.compliant(&target));
+    assert!(constraints.compliant(&previous));
+
+    // The caller's reference is lost by one ULP in user -> model -> user
+    // conversion. Pole fitting must check its endpoint against the original
+    // reference, since final continuation normalization uses that value too.
+    let near = J4J6Near::from_joints(&previous, &parameters);
+    let reconstructed_j4 =
+        (near.j4 + parameters.offsets[J4]) * parameters.sign_corrections[J4] as f64;
+    assert_eq!(reconstructed_j4.to_bits(), previous[J4].to_bits() + 1);
+
+    let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+    let pose = robot.forward(&target);
+    let solutions = robot.inverse_continuing(&pose, &previous);
+    let best = solutions
+        .first()
+        .expect("reachable pole with original reference");
+    // The requested ranking selects the lower J4 boundary. Validating with
+    // the reconstructed reference used to let final normalization push it out.
+    assert!((best[J4] - constraints.from[J4]).abs() < 1e-12);
+    for solution in &solutions {
+        assert!(constraints.compliant(solution));
+        assert_pose(&robot, solution, &pose);
+    }
+}
+
+#[test]
 fn constrained_poles_reject_disjoint_wrist_phase_ranges() {
     for (pole_degrees, target_j6) in [(0.0, 80.0), (180.0, 140.0)] {
         let constraints = Constraints::from_degrees(
@@ -766,6 +845,176 @@ fn constrained_pole_searches_beyond_shortest_phase_correction() {
     for (actual, expected) in best.iter().zip(expected) {
         assert!((actual - expected).abs() < 1e-7, "got {best:?}");
     }
+    for solution in &solutions {
+        assert!(constraints.compliant(solution));
+        assert_pose(&robot, solution, &pose);
+    }
+}
+
+#[test]
+fn constrained_pole_ranking_prefers_170_degrees_over_190_degrees_of_motion() {
+    for reversed_wrist in [false, true] {
+        let mut parameters = model_parameters();
+        if reversed_wrist {
+            parameters.offsets = [5.0, -10.0, 15.0, 25.0, -35.0, 45.0].map(f64::to_radians);
+            parameters.sign_corrections[J4] = -1;
+        }
+        for pole_degrees in [0.0, 180.0, -180.0] {
+            let sign = if pole_degrees == 0.0 { 1.0 } else { -1.0 };
+            let model_lower = [
+                9.0,
+                19.0,
+                29.0,
+                -100.0,
+                pole_degrees - 1.0,
+                if sign > 0.0 { -100.0 } else { -5.0 },
+            ]
+            .map(f64::to_radians);
+            let model_upper = [
+                11.0,
+                21.0,
+                31.0,
+                175.0,
+                pole_degrees + 1.0,
+                if sign > 0.0 { 5.0 } else { 100.0 },
+            ]
+            .map(f64::to_radians);
+            let bound_a = from_model(model_lower, &parameters);
+            let bound_b = from_model(model_upper, &parameters);
+            let constraints = Constraints::new(
+                std::array::from_fn(|i| bound_a[i].min(bound_b[i])),
+                std::array::from_fn(|i| bound_a[i].max(bound_b[i])),
+                BY_PREV,
+            );
+            let previous = from_model(
+                [10.0, 20.0, 30.0, 0.0, pole_degrees, 0.0].map(f64::to_radians),
+                &parameters,
+            );
+            let witness = from_model(
+                [10.0, 20.0, 30.0, 168.0, pole_degrees, sign * 2.0].map(f64::to_radians),
+                &parameters,
+            );
+            let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+            let pose = robot.forward(&witness);
+            assert!(constraints.compliant(&witness));
+
+            // The shortest phase winding permits 170 degrees of total motion.
+            // Squared distance instead prefers splitting the opposite winding
+            // into two 95-degree moves, totaling 190 degrees.
+            let solutions = robot.inverse_continuing(&pose, &previous);
+            let best = solutions
+                .first()
+                .expect("the interior witness is reachable");
+            let movement_degrees = calculate_distance(best, &previous).to_degrees();
+            assert!(
+                (movement_degrees - 170.0).abs() < 1e-7,
+                "pole={pole_degrees}, reversed_wrist={reversed_wrist}: selected {movement_degrees} degrees of movement: {best:?}"
+            );
+            for solution in &solutions {
+                assert!(constraints.compliant(solution));
+                assert_pose(&robot, solution, &pose);
+            }
+        }
+    }
+}
+
+#[test]
+fn constrained_pole_ranking_honors_constraint_centers_and_mixed_weights() {
+    for sorting_weight in [0.25, 0.75, BY_CONSTRAINS] {
+        for pole_degrees in [0.0, 180.0, -180.0] {
+            let sign = if pole_degrees == 0.0 { 1.0 } else { -1.0 };
+            let constraints = Constraints::from_degrees(
+                [
+                    9.0..=11.0,
+                    19.0..=21.0,
+                    29.0..=31.0,
+                    -60.0..=60.0,
+                    pole_degrees - 1.0..=pole_degrees + 1.0,
+                    if sign > 0.0 {
+                        -10.0..=210.0
+                    } else {
+                        -210.0..=10.0
+                    },
+                ],
+                sorting_weight,
+            );
+            let robot = OPWKinematics::new_with_constraints(model_parameters(), constraints);
+            let previous = [10.0, 20.0, 30.0, 0.0, pole_degrees, 0.0].map(f64::to_radians);
+            let witness = [10.0, 20.0, 30.0, 0.0, pole_degrees, sign * 20.0].map(f64::to_radians);
+            let pose = robot.forward(&witness);
+            assert!(constraints.compliant(&witness));
+
+            // Equal splitting gives (10, +/-10), needlessly moving J4 away
+            // from its center. The interior witness (0, +/-20) has the same
+            // total motion and is 20 degrees closer to the constraint centers.
+            // Compare scores without prescribing a split, including turns in
+            // the reference: the sorter uses unwrapped distance to the centers.
+            for extra_turns in [false, true] {
+                let mut previous = previous;
+                let mut witness = witness;
+                if extra_turns {
+                    previous[J4] += 4.0 * PI;
+                    previous[J6] -= sign * 2.0 * PI;
+                    for joint in [J4, J6] {
+                        normalize_near(&mut witness[joint], previous[joint]);
+                    }
+                }
+                assert!(constraints.compliant(&witness));
+                assert_pose(&robot, &witness, &pose);
+                let score = |joints: &Joints| {
+                    (1.0 - sorting_weight) * calculate_distance(joints, &previous)
+                        + sorting_weight * calculate_distance(joints, &constraints.centers)
+                };
+                let solutions = robot.inverse_continuing(&pose, &previous);
+                let best = solutions
+                    .first()
+                    .expect("the interior witness is reachable");
+                assert!(
+                    score(best) <= score(&witness) + 1e-7,
+                    "pole={pole_degrees}, weight={sorting_weight}, extra_turns={extra_turns}: score {} exceeds feasible witness score {}; selected {best:?}",
+                    score(best),
+                    score(&witness)
+                );
+                for solution in &solutions {
+                    assert!(constraints.compliant(solution));
+                    assert_pose(&robot, solution, &pose);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn constrained_pole_ranking_uses_raw_centers_at_normalization_cut() {
+    let constraints = Constraints::from_degrees(
+        [
+            9.0..=11.0,
+            19.0..=21.0,
+            29.0..=31.0,
+            -180.0..=180.0,
+            -1.0..=1.0,
+            0.0..=360.0,
+        ],
+        BY_CONSTRAINS,
+    );
+    let robot = OPWKinematics::new_with_constraints(model_parameters(), constraints);
+    let previous = [10.0, 20.0, 30.0, 0.0, 0.0, 0.0].map(f64::to_radians);
+    let witness = [10.0, 20.0, 30.0, 1.0, 0.0, 179.0].map(f64::to_radians);
+    let pose = robot.forward(&witness);
+    assert!(constraints.compliant(&witness));
+
+    // The phase is pi and the J6 center is +pi. Normalizing the exact
+    // (0, pi) endpoint near previous instead produces (0, -pi), far from
+    // that raw center. Nearby interior points retain J6 just below +pi.
+    let solutions = robot.inverse_continuing(&pose, &previous);
+    let best = solutions
+        .first()
+        .expect("the interior witness is reachable");
+    assert!(
+        calculate_distance(best, &constraints.centers)
+            <= calculate_distance(&witness, &constraints.centers) + 1e-7,
+        "selected {best:?} despite the better interior witness {witness:?}"
+    );
     for solution in &solutions {
         assert!(constraints.compliant(solution));
         assert_pose(&robot, solution, &pose);
@@ -869,6 +1118,91 @@ fn five_dof_pole_recovery_preserves_fixed_j6_and_tool_position() {
 }
 
 #[test]
+fn five_dof_poles_ignore_tool_roll_with_narrow_joint_limits() {
+    for dof in [5, 6] {
+        for variant in 0..3 {
+            let mut parameters = model_parameters();
+            parameters.dof = dof;
+            if variant == 1 {
+                parameters.offsets = [0.05, -0.1, 0.15, 0.2, -0.25, 0.3];
+                parameters.sign_corrections = [-1, 1, -1, -1, -1, -1];
+            } else if variant == 2 {
+                parameters.sign_corrections[J6] = 0;
+            }
+            for q5 in [0.0, PI, -PI] {
+                let target = from_model([0.4, 0.6, -0.3, 0.7, q5, 0.8], &parameters);
+                let mut lower = target.map(|joint| joint - 0.1);
+                let mut upper = target.map(|joint| joint + 0.1);
+                // Keep only the original arm branch and a narrow J4 interval;
+                // allow both explicit J6 and the generic inverse's fixed zero.
+                lower[J6] = -2.0;
+                upper[J6] = 2.0;
+                let constraints = Constraints::new(lower, upper, BY_PREV);
+                let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+                let pose = robot.forward(&target);
+                let mut previous = target;
+                previous[J4] += 0.03;
+                assert!(constraints.compliant(&previous));
+
+                for roll in [-2.0, -0.6, 0.0, 0.9, 2.5] {
+                    let mut rolled_pose = pose;
+                    // Rotation about the tool's local Z changes only the
+                    // ignored roll, leaving the five-axis target identical.
+                    rolled_pose.rotation *= DQuat::from_rotation_z(roll);
+                    assert_five_dof_pose(&robot, &previous, &rolled_pose);
+                    let mut cases = vec![
+                        (
+                            "explicit inverse",
+                            robot.inverse_5dof(&rolled_pose, target[J6]),
+                            constraints.centers[J4],
+                            target[J6],
+                        ),
+                        (
+                            "explicit continuation",
+                            robot.inverse_continuing_5dof(&rolled_pose, &previous),
+                            previous[J4],
+                            previous[J6],
+                        ),
+                    ];
+                    if dof == 5 {
+                        cases.push((
+                            "generic inverse",
+                            robot.inverse(&rolled_pose),
+                            constraints.centers[J4],
+                            0.0,
+                        ));
+                        cases.push((
+                            "generic continuation",
+                            robot.inverse_continuing(&rolled_pose, &previous),
+                            previous[J4],
+                            previous[J6],
+                        ));
+                    }
+                    for (api, solutions, expected_j4, fixed_j6) in cases {
+                        assert!(
+                            !solutions.is_empty(),
+                            "{api}: ignored roll {roll} lost the compliant pole \
+                             at q5={q5}, dof={dof}, variant={variant}"
+                        );
+                        assert!(
+                            (solutions[0][J4] - expected_j4).abs() < 1e-12,
+                            "{api}: ignored roll {roll} changed free J4 from \
+                             {expected_j4} to {}, q5={q5}, dof={dof}, variant={variant}",
+                            solutions[0][J4],
+                        );
+                        for solution in solutions {
+                            assert!(constraints.compliant(&solution));
+                            assert_eq!(solution[J6], fixed_j6);
+                            assert_five_dof_pose(&robot, &solution, &rolled_pose);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn five_dof_generic_inverse_returns_finite_zero_j6() {
     for j6_sign in [0, 1] {
         let mut parameters = model_parameters();
@@ -920,6 +1254,56 @@ fn five_dof_generic_inverse_filters_out_disallowed_zero_j6() {
     assert!(constraints.compliant(&target));
     let constrained = OPWKinematics::new_with_constraints(parameters, constraints);
     assert!(constrained.inverse(&pose).is_empty());
+}
+
+#[test]
+fn five_dof_constraint_centered_matches_explicit_centers_with_nonzero_j6() {
+    for dof in [5, 6] {
+        let mut parameters = Parameters::irb2400_10();
+        parameters.dof = dof;
+        let constraints = Constraints::from_degrees(
+            [
+                10.0..=30.0,
+                25.0..=45.0,
+                -35.0..=-15.0,
+                20.0..=40.0,
+                35.0..=55.0,
+                60.0..=100.0,
+            ],
+            BY_PREV,
+        );
+        let centers = constraints.centers;
+        let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+        // An ordinary pose, with tool roll different from the 80-degree J6 center.
+        let target = [20.0, 35.0, -25.0, 30.0, 45.0, 70.0].map(f64::to_radians);
+        assert!(constraints.compliant(&target));
+        let pose = robot.forward(&target);
+        let explicit = robot.inverse_continuing_5dof(&pose, &centers);
+        assert!(!explicit.is_empty(), "explicit centers failed, dof={dof}");
+
+        // The sentinel's raw J6 is zero and violates the limits. Both entry
+        // points must fix J6 at the resolved center, just like explicit centers.
+        let centered = robot.inverse_continuing_5dof(&pose, &CONSTRAINT_CENTERED);
+        assert_eq!(centered, explicit, "sentinel differs, dof={dof}");
+        if dof == 5 {
+            assert_eq!(robot.inverse_continuing(&pose, &centers), explicit);
+            assert_eq!(
+                robot.inverse_continuing(&pose, &CONSTRAINT_CENTERED),
+                explicit
+            );
+        }
+        for solution in centered {
+            assert!(solution.iter().all(|angle| angle.is_finite()));
+            assert!(constraints.compliant(&solution));
+            assert_eq!(solution[J6], centers[J6]);
+            let actual = robot.forward(&solution);
+            assert!((actual.translation - pose.translation).length() <= robot.distance_tolerance);
+            assert!(
+                (actual.rotation * DVec3::Z - pose.rotation * DVec3::Z).length()
+                    <= ANGULAR_TOLERANCE
+            );
+        }
+    }
 }
 
 #[test]
@@ -980,5 +1364,382 @@ fn five_dof_generic_continuation_preserves_turns_sorts_and_filters() {
                     <= robot.distance_tolerance
             );
         }
+    }
+}
+
+#[test]
+fn six_dof_continuation_rejects_nonfinite_previous_joints() {
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let target = [0.25, 0.5, 0.75, 1.0, 0.625, 0.125];
+    let pose = robot.forward(&target);
+    assert!(!robot.inverse_continuing(&pose, &target).is_empty());
+    assert!(
+        !robot
+            .inverse_continuing(&pose, &CONSTRAINT_CENTERED)
+            .is_empty()
+    );
+
+    // NaN in J1 is the documented sentinel. Other nonfinite reference
+    // coordinates cannot identify a nearby finite joint representation.
+    for joint in (0..6).rev() {
+        for invalid in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            if joint == 0 && invalid.is_nan() {
+                continue;
+            }
+            let mut previous = target;
+            previous[joint] = invalid;
+            let solutions = robot.inverse_continuing(&pose, &previous);
+            assert!(
+                solutions.is_empty(),
+                "J{}={invalid} returned {solutions:?}",
+                joint + 1
+            );
+        }
+    }
+}
+
+#[test]
+fn six_dof_continuation_validates_final_normalized_pose() {
+    let robot = OPWKinematics::new(Parameters::irb2400_10());
+    let target = [0.25, 0.5, 0.75, 1.0, 0.625, 0.125];
+    let pose = robot.forward(&target);
+    for reference in [target, target.map(|joint| joint + 20.0 * PI)] {
+        let solutions = robot.inverse_continuing(&pose, &reference);
+        assert!(!solutions.is_empty(), "ordinary turns remain recoverable");
+        for solution in &solutions {
+            assert_pose(&robot, solution, &pose);
+        }
+    }
+
+    // Adding turns near 1e16 loses the low bits that define the pose. A
+    // candidate validated before this normalization must not escape with a
+    // changed orientation or translation. No representable solution is required.
+    for joint in [J6, J4, J2] {
+        for large in [1e16, -1e16] {
+            let mut previous = target;
+            previous[joint] = large;
+            let solutions = robot.inverse_continuing(&pose, &previous);
+            for solution in &solutions {
+                assert_pose(&robot, solution, &pose);
+            }
+        }
+    }
+}
+
+#[test]
+fn five_dof_inverse_rejects_nonfinite_fixed_j6_and_previous_joints() {
+    for dof in [5, 6] {
+        let mut parameters = Parameters::irb2400_10();
+        parameters.dof = dof;
+        let robot = OPWKinematics::new(parameters);
+        let target = [0.25, 0.5, 0.75, 1.0, 0.625, 0.125];
+        let pose = robot.forward(&target);
+        assert!(!robot.inverse_5dof(&pose, target[J6]).is_empty());
+        assert!(!robot.inverse_continuing_5dof(&pose, &target).is_empty());
+
+        for invalid in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            assert!(
+                robot.inverse_5dof(&pose, invalid).is_empty(),
+                "fixed J6={invalid}, dof={dof}"
+            );
+            for joint in 0..6 {
+                if joint == 0 && invalid.is_nan() {
+                    continue;
+                }
+                let mut previous = target;
+                previous[joint] = invalid;
+                assert!(
+                    robot.inverse_continuing_5dof(&pose, &previous).is_empty(),
+                    "explicit five-axis continuation: J{}={invalid}, dof={dof}",
+                    joint + 1
+                );
+                if dof == 5 {
+                    assert!(
+                        robot.inverse_continuing(&pose, &previous).is_empty(),
+                        "generic five-axis continuation: J{}={invalid}",
+                        joint + 1
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn five_dof_continuation_validates_final_normalized_pose() {
+    for dof in [5, 6] {
+        for c4 in [0.0, Parameters::irb2400_10().c4] {
+            let mut parameters = Parameters::irb2400_10();
+            parameters.dof = dof;
+            parameters.c4 = c4;
+            let robot = OPWKinematics::new(parameters);
+            let target = [0.25, 0.5, 0.75, 1.0, 0.625, 0.125];
+            let pose = robot.forward(&target);
+            for use_generic in [false, true] {
+                if use_generic && dof != 5 {
+                    continue;
+                }
+                let inverse = |previous: &Joints| {
+                    if use_generic {
+                        robot.inverse_continuing(&pose, previous)
+                    } else {
+                        robot.inverse_continuing_5dof(&pose, previous)
+                    }
+                };
+                for reference in [target, target.map(|joint| joint + 20.0 * PI)] {
+                    let solutions = inverse(&reference);
+                    assert!(!solutions.is_empty(), "ordinary turns remain recoverable");
+                    for solution in &solutions {
+                        assert_eq!(solution[J6], reference[J6]);
+                        assert_five_dof_pose(&robot, solution, &pose);
+                    }
+                }
+
+                // Five-axis validation preserves translation and the tool axis;
+                // it must inspect the actual output after J1-J5 normalization.
+                // When c4=0, J4 can corrupt direction without moving the tool.
+                for joint in [J4, J2] {
+                    for large in [1e16, -1e16] {
+                        let mut previous = target;
+                        previous[joint] = large;
+                        for solution in &inverse(&previous) {
+                            assert_eq!(solution[J6], previous[J6]);
+                            assert_five_dof_pose(&robot, solution, &pose);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn five_dof_inverse_preserves_large_finite_fixed_j6() {
+    for dof in [5, 6] {
+        let mut parameters = Parameters::irb2400_10();
+        parameters.dof = dof;
+        let robot = OPWKinematics::new(parameters);
+        let target = [0.25, 0.5, 0.75, 1.0, 0.625, 0.125];
+        let pose = robot.forward(&target);
+        for fixed_j6 in [1e16, -1e16, 1e100, -1e100] {
+            let mut previous = target;
+            previous[J6] = fixed_j6;
+            let mut results = vec![
+                robot.inverse_5dof(&pose, fixed_j6),
+                robot.inverse_continuing_5dof(&pose, &previous),
+            ];
+            if dof == 5 {
+                results.push(robot.inverse_continuing(&pose, &previous));
+            }
+            for solutions in results {
+                assert!(
+                    !solutions.is_empty(),
+                    "fixed J6={fixed_j6}, dof={dof} must preserve five-axis reachability"
+                );
+                for solution in solutions {
+                    // J6 is a prescribed tool roll, so no normalization or
+                    // full-orientation check may change or reject its value.
+                    assert_eq!(solution[J6], fixed_j6);
+                    assert_five_dof_pose(&robot, &solution, &pose);
+                }
+            }
+        }
+    }
+}
+
+fn assert_five_dof_ranking_matches_witness(
+    robot: &OPWKinematics,
+    constraints: &Constraints,
+    pose: &Pose,
+    previous: &Joints,
+    witness: &Joints,
+    context: &str,
+) {
+    assert!(constraints.compliant(witness), "{context}: invalid witness");
+    assert_eq!(witness[J6], previous[J6]);
+    assert_five_dof_pose(robot, witness, pose);
+    // Compute the public objective independently, retaining raw reference and
+    // center coordinates so normalization cuts cannot be hidden by wrapping.
+    let score = |joints: &Joints| {
+        joints
+            .iter()
+            .zip(previous.iter().zip(constraints.centers.iter()))
+            .map(|(joint, (previous, center))| {
+                (1.0 - constraints.sorting_weight) * (joint - previous).abs()
+                    + constraints.sorting_weight * (joint - center).abs()
+            })
+            .sum::<f64>()
+    };
+    let mut results = vec![(
+        "explicit continuation",
+        robot.inverse_continuing_5dof(pose, previous),
+    )];
+    if robot.parameters.dof == 5 {
+        results.push((
+            "generic continuation",
+            robot.inverse_continuing(pose, previous),
+        ));
+    }
+    for (api, solutions) in results {
+        let best = solutions
+            .first()
+            .unwrap_or_else(|| panic!("{context}, {api}: feasible witness was lost"));
+        assert!(
+            score(best) <= score(witness) + 1e-9,
+            "{context}, {api}: score {} exceeds witness score {}; selected {:?} degrees, witness {:?} degrees",
+            score(best),
+            score(witness),
+            best.map(f64::to_degrees),
+            witness.map(f64::to_degrees),
+        );
+        if constraints.sorting_weight == 0.5 {
+            assert!(
+                (best[J4] - previous[J4]).abs() <= 1e-9,
+                "{context}, {api}: tied scores should retain the feasible previous J4"
+            );
+        }
+        for solution in &solutions {
+            assert!(constraints.compliant(solution), "{context}, {api}");
+            assert_eq!(solution[J6], previous[J6], "{context}, {api}");
+            assert_five_dof_pose(robot, solution, pose);
+        }
+    }
+}
+
+#[test]
+fn five_dof_free_j4_ranking_honors_previous_centers_and_mixed_weights() {
+    for dof in [5, 6] {
+        for reversed in [false, true] {
+            let mut parameters = model_parameters();
+            parameters.dof = dof;
+            if reversed {
+                parameters.offsets = [5.0, -10.0, 15.0, 25.0, -35.0, 45.0].map(f64::to_radians);
+                parameters.sign_corrections = [-1, 1, -1, -1, -1, -1];
+            }
+            for pole in [0.0, 180.0, -180.0] {
+                let lower = from_model(
+                    [9.0, 19.0, 29.0, 0.0, pole - 1.0, -1.0].map(f64::to_radians),
+                    &parameters,
+                );
+                let upper = from_model(
+                    [11.0, 21.0, 31.0, 100.0, pole + 1.0, 1.0].map(f64::to_radians),
+                    &parameters,
+                );
+                let previous = from_model(
+                    [10.0, 20.0, 30.0, 10.0, pole, 0.0].map(f64::to_radians),
+                    &parameters,
+                );
+                let target = from_model(
+                    [10.0, 20.0, 30.0, 40.0, pole, 0.0].map(f64::to_radians),
+                    &parameters,
+                );
+                for weight in [BY_PREV, 0.25, 0.5, 0.75, BY_CONSTRAINS] {
+                    let constraints = Constraints::new(
+                        std::array::from_fn(|i| lower[i].min(upper[i])),
+                        std::array::from_fn(|i| lower[i].max(upper[i])),
+                        weight,
+                    );
+                    let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+                    let pose = robot.forward(&target);
+                    let mut witness = previous;
+                    // Below half weight the previous J4 wins; above it the
+                    // center wins. At half weight every split between them ties.
+                    if weight > 0.5 {
+                        witness[J4] = constraints.centers[J4];
+                    } else if weight == 0.5 {
+                        witness[J4] = (previous[J4] + constraints.centers[J4]) / 2.0;
+                    }
+                    assert_five_dof_ranking_matches_witness(
+                        &robot,
+                        &constraints,
+                        &pose,
+                        &previous,
+                        &witness,
+                        &format!("dof={dof}, reversed={reversed}, pole={pole}, weight={weight}"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn five_dof_free_j4_ranking_handles_wrapped_limits_and_previous_turns() {
+    let mut parameters = model_parameters();
+    parameters.dof = 5;
+    for pole in [0.0, 180.0, -180.0] {
+        let target = [10.0, 20.0, 30.0, -160.0, pole, 20.0].map(f64::to_radians);
+        for extra_turns in [false, true] {
+            let mut previous = target;
+            previous[J4] = if extra_turns { 545.0_f64 } else { -175.0_f64 }.to_radians();
+            if extra_turns {
+                previous[J6] += 2.0 * PI;
+            }
+            for weight in [BY_PREV, 0.25, 0.5, 0.75, BY_CONSTRAINS] {
+                let constraints = Constraints::from_degrees(
+                    [
+                        9.0..=11.0,
+                        19.0..=21.0,
+                        29.0..=31.0,
+                        std::ops::RangeInclusive::new(170.0, -130.0),
+                        pole - 1.0..=pole + 1.0,
+                        19.0..=21.0,
+                    ],
+                    weight,
+                );
+                let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+                let pose = robot.forward(&target);
+                let mut witness = previous;
+                if weight >= 0.5 {
+                    // Raw center is +200 degrees. The nearest-turn feasible
+                    // interval is [-190,-130] or [530,590], so its preferred
+                    // endpoint changes after adding previous turns. Keep the
+                    // witness one degree inside to avoid exact-limit rounding.
+                    witness[J4] = if extra_turns { 531.0_f64 } else { -131.0_f64 }.to_radians();
+                }
+                assert_five_dof_ranking_matches_witness(
+                    &robot,
+                    &constraints,
+                    &pose,
+                    &previous,
+                    &witness,
+                    &format!("pole={pole}, extra_turns={extra_turns}, weight={weight}"),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn five_dof_free_j4_ranking_uses_raw_center_at_normalization_cut() {
+    let mut parameters = model_parameters();
+    parameters.dof = 5;
+    for pole in [0.0, 180.0, -180.0] {
+        let constraints = Constraints::from_degrees(
+            [
+                9.0..=11.0,
+                19.0..=21.0,
+                29.0..=31.0,
+                0.0..=360.0,
+                pole - 1.0..=pole + 1.0,
+                19.0..=21.0,
+            ],
+            BY_CONSTRAINS,
+        );
+        let robot = OPWKinematics::new_with_constraints(parameters, constraints);
+        let previous = [10.0, 20.0, 30.0, 0.0, pole, 20.0].map(f64::to_radians);
+        let pose = robot.forward(&previous);
+        let mut witness = previous;
+        // +pi itself normalizes to -pi near zero. Values just below +pi
+        // remain close to the raw +pi center and must beat zero or -pi.
+        witness[J4] = PI - 1e-6;
+        assert_five_dof_ranking_matches_witness(
+            &robot,
+            &constraints,
+            &pose,
+            &previous,
+            &witness,
+            &format!("normalization cut, pole={pole}"),
+        );
     }
 }

@@ -8,19 +8,25 @@ use glam::{DMat3, DQuat, DVec3};
 use std::f64::consts::PI;
 use std::ops::Index;
 
+mod arm_continuum;
+pub(crate) mod arm_continuum_2d;
+
 const DEBUG: bool = false;
 
 #[derive(Debug, Copy, Clone)]
 pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
-    parameters: Parameters,
+    pub(crate) parameters: Parameters,
     constraints: Option<Constraints>,
     /// Linear tolerance scaled to the total size of the robot geometry.
-    distance_tolerance: f64,
+    pub(crate) distance_tolerance: f64,
 }
 
 impl OPWKinematics {
     /// Creates a new `OPWKinematics` instance with the given parameters.
+    ///
+    /// # Panics
+    /// Panics if any joint offset is non-finite or outside ±2π radians (±360°).
     #[allow(dead_code)]
     pub fn new(parameters: Parameters) -> Self {
         Self::from_parameters(parameters, None)
@@ -28,11 +34,21 @@ impl OPWKinematics {
 
     /// Create a new instance that takes also Constraints.
     /// If constraints are set, all solutions returned by this solver are constraint compliant.
+    ///
+    /// # Panics
+    /// Panics if any joint offset is non-finite or outside ±2π radians (±360°).
     pub fn new_with_constraints(parameters: Parameters, constraints: Constraints) -> Self {
         Self::from_parameters(parameters, Some(constraints))
     }
 
     fn from_parameters(parameters: Parameters, constraints: Option<Constraints>) -> Self {
+        for (joint, offset) in parameters.offsets.iter().enumerate() {
+            assert!(
+                (-2.0 * PI..=2.0 * PI).contains(offset),
+                "joint {} offset must be finite and within ±2π radians (±360°), got {offset}",
+                joint + 1,
+            );
+        }
         let geometry_length = parameters.a1.abs()
             + parameters.a2.abs()
             + parameters.b.abs()
@@ -50,8 +66,12 @@ impl OPWKinematics {
 }
 
 /// Linear errors up to one part per million of the total robot geometry are accepted.
-const RELATIVE_DISTANCE_TOLERANCE: f64 = 1E-6;
-const ANGULAR_TOLERANCE: f64 = 1E-6;
+pub(crate) const RELATIVE_DISTANCE_TOLERANCE: f64 = 1E-6;
+pub(crate) const ANGULAR_TOLERANCE: f64 = 1E-6;
+
+// Relative allowance for the arithmetic and rotation operations in arm recovery.
+// Unlike the FK tolerance, this only permits domain errors on the roundoff scale.
+const ARM_ROUNDOFF: f64 = 64.0 * f64::EPSILON;
 
 // Below this floor the regular wrist atan2 pairs cannot be reliably resolved.
 const WRIST_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON;
@@ -65,26 +85,34 @@ const JOINT_DUPLICATE_THR: f64 = 64.0 * f64::EPSILON;
 const POLE_PHASE_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON * (1.0 + 2.0 * PI);
 
 #[derive(Clone, Copy)]
-struct RotationMatrix {
-    matrix: DMat3,
+pub(crate) struct RotationMatrix {
+    pub(crate) matrix: DMat3,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ArmBranch {
-    q1: f64,
-    q2: f64,
-    q3: f64,
+pub(crate) struct ArmBranch {
+    pub(crate) q1: f64,
+    pub(crate) q2: f64,
+    pub(crate) q3: f64,
+}
+
+/// Discrete branches and position equations that leave an arm angle free.
+struct ArmRecovery {
+    branches: [ArmBranch; 4],
+    free_j1: bool,
+    free_j2: [bool; 2],
+    folded_q3: f64,
 }
 
 /// Preferred J4 and J6 in model coordinates, after sign corrections and offsets.
 #[derive(Clone, Copy, Debug)]
-struct J4J6Near {
-    j4: f64,
-    j6: f64,
+pub(crate) struct J4J6Near {
+    pub(crate) j4: f64,
+    pub(crate) j6: f64,
 }
 
 impl J4J6Near {
-    fn from_joints(joints: &Joints, parameters: &Parameters) -> Self {
+    pub(crate) fn from_joints(joints: &Joints, parameters: &Parameters) -> Self {
         Self {
             j4: joints[J4] * parameters.sign_corrections[J4] as f64 - parameters.offsets[J4],
             j6: joints[J6] * parameters.sign_corrections[J6] as f64 - parameters.offsets[J6],
@@ -93,14 +121,14 @@ impl J4J6Near {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct WristBranch {
-    q4: f64,
-    q5: f64,
-    q6: f64,
+pub(crate) struct WristBranch {
+    pub(crate) q4: f64,
+    pub(crate) q5: f64,
+    pub(crate) q6: f64,
 }
 
 impl RotationMatrix {
-    fn from_quat(rotation: DQuat) -> Self {
+    pub(crate) fn from_quat(rotation: DQuat) -> Self {
         Self {
             matrix: DMat3::from_quat(rotation),
         }
@@ -144,8 +172,7 @@ impl Kinematics for OPWKinematics {
             return self.inverse_5dof(pose, 0.0);
         }
 
-        let near = J4J6Near::from_joints(self.constraint_centers(), &self.parameters);
-        self.filter_constraints_compliant(self.inverse_intern(pose, &near))
+        self.filter_constraints_compliant(self.inverse_intern(pose, self.constraint_centers()))
     }
 
     // Resolves wrist singularities near the previous joint values in wrist_branch.
@@ -162,16 +189,11 @@ impl Kinematics for OPWKinematics {
         } else {
             prev
         };
-        let near = J4J6Near::from_joints(previous, &self.parameters);
-
-        let mut solutions = self.inverse_intern(pose, &near);
-        // Before any sorting, normalize all angles to be close to
-        // 'previous'
-        for solution in &mut solutions {
-            for (joint, previous_joint) in solution.iter_mut().zip(previous.iter()) {
-                normalize_near(joint, *previous_joint);
-            }
+        if !previous.iter().all(|joint| joint.is_finite()) {
+            return Vec::new();
         }
+        let mut solutions = self.inverse_intern(pose, previous);
+        self.normalize_and_validate(&mut solutions, pose, previous, false);
         self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
     }
@@ -295,12 +317,12 @@ impl Kinematics for OPWKinematics {
     }
 
     fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
-        let mut preferred = *self.constraint_centers();
-        if j6.is_finite() {
-            preferred[J6] = j6;
+        if !j6.is_finite() {
+            return Vec::new();
         }
-        let near = J4J6Near::from_joints(&preferred, &self.parameters);
-        self.filter_constraints_compliant(self.inverse_intern_5_dof(pose, j6, &near))
+        let mut preferred = *self.constraint_centers();
+        preferred[J6] = j6;
+        self.filter_constraints_compliant(self.inverse_intern_5_dof(pose, j6, &preferred))
     }
 
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
@@ -310,17 +332,12 @@ impl Kinematics for OPWKinematics {
         } else {
             prev
         };
-
-        let near = J4J6Near::from_joints(previous, &self.parameters);
-        let mut solutions = self.inverse_intern_5_dof(pose, prev[5], &near);
-
-        // Before any sorting, normalize all angles to be close to
-        // 'previous'
-        for solution in &mut solutions {
-            for (joint, previous_joint) in solution.iter_mut().zip(previous.iter()) {
-                normalize_near(joint, *previous_joint);
-            }
+        if !previous.iter().all(|joint| joint.is_finite()) {
+            return Vec::new();
         }
+
+        let mut solutions = self.inverse_intern_5_dof(pose, previous[5], previous);
+        self.normalize_and_validate(&mut solutions, pose, previous, true);
         self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
     }
@@ -331,8 +348,8 @@ impl Kinematics for OPWKinematics {
 }
 
 impl OPWKinematics {
-    /// Computes the four model-space J1-J3 branches that place the wrist center.
-    fn arm_branches(&self, pose: &Pose) -> [ArmBranch; 4] {
+    /// Computes discrete arm branches and detects free angles on the same geometry.
+    fn arm_branches(&self, pose: &Pose) -> ArmRecovery {
         let params = &self.parameters;
 
         // Adjust to wrist center
@@ -341,10 +358,18 @@ impl OPWKinematics {
 
         let c = translation_vector - scaled_z_axis;
 
-        let nx1 = ((c.x * c.x + c.y * c.y) - params.b * params.b).sqrt() - params.a1;
+        // Recovering the wrist center includes rotation and TCP subtraction
+        // error. Keep component-wise length bounds so a small shoulder radius
+        // does not inherit an allowance proportional to the whole robot squared.
+        let c_error = ARM_ROUNDOFF * (translation_vector.abs() + DVec3::splat(params.c4.abs()));
+        let radial_squared = c.x * c.x + c.y * c.y - params.b * params.b;
+        let radial_squared_error = squared_norm_roundoff(c.x, c.y, c_error.x, c_error.y)
+            + ARM_ROUNDOFF * params.b * params.b;
+        let (radial, radial_error) = sqrt_with_roundoff(radial_squared, radial_squared_error);
+        let nx1 = radial - params.a1;
 
         let tmp1 = c.y.atan2(c.x); // Rust's method call syntax for atan2(y, x)
-        let tmp2 = params.b.atan2(nx1 + params.a1);
+        let tmp2 = params.b.atan2(radial);
 
         let theta1_i = tmp1 - tmp2;
         let theta1_ii = tmp1 + tmp2 - PI;
@@ -352,26 +377,43 @@ impl OPWKinematics {
         let tmp3 = c.z - params.c1;
         let s1_2 = nx1 * nx1 + tmp3 * tmp3;
 
-        let tmp4 = nx1 + 2.0 * params.a1;
+        let tmp4 = radial + params.a1;
         let s2_2 = tmp4 * tmp4 + tmp3 * tmp3;
         let kappa_2 = params.a2 * params.a2 + params.c3 * params.c3;
 
         let c2_2 = params.c2 * params.c2;
 
+        // The sqrt uncertainty matters when both a1 and b are nonzero: close
+        // to the shoulder cylinder it can amplify errors in either arm triangle.
+        let planar_error = radial_error + ARM_ROUNDOFF * (radial + params.a1.abs());
+        let height_error = c_error.z + ARM_ROUNDOFF * (c.z.abs() + params.c1.abs());
+        let s1_2_error = squared_norm_roundoff(nx1, tmp3, planar_error, height_error);
+        let s2_2_error = squared_norm_roundoff(tmp4, tmp3, planar_error, height_error);
+        let triangle1_error = s1_2_error + ARM_ROUNDOFF * (s1_2 + c2_2 + kappa_2);
+        let triangle2_error = s2_2_error + ARM_ROUNDOFF * (s2_2 + c2_2 + kappa_2);
+
         let tmp5 = s1_2 + c2_2 - kappa_2;
 
-        let s1 = f64::sqrt(s1_2);
-        let s2 = f64::sqrt(s2_2);
+        let (s1, s1_error) = sqrt_with_roundoff(s1_2, s1_2_error);
+        let (s2, s2_error) = sqrt_with_roundoff(s2_2, s2_2_error);
 
-        let tmp13 = f64::acos(tmp5 / (2.0 * s1 * params.c2));
-        let tmp14 = f64::atan2(nx1, c.z - params.c1);
+        let tmp13 = acos_with_roundoff(
+            tmp5,
+            2.0 * s1 * params.c2,
+            triangle1_error + 2.0 * params.c2.abs() * s1_error,
+        );
+        let tmp14 = f64::atan2(nx1, tmp3);
         let theta2_i = -tmp13 + tmp14;
         let theta2_ii = tmp13 + tmp14;
 
         let tmp6 = s2_2 + c2_2 - kappa_2;
 
-        let tmp15 = f64::acos(tmp6 / (2.0 * s2 * params.c2));
-        let tmp16 = f64::atan2(nx1 + 2.0 * params.a1, c.z - params.c1);
+        let tmp15 = acos_with_roundoff(
+            tmp6,
+            2.0 * s2 * params.c2,
+            triangle2_error + 2.0 * params.c2.abs() * s2_error,
+        );
+        let tmp16 = f64::atan2(tmp4, tmp3);
         let theta2_iii = -tmp15 - tmp16;
         let theta2_iv = tmp15 - tmp16;
 
@@ -381,41 +423,63 @@ impl OPWKinematics {
         let tmp9 = 2.0 * params.c2 * f64::sqrt(kappa_2);
         let tmp10 = f64::atan2(params.a2, params.c3);
 
-        let tmp11 = f64::acos(tmp7 / tmp9);
+        let tmp11 = acos_with_roundoff(tmp7, tmp9, triangle1_error);
         let theta3_i = tmp11 - tmp10;
         let theta3_ii = -tmp11 - tmp10;
 
-        let tmp12 = f64::acos(tmp8 / tmp9);
+        let tmp12 = acos_with_roundoff(tmp8, tmp9, triangle2_error);
         let theta3_iii = tmp12 - tmp10;
         let theta3_iv = -tmp12 - tmp10;
 
-        [
-            ArmBranch {
-                q1: theta1_i,
-                q2: theta2_i,
-                q3: theta3_i,
-            },
-            ArmBranch {
-                q1: theta1_i,
-                q2: theta2_ii,
-                q3: theta3_ii,
-            },
-            ArmBranch {
-                q1: theta1_ii,
-                q2: theta2_iii,
-                q3: theta3_iii,
-            },
-            ArmBranch {
-                q1: theta1_ii,
-                q2: theta2_iv,
-                q3: theta3_iv,
-            },
-        ]
+        let kappa = kappa_2.sqrt();
+        // Cancelling arm-link contributions can leave a residual even with
+        // no flange or base height. Account for their length scale when
+        // classifying free joints, separately from workspace-domain bounds.
+        let link_error = ARM_ROUNDOFF * (params.c2.abs() + kappa);
+        let radial_link_error = link_error + ARM_ROUNDOFF * params.a1.abs();
+        // A nonzero b shoulder cylinder does not leave J1 free.
+        let free_j1 = params.b == 0.0 && radial <= radial_error + radial_link_error;
+        let equal_links = params.c2 > 0.0
+            && kappa > 0.0
+            && (params.c2 - kappa).abs() <= ARM_ROUNDOFF * (params.c2 + kappa);
+        let folded = |x: f64| {
+            equal_links
+                && x.abs() <= planar_error + radial_link_error
+                && tmp3.abs() <= height_error + link_error
+        };
+
+        ArmRecovery {
+            free_j1,
+            free_j2: [folded(nx1), folded(tmp4)],
+            folded_q3: PI - tmp10,
+            branches: [
+                ArmBranch {
+                    q1: theta1_i,
+                    q2: theta2_i,
+                    q3: theta3_i,
+                },
+                ArmBranch {
+                    q1: theta1_i,
+                    q2: theta2_ii,
+                    q3: theta3_ii,
+                },
+                ArmBranch {
+                    q1: theta1_ii,
+                    q2: theta2_iii,
+                    q3: theta3_iii,
+                },
+                ArmBranch {
+                    q1: theta1_ii,
+                    q2: theta2_iv,
+                    q3: theta3_iv,
+                },
+            ],
+        }
     }
 
     /// Computes model-space J4-J6 candidates for one arm branch.
     /// Near a wrist pole, also resolves the coupled J4/J6 angles near the reference.
-    fn wrist_branch(
+    pub(crate) fn wrist_branch(
         matrix: &RotationMatrix,
         arm: ArmBranch,
         near: &J4J6Near,
@@ -503,59 +567,198 @@ impl OPWKinematics {
         })
     }
 
-    /// Converts all arm/wrist candidates to joint coordinates before validation.
-    fn inverse_candidates(
+    /// Convert a wrist solution using the actual user reference, including pole limits.
+    fn wrist_to_joints(
         &self,
-        pose: &Pose,
-        near: &J4J6Near,
-        wrist_constraints: Option<Constraints>,
-    ) -> impl Iterator<Item = Joints> + use<> {
-        let params = self.parameters;
-        let matrix = RotationMatrix::from_quat(pose.rotation);
-        let arm_branches = self.arm_branches(pose);
-        let near = *near;
-        arm_branches.into_iter().flat_map(move |arm| {
-            Self::wrist_branch(&matrix, arm, &near).filter_map(move |wrist| {
-                let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
-                let mut joints = std::array::from_fn(|i| {
-                    (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
-                });
-                // At a pole the entire J4/J6 phase line describes the same pose.
-                // Fit that line to the limits before the final constraint filter;
-                // filtering just the equal split can discard a reachable pose.
-                if let Some(constraints) = wrist_constraints
-                    && (wrist.q5 == 0.0 || wrist.q5.abs() == PI)
-                    && near.j4.is_finite()
-                    && near.j6.is_finite()
-                {
-                    // Solve in user joint coordinates so circular limits, offsets,
-                    // and reversed joint directions use the same convention.
-                    let sign = if wrist.q5 == 0.0 { 1.0 } else { -1.0 }
-                        * params.sign_corrections[J4] as f64
-                        * params.sign_corrections[J6] as f64;
-                    let reference = [
-                        (near.j4 + params.offsets[J4]) * params.sign_corrections[J4] as f64,
-                        (near.j6 + params.offsets[J6]) * params.sign_corrections[J6] as f64,
-                    ];
-                    let phase = wrapped_angle(joints[J4]) + sign * wrapped_angle(joints[J6]);
-                    let pair = nearest_feasible_pole(phase, sign, reference, &constraints)?;
-                    joints[J4] = pair[0];
-                    joints[J6] = pair[1];
+        arm: ArmBranch,
+        wrist: WristBranch,
+        reference: &Joints,
+        fixed_j6: Option<f64>,
+    ) -> Option<Joints> {
+        let params = &self.parameters;
+        let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
+        let mut joints = std::array::from_fn(|i| {
+            (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
+        });
+        if wrist.q5 == 0.0 || wrist.q5.abs() == PI {
+            if fixed_j6.is_some() {
+                // At a five-axis pole J4 is free: the ignored tool roll must
+                // not tie its choice to the provisional six-axis wrist phase.
+                joints[J4] = wrapped_angle(reference[J4]);
+                if let Some(constraints) = self.constraints {
+                    joints[J4] = nearest_feasible_j4(reference[J4], &constraints)?;
                 }
-                Some(joints)
-            })
-        })
+            } else if let Some(constraints) = self.constraints {
+                let sign = if wrist.q5 == 0.0 { 1.0 } else { -1.0 }
+                    * params.sign_corrections[J4] as f64
+                    * params.sign_corrections[J6] as f64;
+                let phase = wrapped_angle(joints[J4]) + sign * wrapped_angle(joints[J6]);
+                let pair = nearest_feasible_pole(
+                    phase,
+                    sign,
+                    [reference[J4], reference[J6]],
+                    &constraints,
+                )?;
+                joints[J4] = pair[0];
+                joints[J6] = pair[1];
+            }
+        }
+        if let Some(j6) = fixed_j6 {
+            joints[J6] = j6;
+        }
+        Some(joints)
     }
 
-    fn inverse_intern(&self, pose: &Pose, near: &J4J6Near) -> Solutions {
+    /// Validate a point on a singular arm family against its coupled wrist limits.
+    /// Search modules use this same check when testing boundary intersections.
+    pub(crate) fn arm_wrist_candidates(
+        &self,
+        pose: &Pose,
+        arm: ArmBranch,
+        reference: &Joints,
+        fixed_j6: Option<f64>,
+    ) -> Vec<Joints> {
+        let near = J4J6Near::from_joints(reference, &self.parameters);
+        let matrix = RotationMatrix::from_quat(pose.rotation);
+        let mut result = Vec::new();
+        for wrist in Self::wrist_branch(&matrix, arm, &near) {
+            let Some(mut joints) = self.wrist_to_joints(arm, wrist, reference, fixed_j6) else {
+                continue;
+            };
+            if !joints.iter().all(|joint| joint.is_finite()) {
+                continue;
+            }
+            for i in 0..6 {
+                if i == J6 && fixed_j6.is_some() {
+                    continue;
+                }
+                joints[i] = wrapped_angle(joints[i]);
+                if reference[i].is_finite() {
+                    normalize_near(&mut joints[i], reference[i]);
+                }
+            }
+            if let Some(constraints) = self.constraints {
+                // Analytic interval endpoints can recover just outside an
+                // inclusive limit. Move only roundoff-sized violations inside
+                // before the strict constraints and FK checks below.
+                for (i, joint) in joints.iter_mut().enumerate() {
+                    if i == J6 && fixed_j6.is_some() {
+                        continue;
+                    }
+                    let tolerance = constraints.tolerances[i];
+                    let delta = wrapped_angle(*joint - constraints.centers[i]);
+                    let excess = delta.abs() - tolerance;
+                    if excess > 0.0 && excess <= POLE_PHASE_ROUNDOFF_THR {
+                        *joint -=
+                            delta.signum() * (excess + POLE_PHASE_ROUNDOFF_THR.min(tolerance));
+                    }
+                }
+                if !constraints.compliant(&joints) {
+                    continue;
+                }
+                // The public inverse paths also use a bounded representation.
+                let bounded = joints.map(wrapped_angle);
+                if !constraints.compliant(&bounded) {
+                    continue;
+                }
+            }
+            let actual = self.forward(&joints);
+            let orientation_error = if fixed_j6.is_some() {
+                (actual.rotation * DVec3::Z - pose.rotation * DVec3::Z).length()
+            } else {
+                actual.angular_distance(*pose)
+            };
+            if (actual.translation - pose.translation).length() <= self.distance_tolerance
+                && orientation_error <= ANGULAR_TOLERANCE
+            {
+                push_unique(&mut result, joints);
+            }
+        }
+        result
+    }
+
+    /// Search free arm angles before FK validation and final constraint filtering.
+    fn singular_arm_candidates(
+        &self,
+        pose: &Pose,
+        recovery: &ArmRecovery,
+        reference: &Joints,
+        fixed_j6: Option<f64>,
+    ) -> Vec<Joints> {
+        let mut arms = Vec::new();
+        if recovery.free_j1 && recovery.free_j2.iter().any(|free| *free) {
+            arms.extend(arm_continuum_2d::search(
+                self,
+                pose,
+                recovery.folded_q3,
+                reference,
+                fixed_j6,
+            ));
+        } else {
+            for shoulder in 0..2 {
+                if recovery.free_j2[shoulder] {
+                    let arm = ArmBranch {
+                        q1: recovery.branches[2 * shoulder].q1,
+                        q2: 0.0,
+                        q3: recovery.folded_q3,
+                    };
+                    arms.extend(arm_continuum::search(
+                        self, pose, arm, 1, reference, fixed_j6,
+                    ));
+                } else if recovery.free_j1 {
+                    for arm in recovery.branches[2 * shoulder..2 * shoulder + 2].iter() {
+                        if arm.q2.is_finite() && arm.q3.is_finite() {
+                            arms.extend(arm_continuum::search(
+                                self, pose, *arm, 0, reference, fixed_j6,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let mut result = Vec::new();
+        for arm in arms {
+            for joints in self.arm_wrist_candidates(pose, arm, reference, fixed_j6) {
+                push_unique(&mut result, joints);
+            }
+        }
+        self.sort_by_closeness(&mut result, reference);
+        result
+    }
+
+    /// Keeps discrete solutions in the overlap with singular arm families.
+    pub(crate) fn inverse_candidates(
+        &self,
+        pose: &Pose,
+        reference: &Joints,
+        fixed_j6: Option<f64>,
+    ) -> impl Iterator<Item = Joints> + use<> {
+        let matrix = RotationMatrix::from_quat(pose.rotation);
+        let near = J4J6Near::from_joints(reference, &self.parameters);
+        let recovery = self.arm_branches(pose);
+        let singular = self.singular_arm_candidates(pose, &recovery, reference, fixed_j6);
+        let robot = *self;
+        let reference = *reference;
+        recovery
+            .branches
+            .into_iter()
+            .flat_map(move |arm| {
+                Self::wrist_branch(&matrix, arm, &near).filter_map(move |wrist| {
+                    robot.wrist_to_joints(arm, wrist, &reference, fixed_j6)
+                })
+            })
+            // Search ranks near the user's reference, which may contain many
+            // turns. Pass bounded angles into validation just as the discrete
+            // formulas do; continuation restores the selected turns afterward.
+            .chain(singular.into_iter().map(|joints| joints.map(wrapped_angle)))
+    }
+
+    fn inverse_intern(&self, pose: &Pose, reference: &Joints) -> Solutions {
         let mut result: Solutions = Vec::with_capacity(8);
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
-        for (si, mut solution) in self
-            .inverse_candidates(pose, near, self.constraints)
-            .enumerate()
-        {
+        for (si, mut solution) in self.inverse_candidates(pose, reference, None).enumerate() {
             let mut valid = true;
             for angle in solution.iter_mut() {
                 let mut current = *angle;
@@ -592,14 +795,17 @@ impl OPWKinematics {
         result
     }
 
-    fn inverse_intern_5_dof(&self, pose: &Pose, j6: f64, near: &J4J6Near) -> Solutions {
+    fn inverse_intern_5_dof(&self, pose: &Pose, j6: f64, reference: &Joints) -> Solutions {
         let mut result: Solutions = Vec::with_capacity(8);
 
         // Debug check. Solution failing cross-verification is flagged
         // as invalid. This loop also normalizes valid solutions to 0
         // J6 is fixed below and its orientation is ignored; do not constrain
         // the provisional six-axis wrist phase in this path.
-        for (si, mut solution) in self.inverse_candidates(pose, near, None).enumerate() {
+        for (si, mut solution) in self
+            .inverse_candidates(pose, reference, Some(j6))
+            .enumerate()
+        {
             solution[J6] = j6; // J6 goes directly to response and is not more adjusted
             let mut valid = true;
             for angle in solution.iter_mut().take(5) {
@@ -643,6 +849,44 @@ impl OPWKinematics {
         }
     }
 
+    /// Restore previous turns, then validate the actual angles being returned.
+    /// Large finite references can lose pose-defining bits during normalization.
+    fn normalize_and_validate(
+        &self,
+        solutions: &mut Solutions,
+        pose: &Pose,
+        previous: &Joints,
+        five_dof: bool,
+    ) {
+        solutions.retain_mut(|solution| {
+            // Five-axis J6 is fixed by the caller, not chosen by normalization.
+            let moving_joints = if five_dof { 5 } else { 6 };
+            for i in 0..moving_joints {
+                normalize_near(&mut solution[i], previous[i]);
+            }
+            if !solution.iter().all(|joint| joint.is_finite()) {
+                return false;
+            }
+            let actual = self.forward(solution);
+            if !actual.translation.is_finite()
+                || !actual.rotation.is_finite()
+                || !pose.translation.is_finite()
+                || !pose.rotation.is_finite()
+            {
+                return false;
+            }
+            let orientation_error = if five_dof {
+                // Tool roll is ignored, but tool direction must still match,
+                // including when c4 is zero and direction cannot affect XYZ.
+                (actual.rotation * DVec3::Z - pose.rotation * DVec3::Z).length()
+            } else {
+                actual.angular_distance(*pose)
+            };
+            (actual.translation - pose.translation).length() <= self.distance_tolerance
+                && orientation_error <= ANGULAR_TOLERANCE
+        });
+    }
+
     /// Sorts the solutions vector by closeness to the `previous` joint.
     /// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
     fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
@@ -650,39 +894,12 @@ impl OPWKinematics {
             .constraints
             .as_ref()
             .map_or(BY_PREV, |c| c.sorting_weight);
-        if sorting_weight == BY_PREV {
-            // If no constraints or they weight is zero, use simpler version
-            solutions.sort_by(|a, b| {
-                let distance_a = calculate_distance(a, previous);
-                let distance_b = calculate_distance(b, previous);
-                distance_a
-                    .partial_cmp(&distance_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-        } else {
-            let constraints = self.constraints.as_ref().unwrap();
-            solutions.sort_by(|a, b| {
-                let prev_a;
-                let prev_b;
-                if sorting_weight != BY_CONSTRAINS {
-                    prev_a = calculate_distance(a, previous);
-                    prev_b = calculate_distance(b, previous);
-                } else {
-                    // Do not calculate unneeded distances if these values are to be ignored.
-                    prev_a = 0.0;
-                    prev_b = 0.0;
-                }
-
-                let constr_a = calculate_distance(a, &constraints.centers);
-                let constr_b = calculate_distance(b, &constraints.centers);
-
-                let distance_a = prev_a * (1.0 - sorting_weight) + constr_a * sorting_weight;
-                let distance_b = prev_b * (1.0 - sorting_weight) + constr_b * sorting_weight;
-                distance_a
-                    .partial_cmp(&distance_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-        }
+        let centers = self.constraint_centers();
+        solutions.sort_by(|a, b| {
+            weighted_distance(a, previous, centers, sorting_weight)
+                .partial_cmp(&weighted_distance(b, previous, centers, sorting_weight))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 
     /// Get constraint centers in case we have the already constructed instance of the
@@ -693,7 +910,7 @@ impl OPWKinematics {
     }
 }
 
-fn wrapped_angle(angle: f64) -> f64 {
+pub(crate) fn wrapped_angle(angle: f64) -> f64 {
     (angle + PI).rem_euclid(2.0 * PI) - PI
 }
 
@@ -723,8 +940,61 @@ fn wrist_limit_intervals(
         })
 }
 
+/// Choose free five-axis J4 using the public sorter's weighted L1 distance.
+fn nearest_feasible_j4(reference: f64, constraints: &Constraints) -> Option<f64> {
+    let near = wrapped_angle(reference);
+    let center = constraints.centers[J4];
+    let margin = JOINT_DUPLICATE_THR * (1.0 + reference.abs());
+    let mut best = None;
+    let mut best_distance = f64::INFINITY;
+    let mut best_motion = f64::INFINITY;
+    for (lower, upper) in wrist_limit_intervals(center, constraints.tolerances[J4], near, 1.0) {
+        // The score is piecewise linear on each feasible interval. Its only
+        // kinks occur at the previous value and the raw constraint center.
+        for candidate in [0.0, center - reference, lower, upper] {
+            let displacement = candidate.clamp(lower, upper);
+            let inward = displacement
+                + (lower + (upper - lower) / 2.0 - displacement).clamp(-margin, margin);
+            // Also try just inside an endpoint: exact +pi normalizes to -pi,
+            // and constraint-boundary rounding can reject the exact endpoint.
+            for displacement in [displacement, inward] {
+                let angle = wrapped_angle(near + displacement);
+                let mut joints = constraints.centers;
+                joints[J4] = angle;
+                if !angle.is_finite() || !constraints.compliant(&joints) {
+                    continue;
+                }
+                // Score and check the actual representation continuation will
+                // return, retaining the caller's original reference and turns.
+                normalize_near(&mut joints[J4], reference);
+                if !joints[J4].is_finite() || !constraints.compliant(&joints) {
+                    continue;
+                }
+                let distance = weighted_distance(
+                    &[joints[J4]],
+                    &[reference],
+                    &[center],
+                    constraints.sorting_weight,
+                );
+                let motion = (joints[J4] - reference).abs();
+                let roundoff =
+                    64.0 * f64::EPSILON * (1.0 + distance.abs().max(best_distance.abs()));
+                if best.is_none()
+                    || distance < best_distance - roundoff
+                    || ((distance - best_distance).abs() <= roundoff && motion < best_motion)
+                {
+                    best = Some(angle);
+                    best_distance = distance;
+                    best_motion = motion;
+                }
+            }
+        }
+    }
+    best
+}
+
 /// Intersects J4 + sign*J6 = phase (modulo 2*pi) with both circular limits,
-/// choosing the feasible pair with the least squared motion from the reference.
+/// choosing the feasible pair using the public sorter's weighted L1 distance.
 fn nearest_feasible_pole(
     phase: f64,
     sign: f64,
@@ -761,18 +1031,23 @@ fn nearest_feasible_pole(
             }
         }
         if !constraints.compliant(&joints) {
-            return false;
+            return None;
         }
         normalize_near(&mut joints[J4], reference[0]);
         normalize_near(&mut joints[J6], reference[1]);
-        constraints.compliant(&joints)
+        constraints
+            .compliant(&joints)
+            .then_some([joints[J4], joints[J6]])
     };
 
     let mut best = None;
     let mut best_distance = f64::INFINITY;
+    let mut best_motion = f64::INFINITY;
+    let centers = [constraints.centers[J4], constraints.centers[J6]];
     let inward = |value: f64, lower: f64, upper: f64, margin: f64| {
         value + (lower + (upper - lower) / 2.0 - value).clamp(-margin, margin)
     };
+    let margin = JOINT_DUPLICATE_THR * (1.0 + reference[0].abs().max(reference[1].abs()));
     for (lower4, upper4) in intervals4 {
         for (lower6, upper6) in intervals6.clone() {
             // x = J4 - near4 and y = sign*(J6 - near6) lie in [-pi, pi].
@@ -787,37 +1062,71 @@ fn nearest_feasible_pole(
                 if lower - upper > POLE_PHASE_ROUNDOFF_THR {
                     continue;
                 }
-                let mut x = (sum / 2.0)
-                    .clamp(lower.min(upper), lower.max(upper))
-                    .clamp(lower4, upper4);
-                let mut y = (sum - x).clamp(lower6, upper6);
-                let make_pair = |x, y| [near[0] + x, near[1] + sign * y];
-                let mut pair = make_pair(x, y);
-                if !compliant(pair) && lower < upper {
-                    // Move a rejected endpoint slightly inside its feasible
-                    // segment, preserving the phase whenever possible.
-                    let margin =
-                        JOINT_DUPLICATE_THR * (1.0 + reference[0].abs().max(reference[1].abs()));
-                    x = inward(x, lower, upper, margin);
-                    y = sum - x;
-                    pair = make_pair(x, y);
-                }
-                if !compliant(pair) {
-                    // At a touching corner, rounding may put both joints just
-                    // outside. Nudge each inward by only a bounded roundoff
-                    // amount; strict constraints and FK validation still apply.
-                    let margin = POLE_PHASE_ROUNDOFF_THR / 4.0;
-                    x = inward(x, lower4, upper4, margin);
-                    y = inward(y, lower6, upper6, margin);
-                    pair = make_pair(x, y);
-                }
-                let distance = x * x + y * y;
-                if distance < best_distance
-                    && (x + y - sum).abs() <= POLE_PHASE_ROUNDOFF_THR
-                    && compliant(pair)
-                {
-                    best = Some(pair);
-                    best_distance = distance;
+                // Along y=sum-x the weighted L1 score is piecewise linear.
+                // Its minimum lies at an endpoint or where a joint equals its
+                // reference or center. Keep the balanced split for tied scores.
+                // Centers stay in user coordinates, as in the public sorter.
+                let candidates = [
+                    sum / 2.0,
+                    lower,
+                    upper,
+                    0.0,
+                    sum,
+                    centers[0] - reference[0],
+                    sum - sign * (centers[1] - reference[1]),
+                    // At the turn cut, +pi normalizes to -pi. A point just
+                    // inside can have a better distance to the raw centers.
+                    inward(lower, lower, upper, margin),
+                    inward(upper, lower, upper, margin),
+                ];
+                for candidate in candidates {
+                    let mut x = candidate
+                        .clamp(lower.min(upper), lower.max(upper))
+                        .clamp(lower4, upper4);
+                    let mut y = (sum - x).clamp(lower6, upper6);
+                    let make_pair = |x, y| [near[0] + x, near[1] + sign * y];
+                    let mut pair = make_pair(x, y);
+                    if compliant(pair).is_none() && lower < upper {
+                        // Move a rejected endpoint slightly inside its feasible
+                        // segment, preserving the phase whenever possible.
+                        x = inward(x, lower, upper, margin);
+                        y = sum - x;
+                        pair = make_pair(x, y);
+                    }
+                    if compliant(pair).is_none() {
+                        // At a touching corner, rounding may put both joints just
+                        // outside. Nudge each inward by only a bounded roundoff
+                        // amount; strict constraints and FK validation still apply.
+                        let margin = POLE_PHASE_ROUNDOFF_THR / 4.0;
+                        x = inward(x, lower4, upper4, margin);
+                        y = inward(y, lower6, upper6, margin);
+                        pair = make_pair(x, y);
+                    }
+                    let Some(normalized) = compliant(pair) else {
+                        continue;
+                    };
+                    if (x + y - sum).abs() > POLE_PHASE_ROUNDOFF_THR {
+                        continue;
+                    }
+                    let distance = weighted_distance(
+                        &normalized,
+                        &reference,
+                        &centers,
+                        constraints.sorting_weight,
+                    );
+                    // Preserve balanced motion only when the requested scores
+                    // tie within arithmetic roundoff.
+                    let motion = x * x + y * y;
+                    let roundoff =
+                        64.0 * f64::EPSILON * (1.0 + distance.abs().max(best_distance.abs()));
+                    if best.is_none()
+                        || distance < best_distance - roundoff
+                        || ((distance - best_distance).abs() <= roundoff && motion < best_motion)
+                    {
+                        best = Some(pair);
+                        best_distance = distance;
+                        best_motion = motion;
+                    }
                 }
             }
         }
@@ -831,19 +1140,39 @@ fn nearest_feasible_pole(
 ///
 /// * `now` - A mutable reference to the angle to be normalized, radians
 /// * `must_be_near` - The reference angle, radians
-fn normalize_near(now: &mut f64, must_be_near: f64) {
+pub(crate) fn normalize_near(now: &mut f64, must_be_near: f64) {
     let two_pi = 2.0 * PI;
     // Smallest signed difference in (-π, π]
     let diff = (*now - must_be_near + PI).rem_euclid(two_pi) - PI;
     *now = must_be_near + diff;
 }
 
-fn calculate_distance(joint1: &Joints, joint2: &Joints) -> f64 {
+pub(crate) fn calculate_distance(joint1: &[f64], joint2: &[f64]) -> f64 {
     joint1
         .iter()
         .zip(joint2.iter())
         .map(|(a, b)| (a - b).abs())
         .sum()
+}
+
+/// Shared ranking for whole solutions and the joints free at a wrist pole.
+/// Callers normalize candidates near previous before comparing raw coordinates.
+fn weighted_distance(
+    joints: &[f64],
+    previous: &[f64],
+    centers: &[f64],
+    sorting_weight: f64,
+) -> f64 {
+    let previous_distance = if sorting_weight == BY_CONSTRAINS {
+        0.0
+    } else {
+        calculate_distance(joints, previous)
+    };
+    if sorting_weight == BY_PREV {
+        return previous_distance;
+    }
+    previous_distance * (1.0 - sorting_weight)
+        + calculate_distance(joints, centers) * sorting_weight
 }
 
 fn push_unique(solutions: &mut Solutions, candidate: Joints) {
@@ -858,7 +1187,12 @@ fn push_unique(solutions: &mut Solutions, candidate: Joints) {
     }
 }
 
-fn compare_poses(ta: &Pose, tb: &Pose, distance_tolerance: f64, angular_tolerance: f64) -> bool {
+pub(crate) fn compare_poses(
+    ta: &Pose,
+    tb: &Pose,
+    distance_tolerance: f64,
+    angular_tolerance: f64,
+) -> bool {
     let translation_distance = (ta.translation - tb.translation).length();
     let angular_distance = ta.angular_distance(*tb);
 
@@ -878,387 +1212,45 @@ fn compare_poses(ta: &Pose, tb: &Pose, distance_tolerance: f64, angular_toleranc
     true
 }
 
-#[cfg(test)]
-#[path = "wrist_singularity_tests.rs"]
-mod wrist_singularity_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::kinematic_traits::{J5, Joints, Kinematics};
-    use crate::kinematics_impl::OPWKinematics;
-    use crate::parameters::opw_kinematics::Parameters;
-
-    fn scale_geometry(mut parameters: Parameters, scale: f64) -> Parameters {
-        parameters.a1 *= scale;
-        parameters.a2 *= scale;
-        parameters.b *= scale;
-        parameters.c1 *= scale;
-        parameters.c2 *= scale;
-        parameters.c3 *= scale;
-        parameters.c4 *= scale;
-        parameters
+/// Square root with a bounded input error, returning the root and its error.
+/// Near zero, propagate the square-root amplification instead of assuming that
+/// a squared-length error stays small after taking the root.
+fn sqrt_with_roundoff(value: f64, error: f64) -> (f64, f64) {
+    if !value.is_finite() || !error.is_finite() || error < 0.0 || value < -error {
+        return (f64::NAN, f64::NAN);
     }
 
-    #[test]
-    fn distance_tolerance_scales_with_robot_geometry() {
-        let parameters = Parameters::irb2400_10();
-        let robot = OPWKinematics::new(parameters);
-        let expected = 2.395 * RELATIVE_DISTANCE_TOLERANCE;
-        assert!(
-            (robot.distance_tolerance - expected).abs() <= expected * f64::EPSILON,
-            "distance tolerance {} does not match expected {}",
-            robot.distance_tolerance,
-            expected
-        );
+    let root = value.max(0.0).sqrt();
+    let root_error = if value > error {
+        // Rationalized sqrt(value) - sqrt(value - error), avoiding cancellation.
+        error / (root + (value - error).sqrt())
+    } else {
+        error.sqrt()
+    };
+    (root, root_error + ARM_ROUNDOFF * root)
+}
 
-        let scale = 1_000_000.0;
-        let scaled_parameters = scale_geometry(parameters, scale);
-        let scaled_robot = OPWKinematics::new(scaled_parameters);
-        let expected_scaled = robot.distance_tolerance * scale;
-        assert!(
-            (scaled_robot.distance_tolerance - expected_scaled).abs()
-                <= expected_scaled * f64::EPSILON,
-            "scaled distance tolerance {} does not match expected {}",
-            scaled_robot.distance_tolerance,
-            expected_scaled
-        );
+/// Error in x² + y², including uncertainty already present in each coordinate.
+fn squared_norm_roundoff(x: f64, y: f64, x_error: f64, y_error: f64) -> f64 {
+    2.0 * x.abs() * x_error
+        + x_error * x_error
+        + 2.0 * y.abs() * y_error
+        + y_error * y_error
+        + ARM_ROUNDOFF * (x * x + y * y)
+}
 
-        let constraints = Constraints::new([0.0; 6], [0.0; 6], BY_PREV);
-        let constrained_robot = OPWKinematics::new_with_constraints(scaled_parameters, constraints);
-        assert_eq!(
-            constrained_robot.distance_tolerance,
-            scaled_robot.distance_tolerance
-        );
+/// Clamp only roundoff-sized cosine domain violations. Compare before division:
+/// a small denominator near inner reach can greatly amplify a tiny input error.
+fn acos_with_roundoff(numerator: f64, denominator: f64, error: f64) -> f64 {
+    if !numerator.is_finite()
+        || !denominator.is_finite()
+        || denominator == 0.0
+        || !error.is_finite()
+        || error < 0.0
+        || numerator.abs() - denominator.abs() > error
+    {
+        // Unreachable or degenerate triangles must not become arbitrary angles.
+        return f64::NAN;
     }
-
-    #[test]
-    fn inverse_continuing_scales_singularity_recovery_with_geometry() {
-        let parameters = scale_geometry(Parameters::irb2400_10(), 1_000.0);
-        let robot = OPWKinematics::new(parameters);
-        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.4];
-        let target: Joints = [0.0, 0.1, 0.2, 0.5, 0.0, 0.6];
-        let pose = robot.forward(&target);
-
-        let base = robot.inverse(&pose);
-        let continuing = robot.inverse_continuing(&pose, &previous);
-        assert_eq!(
-            continuing.len(),
-            base.len(),
-            "singularity recovery should use existing wrist branches for scaled geometry"
-        );
-
-        let recovered = continuing
-            .iter()
-            .find(|solution| solution[J5].abs() < ANGULAR_TOLERANCE)
-            .expect("expected a recovered J5≈0 solution for scaled geometry");
-        let resolved_pose = robot.forward(recovered);
-        let translation_error = (resolved_pose.translation - pose.translation).length();
-        let angular_error = resolved_pose.angular_distance(pose);
-        assert!(
-            translation_error <= robot.distance_tolerance,
-            "resolved FK translation error {} exceeds scaled tolerance {}",
-            translation_error,
-            robot.distance_tolerance
-        );
-        assert!(
-            angular_error <= ANGULAR_TOLERANCE,
-            "resolved FK angular error {} exceeds tolerance {}",
-            angular_error,
-            ANGULAR_TOLERANCE
-        );
-    }
-
-    #[test]
-    fn inverse_cross_validation_scales_with_robot_geometry() {
-        let parameters = Parameters::irb2400_10();
-        let scaled_parameters = scale_geometry(parameters, 1E12);
-        let robot = OPWKinematics::new(parameters);
-        let scaled_robot = OPWKinematics::new(scaled_parameters);
-        let joints: Joints = [0.37, -0.61, 0.83, -1.11, 0.72, 1.39];
-
-        let solutions = robot.inverse(&robot.forward(&joints));
-        let scaled_pose = scaled_robot.forward(&joints);
-        let scaled_solutions = scaled_robot.inverse(&scaled_pose);
-        assert!(
-            !solutions.is_empty(),
-            "baseline inverse returned no solutions"
-        );
-        assert_eq!(
-            scaled_solutions.len(),
-            solutions.len(),
-            "inverse solution count changed when the robot geometry was scaled"
-        );
-
-        for solution in scaled_solutions {
-            let resolved_pose = scaled_robot.forward(&solution);
-            let translation_error = (resolved_pose.translation - scaled_pose.translation).length();
-            assert!(
-                translation_error <= scaled_robot.distance_tolerance,
-                "resolved FK translation error {} exceeds scaled tolerance {}",
-                translation_error,
-                scaled_robot.distance_tolerance
-            );
-        }
-    }
-
-    #[test]
-    fn inverse_5dof_cross_validation_scales_with_robot_geometry() {
-        let parameters = Parameters::irb2400_10();
-        let scaled_parameters = scale_geometry(parameters, 1E12);
-        let robot = OPWKinematics::new(parameters);
-        let scaled_robot = OPWKinematics::new(scaled_parameters);
-        let joints: Joints = [0.37, -0.61, 0.83, -1.11, 0.72, 1.39];
-
-        let solutions = robot.inverse_5dof(&robot.forward(&joints), joints[J6]);
-        let scaled_pose = scaled_robot.forward(&joints);
-        let scaled_solutions = scaled_robot.inverse_5dof(&scaled_pose, joints[J6]);
-        assert!(
-            !solutions.is_empty(),
-            "baseline 5-DOF inverse returned no solutions"
-        );
-        assert_eq!(
-            scaled_solutions.len(),
-            solutions.len(),
-            "5-DOF inverse solution count changed when the robot geometry was scaled"
-        );
-
-        for solution in scaled_solutions {
-            let resolved_translation = scaled_robot.forward(&solution).translation;
-            let translation_error = (resolved_translation - scaled_pose.translation).length();
-            assert!(
-                translation_error <= scaled_robot.distance_tolerance,
-                "resolved 5-DOF FK translation error {} exceeds scaled tolerance {}",
-                translation_error,
-                scaled_robot.distance_tolerance
-            );
-        }
-    }
-
-    #[test]
-    fn wrist_branch_handles_cosine_roundoff_at_both_poles() {
-        let arm = ArmBranch {
-            q1: 0.0,
-            q2: 0.0,
-            q3: 0.0,
-        };
-        let near = J4J6Near { j4: 0.0, j6: 0.0 };
-        for (rotation, cosine, expected_q5) in [
-            (DMat3::IDENTITY, 1.0 + f64::EPSILON, 0.0),
-            (DMat3::from_rotation_y(PI), -1.0 - f64::EPSILON, PI),
-        ] {
-            let mut matrix = RotationMatrix { matrix: rotation };
-            matrix.matrix.z_axis.z = cosine;
-            for branch in OPWKinematics::wrist_branch(&matrix, arm, &near) {
-                assert!(branch.q4.is_finite() && branch.q5.is_finite() && branch.q6.is_finite());
-                assert_eq!(branch.q5.abs(), expected_q5);
-            }
-        }
-    }
-
-    #[test]
-    fn test_inverse_continuing_large_j6_angles() {
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-
-        let angles_deg: [f64; 10] = [
-            -90000.0, -9000.0, -900.0, -90.0, -9.0, 9.0, 90.0, 900.0, 9000.0, 90000.0,
-        ];
-
-        for &angle_deg in &angles_deg {
-            let j6_rad = angle_deg.to_radians();
-
-            let pose = robot.forward(&[0.0, 0.1, 0.2, 0.3, 0.1, j6_rad]);
-
-            let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.1, j6_rad];
-            let solutions = robot.inverse_continuing(&pose, &previous);
-
-            assert!(
-                !solutions.is_empty(),
-                "No solutions found for angle {} degrees",
-                angle_deg
-            );
-
-            let solution_j6 = solutions[0][J6];
-
-            // Normalize near previous angle
-            let mut normalized_solution_j6 = solution_j6;
-            normalize_near(&mut normalized_solution_j6, previous[J6]);
-
-            let diff = (normalized_solution_j6 - previous[J6]).abs();
-
-            // Allow small epsilon due to floating-point errors
-            assert!(
-                diff < 1e-6,
-                "J6 mismatch for angle {} degrees: difference was {} radians",
-                angle_deg,
-                diff
-            );
-        }
-    }
-
-    #[test]
-    fn test_inverse_continuing_recovers_wrist_at_j5_pi() {
-        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
-        use std::f64::consts::PI;
-
-        // Use a known-good robot model; adjust if you prefer a different preset.
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-
-        // Previous configuration with the wrist at the π singularity.
-        // For J5 ≈ π, the *orientation* depends on (J4 - J6),
-        // and the continuity-preserving update is δ4 = -δ6.
-        let previous: Joints = [0.0, 0.1, 0.2, 0.3, PI, -0.8];
-
-        // Create a target pose by moving J4 and J6 in OPPOSITE directions by ±Δ
-        // while keeping J5 at π. This changes (J4 - J6) by 2Δ.
-        let delta = 0.20_f64;
-        let target: Joints = [
-            previous[0],
-            previous[1],
-            previous[2],
-            previous[J4] + delta,
-            previous[J5], // keep J5 at π
-            previous[J6] - delta,
-        ];
-
-        // Pose generated from the "target" configuration
-        let pose = robot.forward(&target);
-
-        // Baseline: plain IK solutions (no continuity logic)
-        let base = robot.inverse(&pose);
-        assert!(
-            !base.is_empty(),
-            "baseline IK returned no solutions for the target pose"
-        );
-
-        // Continuation recovers the existing wrist branches near `previous`.
-        let cont = robot.inverse_continuing(&pose, &previous);
-        assert!(!cont.is_empty(), "inverse_continuing returned no solutions");
-        assert_eq!(
-            cont.len(),
-            base.len(),
-            "recovery at J5≈π should preserve the wrist branch count"
-        );
-
-        // The recovered wrist solution should sort closest to `previous`.
-        let mut best = cont[0];
-        for j in 0..6 {
-            normalize_near(&mut best[j], previous[j]);
-        }
-
-        // Opposite-direction motion relative to previous: δ4 + δ6 ≈ 0
-        let d4 = best[J4] - previous[J4];
-        let d6 = best[J6] - previous[J6];
-        assert!(
-            (d4 + d6).abs() < 1e-6,
-            "expected opposite-direction update at J5≈π, got δ4={} δ6={}",
-            d4,
-            d6
-        );
-
-        // And (J4 - J6) must match the pose-implied (target) value (mod 2π)
-        let mut best_diff = best[J4] - best[J6];
-        let target_diff = target[J4] - target[J6];
-        normalize_near(&mut best_diff, target_diff);
-        assert!(
-            (best_diff - target_diff).abs() < 1e-6,
-            "q4 - q6 mismatch: got {}, want {}",
-            best_diff,
-            target_diff
-        );
-    }
-
-    #[test]
-    fn test_inverse_continuing_recovers_wrist_at_j5_zero() {
-        use crate::kinematic_traits::{J4, J5, J6, Joints, Kinematics};
-
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-
-        // At J5 = 0, the orientation depends on J4 + J6. The target changes
-        // that sum while `previous` supplies the preferred wrist distribution.
-        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.0, 0.4];
-        let delta = 0.20_f64;
-        let target: Joints = [
-            previous[0],
-            previous[1],
-            previous[2],
-            previous[J4] + delta,
-            previous[J5],
-            previous[J6] + delta,
-        ];
-        let pose = robot.forward(&target);
-
-        let base = robot.inverse(&pose);
-        assert!(
-            !base.is_empty(),
-            "baseline IK returned no solutions for the target pose"
-        );
-
-        let cont = robot.inverse_continuing(&pose, &previous);
-        assert_eq!(
-            cont.len(),
-            base.len(),
-            "recovery at J5≈0 should preserve the wrist branch count"
-        );
-
-        // The continuity solution is the minimum joint-space change from
-        // `previous`, so sorting should place it first.
-        let mut best = cont[0];
-        for j in 0..6 {
-            normalize_near(&mut best[j], previous[j]);
-        }
-
-        assert!(
-            best[J5].abs() < 1e-6,
-            "expected a J5≈0 continuity solution, got J5={}",
-            best[J5]
-        );
-
-        // The remap must move J4 and J6 in the same direction by equal
-        // amounts. An opposite-sign update preserves the old sum and fails
-        // the final forward-pose validation.
-        let d4 = best[J4] - previous[J4];
-        let d6 = best[J6] - previous[J6];
-        assert!(
-            (d4 - d6).abs() < 1e-6,
-            "expected same-direction update at J5≈0, got δ4={} δ6={}",
-            d4,
-            d6
-        );
-
-        let mut best_sum = best[J4] + best[J6];
-        let target_sum = target[J4] + target[J6];
-        normalize_near(&mut best_sum, target_sum);
-        assert!(
-            (best_sum - target_sum).abs() < 1e-6,
-            "q4 + q6 mismatch: got {}, want {}",
-            best_sum,
-            target_sum
-        );
-
-        let resolved_pose = robot.forward(&best);
-        let translation_error = (resolved_pose.translation - pose.translation).length();
-        let angular_error = resolved_pose.angular_distance(pose);
-        assert!(
-            translation_error <= robot.distance_tolerance,
-            "resolved FK translation error {} exceeds tolerance {}",
-            translation_error,
-            robot.distance_tolerance
-        );
-        assert!(
-            angular_error <= ANGULAR_TOLERANCE,
-            "resolved FK angular error {} exceeds tolerance {}",
-            angular_error,
-            ANGULAR_TOLERANCE
-        );
-    }
-
-    #[test]
-    fn test_inverse_continuing_handles_non_finite_previous_joint() {
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-        let pose = robot.forward(&[0.0, 0.1, 0.2, 0.3, 0.1, 0.2]);
-        let previous: Joints = [0.0, 0.1, 0.2, 0.3, 0.1, f64::INFINITY];
-
-        let _ = robot.inverse_continuing(&pose, &previous);
-    }
+    (numerator.clamp(-denominator.abs(), denominator.abs()) / denominator).acos()
 }

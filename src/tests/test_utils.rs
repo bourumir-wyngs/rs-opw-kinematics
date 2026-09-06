@@ -25,7 +25,7 @@ pub struct Case {
     pub id: i32,
     pub(crate) parameters: String,
     pub(crate) joints: [f64; 6], // assumed degrees from YAML with angle_conversions
-    pub(crate) _solutions: Vec<[f64; 6]>, // currently not used
+    pub(crate) solutions: Vec<[f64; 6]>, // degrees from the reference implementation
     pub(crate) pose: Pose,
 }
 
@@ -108,7 +108,7 @@ pub(crate) fn load_yaml(file_path: impl AsRef<Path>) -> Result<Vec<Case>> {
             id: c.id,
             parameters: c.parameters,
             joints: c.joints,
-            _solutions: c.solutions,
+            solutions: c.solutions,
             pose: Pose {
                 translation: c.pose.translation,
                 quaternion: c.pose.quaternion,
@@ -154,8 +154,19 @@ pub fn are_poses_close(
     trans_tol_m: f64,
     rot_tol_rad: f64,
 ) -> bool {
+    if !trans_tol_m.is_finite()
+        || trans_tol_m < 0.0
+        || !rot_tol_rad.is_finite()
+        || rot_tol_rad < 0.0
+        || !a.translation.is_finite()
+        || !b.translation.is_finite()
+        || !a.rotation.is_finite()
+        || !b.rotation.is_finite()
+    {
+        return false;
+    }
     let tdiff = (a.translation - b.translation).length();
-    if tdiff > trans_tol_m {
+    if !tdiff.is_finite() || tdiff > trans_tol_m {
         return false;
     }
     a.angular_distance(*b) <= rot_tol_rad
@@ -169,7 +180,7 @@ pub fn are_poses_approx_equal(a: &KinematicPose, b: &KinematicPose, tolerance: f
 
 // ---- Joint solution comparison ----
 
-use crate::kinematic_traits::{Joints, Solutions};
+use crate::kinematic_traits::Joints;
 
 #[inline]
 fn normalize_angle_rad(a: f64) -> f64 {
@@ -189,18 +200,112 @@ fn normalize_angle_rad(a: f64) -> f64 {
 /// Returns:
 /// - `Some(index)` of the matching solution, or `None` if not found
 pub fn found_joints_approx_equal(
-    solutions: &Solutions,
+    solutions: &[Joints],
     expected: &Joints,
     tolerance: f64,
 ) -> Option<i32> {
+    if !tolerance.is_finite() || tolerance < 0.0 || expected.iter().any(|joint| !joint.is_finite())
+    {
+        return None;
+    }
     'outer: for (idx, sol) in solutions.iter().enumerate() {
         for j in 0..6 {
             let d = normalize_angle_rad(sol[j] - expected[j]).abs();
-            if d > tolerance {
+            if !d.is_finite() || d > tolerance {
                 continue 'outer;
             }
         }
         return Some(idx as i32);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KinematicPose, are_poses_close, found_joints_approx_equal};
+    use glam::DQuat;
+    use std::f64::consts::{PI, TAU};
+
+    #[test]
+    fn pose_matching_rejects_nonfinite_components() {
+        let valid = KinematicPose::IDENTITY;
+        for axis in 0..3 {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut invalid = valid;
+                invalid.translation[axis] = value;
+                assert!(!are_poses_close(&invalid, &valid, 1e-6, 1e-6));
+                assert!(!are_poses_close(&valid, &invalid, 1e-6, 1e-6));
+            }
+        }
+        for component in 0..4 {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut invalid = valid;
+                let mut quaternion = [0.0, 0.0, 0.0, 1.0];
+                quaternion[component] = value;
+                invalid.rotation = DQuat::from_array(quaternion);
+                assert!(!are_poses_close(&invalid, &valid, 1e-6, 1e-6));
+                assert!(!are_poses_close(&valid, &invalid, 1e-6, 1e-6));
+            }
+        }
+    }
+
+    #[test]
+    fn pose_matching_rejects_invalid_tolerances() {
+        let valid = KinematicPose::IDENTITY;
+        for tolerance in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1e-6] {
+            assert!(!are_poses_close(&valid, &valid, tolerance, 1e-6));
+            assert!(!are_poses_close(&valid, &valid, 1e-6, tolerance));
+        }
+    }
+
+    #[test]
+    fn joint_matching_rejects_nonfinite_angles() {
+        let valid = [0.0; 6];
+        for joint in 0..6 {
+            for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut invalid = valid;
+                invalid[joint] = value;
+                assert_eq!(found_joints_approx_equal(&[invalid], &valid, 1e-6), None);
+                assert_eq!(found_joints_approx_equal(&[valid], &invalid, 1e-6), None);
+                assert_eq!(found_joints_approx_equal(&[invalid], &invalid, 1e-6), None);
+                assert_eq!(
+                    found_joints_approx_equal(&[invalid, valid], &valid, 1e-6),
+                    Some(1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn joint_matching_rejects_invalid_tolerances() {
+        for tolerance in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1e-6] {
+            assert_eq!(
+                found_joints_approx_equal(&[[0.0; 6]], &[0.0; 6], tolerance),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn joint_matching_accepts_wrapped_angles_only_within_tolerance() {
+        let expected = [0.25, -0.5, PI, -PI, 0.0, 1.0];
+        let wrapped = [0.25 + TAU, -0.5 - TAU, -PI, PI, 4.0 * TAU, 1.0 - 3.0 * TAU];
+        assert_eq!(
+            found_joints_approx_equal(&[wrapped], &expected, 1e-12),
+            Some(0)
+        );
+
+        for joint in 0..6 {
+            let mut different = wrapped;
+            different[joint] += 2e-6;
+            assert_eq!(
+                found_joints_approx_equal(&[different], &expected, 1e-6),
+                None
+            );
+            assert_eq!(
+                found_joints_approx_equal(&[different], &expected, 3e-6),
+                Some(0)
+            );
+        }
+    }
 }

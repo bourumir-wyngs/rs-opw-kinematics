@@ -112,5 +112,4 @@ pub mod rrt;
 mod rrt_to;
 
 #[cfg(test)]
-#[cfg(feature = "allow_filesystem")]
 mod tests;

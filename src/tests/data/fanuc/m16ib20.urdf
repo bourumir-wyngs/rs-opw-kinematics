@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  Kinematic reference extracted from ROS-Industrial (see LICENSE.txt).
+  Source: https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_m16ib_support/urdf/m16ib20_macro.xacro
+  Joint origins, axes, types and parent/child frames retained;
+  prefix and pi expressions expanded, geometry and limits omitted.
+-->
+<robot name="fanuc_m16ib20">
+  <link name="base_link" />
+  <link name="link_1" />
+  <link name="link_2" />
+  <link name="link_3" />
+  <link name="link_4" />
+  <link name="link_5" />
+  <link name="link_6" />
+  <link name="base" />
+  <link name="flange" />
+  <link name="tool0" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.525" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.150 0 0" rpy="0 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 1 0" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0 0 0.770" rpy="0 0 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0 0 0.100" rpy="0 0 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="-1 0 0" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="0.740 0 0" rpy="0 0 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 -1 0" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0.100 0 0" rpy="0 0 0" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="-1 0 0" />
+  </joint>
+  <joint name="base_link-base" type="fixed">
+    <origin xyz="0 0 0.525" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+  <joint name="joint_6-flange" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link_6" />
+    <child link="flange" />
+  </joint>
+  <joint name="link_6-tool0" type="fixed">
+    <origin xyz="0 0 0" rpy="3.141592653589793 -1.5707963267948966 0" />
+    <parent link="flange" />
+    <child link="tool0" />
+  </joint>
+</robot>

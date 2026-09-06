@@ -97,6 +97,10 @@ using the previous values as a reference. Those values may need to change to rea
 target pose. Plain `inverse` uses constraint centers, or zeros when unconstrained.
 Small, resolvable nonzero J5 bends retain their individual wrist angles.
 
+For 5 DOF, J6 stays fixed and J4 is free at a wrist pole. When constraints are
+present, the J4 choice follows their `sorting_weight`, balancing distance from
+the previous angle and the constraint center. Tied scores favor the previous angle.
+
 The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
 integrating collision checking and both joint-based and Cartesian path planning with collision avoidance.
@@ -117,6 +121,9 @@ To use the library, fill out an `opw_kinematics::Parameters` data structure with
 kinematic parameters and any joint offsets required to bring the paper's zero position (arm up in Z) to the
 manufacturer's position. Additionally, there are 6 "sign correction" parameters (-1 or 1) that should be specified if
 your robot's axes do not match the convention in the paper.
+
+Joint offsets must be finite and within ±2π radians (±360°), inclusive.
+Solver construction panics if any offset is outside this range or non-finite.
 
 For example, the ABB IRB2400 has the following values:
 
@@ -703,9 +710,27 @@ real-world robotic movement.
 
 # Configuring the solver for your robot
 
-The project contains built-in definitions for Igus Rebel, ABB IRB 2400/10, IRB 2600-12/1.65, IRB 4600-60/2.05; KUKA KR 6 R700 sixx,
-FANUC R-2000iB/200R; Stäubli RX160, TX40, TX2-140, TX2-160, and TX2-160L with various levels of
-testing. Robot manufacturers may provide such configurations for the robots they make.
+The project contains built-in definitions in [`Parameters`](src/parameters_robots.rs):
+
+| Manufacturer | Models |
+| --- | --- |
+| ABB | IRB 120-3/0.58, IRB 1200-5/0.90, IRB 1200-7/0.70, IRB 1600-6/1.20, IRB 1600-10/1.45 (`abb_1600`), IRB 2400/10, IRB 2600-12/1.65, IRB 4600-40/2.55, IRB 4600-60/2.05 |
+| FANUC | LR Mate 200iB, M-6iB, M-10iA, M-16iB/20, M-20iA, M-20iB/25, R-2000iB/200R |
+| KUKA | KR 6 R700 sixx, KR 6 R900-2, KR 10 R1420, KR 150 R3100-2 |
+| Stäubli | RX160, TX40, TX2-140, TX2-160, TX2-160L |
+| Igus | Rebel |
+
+For example, use `Parameters::fanuc_m10ia()` or `Parameters::irb120_3_58()`.
+Lengths are in metres and joint offsets are in radians. The model documentation links
+to reference definitions; ROS-Industrial presets use the linked model's joint coordinates
+and transform from `base_link` to `tool0`. These definitions provide nominal kinematics;
+joint limits and controller-specific joint coupling must be configured separately when applicable.
+
+The six FANUC presets from LR Mate 200iB through M-20iB/25 use the serial-chain input
+`joints[2] = controller_j3 + controller_j2` (all angles in radians), following the
+[ROS-Industrial linkage conversion](https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_driver/src/fanuc_utils.cpp).
+
+Robot manufacturers may provide such configurations for the robots they make.
 For instance, FANUC M10IA is
 described [here](https://github.com/ros-industrial/fanuc/blob/3ea2842baca3184cc621071b785cbf0c588a4046/fanuc_m10ia_support/config/opw_parameters_m10ia.yaml).
 Many other robots are described in [ros-industrial/fanuc](https://github.com/ros-industrial/fanuc) repository.
@@ -784,8 +809,12 @@ cargo build --examples --no-default-features
 The reference dataset (`cases.yaml`) contains 2,048 cases: 1,024 each for
 KUKA KR 6 R700 sixx and ABB IRB 2400/10. It was generated using the independent
 C++ implementation [Jmeyer1292/opw_kinematics](https://github.com/Jmeyer1292/opw_kinematics).
-Tests compare forward poses, verify that inverse solutions reproduce the requested
-pose, and check original-joint recovery away from wrist poles. At a pole, equivalent
-J4/J6 distributions are accepted. Additional singularity tests use independent
+Tests compare forward poses and check all 15,406 stored solution rows against
+both inverse APIs. Ordinary branches must match all six joints. At wrist poles,
+tests require every stored arm/J5 family and validate the returned full pose:
+some reference rows contain invalid J4/J6 splits, so those splits cannot serve
+as expected wrist angles. Additional tests cover workspace boundaries, free arm
+joints, five-axis tool-roll invariance, ranking preferences, and finite, valid
+output after continuation normalization. Wrist-pole tests also use independent
 quaternion rotations and degree-based cases for recovery at 0° and ±180°,
 including required J4/J6 movement in both directions through zero.

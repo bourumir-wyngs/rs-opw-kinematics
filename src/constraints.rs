@@ -6,6 +6,12 @@ use rand::{Rng, RngExt};
 use std::f64::consts::PI;
 use std::ops::RangeInclusive;
 
+/// Joint limits with inclusive comparisons and no floating-point tolerance.
+///
+/// Exact boundary values cannot be checked reliably after floating-point
+/// calculations: degree/radian conversions or forward/inverse kinematics can
+/// round an angle just outside its limit, causing an otherwise compliant pose
+/// to be rejected. Allow a small margin when reliable acceptance is required.
 #[derive(Clone, Debug, Copy)]
 pub struct Constraints {
     /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
