@@ -205,11 +205,15 @@ fn remove_adjacent_duplicates(
     Ok(deduplicated)
 }
 
-fn resample_path(
+fn resample_path<FF>(
     path: &[Vec<f64>],
     step_size_joint_space: f64,
+    collision_free: &mut FF,
     stop: &AtomicBool,
-) -> Result<Vec<Vec<f64>>, String> {
+) -> Result<Vec<Vec<f64>>, String>
+where
+    FF: FnMut(&[f64]) -> bool,
+{
     check_cancelled(stop)?;
     if path.len() < 2 || !step_size_joint_space.is_finite() || step_size_joint_space <= 0.0 {
         return clone_path(path, stop);
@@ -227,7 +231,13 @@ fn resample_path(
         for step in 1..steps {
             check_cancelled(stop)?;
             let p = step as f64 / steps as f64;
-            resampled.push(interpolate_configuration(from, to, p));
+            let candidate = interpolate_configuration(from, to, p);
+            let valid = collision_free(&candidate);
+            check_cancelled(stop)?;
+            if !valid {
+                return Err("failed".to_string());
+            }
+            resampled.push(candidate);
         }
 
         if resampled
@@ -259,9 +269,12 @@ fn random_shortcut_indices(path_len: usize, rng: &mut impl Rng) -> Option<(usize
 /// replace subpaths with direct joint-space segments that pass collision
 /// checks, and resample accepted shortcuts so adjacent returned states stay
 /// within `step_size_joint_space`.
+/// Input waypoints must already be valid and collision-free. Every newly
+/// interpolated waypoint is collision-checked, including points added while
+/// resampling an unchanged edge of the input path.
 ///
-/// If cancellation is observed during smoothing, returns a copy of the original
-/// path. This preserves a complete path rather than returning partial work.
+/// If cancellation is observed or resampling encounters a collision, returns
+/// a copy of the original input path. `RRTPlanner` reports an error in these cases.
 pub fn smooth_rrt_path<FF>(
     path: &[Vec<f64>],
     step_size_joint_space: f64,
@@ -313,7 +326,7 @@ where
         }
     }
 
-    resample_path(&smoothed, step_size_joint_space, stop)
+    resample_path(&smoothed, step_size_joint_space, &mut collision_free, stop)
 }
 
 impl RRTPlanner {
@@ -572,7 +585,12 @@ mod tests {
             Err("Cancelled".to_string())
         );
         assert_eq!(
-            resample_path(&path, 1.0, &stop),
+            resample_path(
+                &path,
+                1.0,
+                &mut |_| panic!("cancelled resampling must not check collisions"),
+                &stop,
+            ),
             Err("Cancelled".to_string())
         );
     }
@@ -633,5 +651,86 @@ mod tests {
         );
 
         assert_eq!(smoothed, path);
+    }
+
+    #[test]
+    fn smoothing_does_not_add_a_colliding_point_to_a_rounded_rrt_edge() {
+        let stop = AtomicBool::new(false);
+        let step = RRTPlanner::default().step_size_joint_space;
+        let q = step / 6_f64.sqrt();
+        let is_free = |configuration: &[f64]| !(0.009..0.012).contains(&configuration[0]);
+        let raw =
+            super::dual_rrt_connect(&[0.0; 6], &[q; 6], is_free, || vec![1.0; 6], step, 1, &stop)
+                .expect("the proposed RRT configurations are collision-free");
+        assert!(raw.iter().all(|configuration| is_free(configuration)));
+
+        let smoothed = smooth_rrt_path(&raw, step, 1, is_free, &stop);
+
+        assert!(smoothed.iter().all(|configuration| is_free(configuration)));
+        assert_eq!(smoothed, raw);
+    }
+
+    #[test]
+    fn resampling_rejects_the_first_colliding_inserted_configuration() {
+        let path = vec![vec![0.0], vec![4.0]];
+        let mut checked = Vec::new();
+        let result = try_smooth_rrt_path(
+            &path,
+            1.0,
+            1,
+            |configuration| {
+                checked.push(configuration[0]);
+                configuration[0] != 1.0
+            },
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(result, Err("failed".to_string()));
+        assert_eq!(checked, vec![1.0]);
+    }
+
+    #[test]
+    fn resampling_collision_checks_respect_cancellation_before_their_result() {
+        let path = vec![vec![0.0], vec![4.0]];
+        for valid in [true, false] {
+            let stop = AtomicBool::new(false);
+            let mut checked = Vec::new();
+            let result = try_smooth_rrt_path(
+                &path,
+                1.0,
+                1,
+                |configuration| {
+                    checked.push(configuration[0]);
+                    stop.store(true, Ordering::Relaxed);
+                    valid
+                },
+                &stop,
+            );
+
+            assert_eq!(result, Err("Cancelled".to_string()));
+            assert_eq!(checked, vec![1.0]);
+        }
+    }
+
+    #[test]
+    fn resampling_checks_every_inserted_configuration() {
+        let path = vec![vec![0.0], vec![4.0]];
+        let mut checked = Vec::new();
+        let result = try_smooth_rrt_path(
+            &path,
+            1.0,
+            1,
+            |configuration| {
+                checked.push(configuration[0]);
+                true
+            },
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(checked, vec![1.0, 2.0, 3.0]);
+        assert_eq!(
+            result,
+            Ok(vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0], vec![4.0]])
+        );
     }
 }
