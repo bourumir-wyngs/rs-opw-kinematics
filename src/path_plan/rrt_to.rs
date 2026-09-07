@@ -22,6 +22,14 @@ use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::debug;
 
+fn check_cancelled(stop: &AtomicBool) -> Result<(), String> {
+    if stop.load(Ordering::Relaxed) {
+        Err("Cancelled".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 enum ExtendStatus {
     Reached(usize),
@@ -79,12 +87,20 @@ where
     fn get_nearest_index(&self, q: &[N]) -> usize {
         *self.kdtree.nearest(q, 1, &squared_euclidean).unwrap()[0].1
     }
-    fn extend<FF>(&mut self, q_target: &[N], extend_length: N, is_free: &mut FF) -> ExtendStatus
+    fn extend<FF>(
+        &mut self,
+        q_target: &[N],
+        extend_length: N,
+        is_free: &mut FF,
+        stop: &AtomicBool,
+    ) -> Result<ExtendStatus, String>
     where
         FF: FnMut(&[N]) -> bool,
     {
+        check_cancelled(stop)?;
         assert!(extend_length > N::zero());
         let nearest_index = self.get_nearest_index(q_target);
+        check_cancelled(stop)?;
         let nearest_q = &self.vertices[nearest_index].data;
         let diff_dist = squared_euclidean(q_target, nearest_q).sqrt();
         let q_new = if diff_dist < extend_length {
@@ -97,35 +113,46 @@ where
                 .collect::<Vec<_>>()
         };
         debug!("q_new={q_new:?}");
-        if is_free(&q_new) {
+        check_cancelled(stop)?;
+        let free = is_free(&q_new);
+        check_cancelled(stop)?;
+        if free {
             let new_index = self.add_vertex(&q_new);
             self.add_edge(nearest_index, new_index);
+            check_cancelled(stop)?;
             if squared_euclidean(&q_new, q_target).sqrt() < extend_length {
-                return ExtendStatus::Reached(new_index);
+                return Ok(ExtendStatus::Reached(new_index));
             }
             debug!("target = {q_target:?}");
             debug!("advanced to {q_target:?}");
-            return ExtendStatus::Advanced(new_index);
+            return Ok(ExtendStatus::Advanced(new_index));
         }
-        ExtendStatus::Trapped
+        Ok(ExtendStatus::Trapped)
     }
-    fn connect<FF>(&mut self, q_target: &[N], extend_length: N, is_free: &mut FF) -> ExtendStatus
+    fn connect<FF>(
+        &mut self,
+        q_target: &[N],
+        extend_length: N,
+        is_free: &mut FF,
+        stop: &AtomicBool,
+    ) -> Result<ExtendStatus, String>
     where
         FF: FnMut(&[N]) -> bool,
     {
         loop {
             debug!("connecting...{q_target:?}");
-            match self.extend(q_target, extend_length, is_free) {
-                ExtendStatus::Trapped => return ExtendStatus::Trapped,
-                ExtendStatus::Reached(index) => return ExtendStatus::Reached(index),
+            match self.extend(q_target, extend_length, is_free, stop)? {
+                ExtendStatus::Trapped => return Ok(ExtendStatus::Trapped),
+                ExtendStatus::Reached(index) => return Ok(ExtendStatus::Reached(index)),
                 ExtendStatus::Advanced(_) => {}
             };
         }
     }
-    fn get_until_root(&self, index: usize) -> Vec<Vec<N>> {
+    fn get_until_root(&self, index: usize, stop: &AtomicBool) -> Result<Vec<Vec<N>>, String> {
         let mut nodes = Vec::new();
         let mut cur_index = index;
         loop {
+            check_cancelled(stop)?;
             nodes.push(self.vertices[cur_index].data.clone());
             if let Some(parent_index) = self.vertices[cur_index].parent_index {
                 cur_index = parent_index;
@@ -133,7 +160,8 @@ where
                 break;
             }
         }
-        nodes
+        check_cancelled(stop)?;
+        Ok(nodes)
     }
 }
 
@@ -164,6 +192,9 @@ where
 /// Returns `Err("Cancelled")` if `stop` is set before the planning is finished or
 /// `Err("failed")` when either endpoint is invalid or no connection is found
 /// after `num_max_try` iterations.
+/// Cancellation is checked between tree extensions, during path reconstruction,
+/// and before returning the result. Sampling and collision-check callbacks must
+/// return before cancellation can be observed.
 ///
 /// # Panics
 ///
@@ -186,18 +217,16 @@ where
 {
     assert_eq!(start.len(), goal.len());
     for root in [start, goal] {
-        if stop.load(Ordering::Relaxed) {
-            return Err("Cancelled".to_string());
-        }
+        check_cancelled(stop)?;
         let valid = is_free(root);
-        if stop.load(Ordering::Relaxed) {
-            return Err("Cancelled".to_string());
-        }
+        check_cancelled(stop)?;
         if !valid {
             return Err("failed".to_string());
         }
         if start == goal {
-            return Ok(vec![start.to_vec()]);
+            let path = vec![start.to_vec()];
+            check_cancelled(stop)?;
+            return Ok(path);
         }
     }
 
@@ -206,33 +235,35 @@ where
     tree_a.add_vertex(start);
     tree_b.add_vertex(goal);
     for _ in 0..num_max_try {
-        if stop.load(Ordering::Relaxed) {
-            return Err("Cancelled".to_string());
-        }
+        check_cancelled(stop)?;
         debug!("tree_a = {:?}", tree_a.vertices.len());
         debug!("tree_b = {:?}", tree_b.vertices.len());
         let q_rand = random_sample();
-        let extend_status = tree_a.extend(&q_rand, extend_length, &mut is_free);
+        let extend_status = tree_a.extend(&q_rand, extend_length, &mut is_free, stop)?;
         match extend_status {
             ExtendStatus::Trapped => {}
             ExtendStatus::Advanced(new_index) | ExtendStatus::Reached(new_index) => {
                 let q_new = &tree_a.vertices[new_index].data;
                 if let ExtendStatus::Reached(reach_index) =
-                    tree_b.connect(q_new, extend_length, &mut is_free)
+                    tree_b.connect(q_new, extend_length, &mut is_free, stop)?
                 {
-                    let mut a_all = tree_a.get_until_root(new_index);
-                    let mut b_all = tree_b.get_until_root(reach_index);
+                    let mut a_all = tree_a.get_until_root(new_index, stop)?;
+                    let mut b_all = tree_b.get_until_root(reach_index, stop)?;
                     a_all.reverse();
+                    check_cancelled(stop)?;
                     a_all.append(&mut b_all);
+                    check_cancelled(stop)?;
                     if tree_b.name == "start" {
                         a_all.reverse();
                     }
+                    check_cancelled(stop)?;
                     return Ok(a_all);
                 }
             }
         }
         mem::swap(&mut tree_a, &mut tree_b);
     }
+    check_cancelled(stop)?;
     Err("failed".to_string())
 }
 
@@ -421,5 +452,137 @@ mod tests {
 
         assert_eq!(result.first().unwrap(), &[0.0]);
         assert_eq!(result.last().unwrap(), &[1e-10]);
+    }
+
+    #[test]
+    fn cancellation_during_sampling_prevents_tree_extension() {
+        let stop = AtomicBool::new(false);
+        let mut checked = Vec::new();
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[10.0],
+            |q| {
+                checked.push(q[0]);
+                true
+            },
+            || {
+                stop.store(true, Ordering::Relaxed);
+                vec![1.0]
+            },
+            1.0,
+            1,
+            &stop,
+        );
+
+        assert_eq!(result, Err("Cancelled".to_string()));
+        assert_eq!(checked, vec![0.0, 10.0]);
+    }
+
+    #[test]
+    fn cancellation_during_first_extension_prevents_connecting() {
+        for sample in [1.0_f64, 10.0] {
+            for is_free in [true, false] {
+                let stop = AtomicBool::new(false);
+                let mut checked = Vec::new();
+                let result = dual_rrt_connect(
+                    &[0.0],
+                    &[10.0],
+                    |q| {
+                        checked.push(q[0]);
+                        if checked.len() == 3 {
+                            stop.store(true, Ordering::Relaxed);
+                            is_free
+                        } else {
+                            true
+                        }
+                    },
+                    || vec![sample],
+                    1.0,
+                    1,
+                    &stop,
+                );
+
+                assert_eq!(result, Err("Cancelled".to_string()));
+                assert_eq!(checked, vec![0.0, 10.0, 1.0]);
+            }
+        }
+    }
+
+    #[test]
+    fn cancellation_during_connect_overrides_extension_status() {
+        for goal in [2.0_f64, 10.0] {
+            for is_free in [true, false] {
+                let stop = AtomicBool::new(false);
+                let mut checked = Vec::new();
+                let result = dual_rrt_connect(
+                    &[0.0],
+                    &[goal],
+                    |q| {
+                        checked.push(q[0]);
+                        if checked.len() == 4 {
+                            stop.store(true, Ordering::Relaxed);
+                            is_free
+                        } else {
+                            true
+                        }
+                    },
+                    || vec![1.0],
+                    1.0,
+                    1,
+                    &stop,
+                );
+
+                assert_eq!(result, Err("Cancelled".to_string()));
+                assert_eq!(checked, vec![0.0, goal, 1.0, goal - 1.0]);
+            }
+        }
+    }
+
+    #[test]
+    fn cancellation_after_several_connect_steps_stops_collision_checks() {
+        for is_free in [true, false] {
+            let stop = AtomicBool::new(false);
+            let mut checked = Vec::new();
+            let result = dual_rrt_connect(
+                &[0.0_f64],
+                &[10.0],
+                |q| {
+                    checked.push(q[0]);
+                    if checked.len() == 6 {
+                        stop.store(true, Ordering::Relaxed);
+                        is_free
+                    } else {
+                        true
+                    }
+                },
+                || vec![1.0],
+                1.0,
+                1,
+                &stop,
+            );
+
+            assert_eq!(result, Err("Cancelled".to_string()));
+            assert_eq!(checked, vec![0.0, 10.0, 1.0, 9.0, 8.0, 7.0]);
+        }
+    }
+
+    #[test]
+    fn exhausted_search_without_cancellation_still_fails() {
+        let mut checked = Vec::new();
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[10.0],
+            |q| {
+                checked.push(q[0]);
+                q[0] == 0.0 || q[0] == 10.0
+            },
+            || vec![1.0],
+            1.0,
+            1,
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(result, Err("failed".to_string()));
+        assert_eq!(checked, vec![0.0, 10.0, 1.0]);
     }
 }
