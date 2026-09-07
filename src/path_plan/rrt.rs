@@ -1,7 +1,9 @@
+use crate::constraints::Constraints;
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::utils::dump_joints;
 use rand::{Rng, RngExt};
+use std::f64::consts::{PI, TAU};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tracing::debug;
@@ -40,6 +42,75 @@ impl Default for RRTPlanner {
             debug: false,
         }
     }
+}
+
+/// Selects one continuous interval per joint while preserving the requested turns.
+fn joint_space_bounds(
+    constraints: &Constraints,
+    start: &Joints,
+    goal: &Joints,
+) -> Result<(Joints, Joints), String> {
+    if !start.iter().chain(goal).all(|angle| angle.is_finite())
+        || !constraints.compliant(start)
+        || !constraints.compliant(goal)
+    {
+        return Err("failed".to_string());
+    }
+
+    let mut from = [0.0; 6];
+    let mut to = [0.0; 6];
+    for joint in 0..6 {
+        let tolerance = constraints.tolerances[joint];
+        if tolerance.is_infinite() || tolerance >= PI {
+            // Keep the configured sampling range for unrestricted joints. A
+            // different turn can require a different collision-free route, so
+            // recentering a full turn around the endpoints can hide useful paths.
+            let configured_from = constraints.from[joint];
+            let configured_to = constraints.to[joint];
+            if configured_from.is_finite()
+                && configured_to.is_finite()
+                && configured_from < configured_to
+            {
+                from[joint] = configured_from.min(start[joint]).min(goal[joint]);
+                to[joint] = configured_to.max(start[joint]).max(goal[joint]);
+            } else {
+                // Equal bounds mean unrestricted rotation, not a fixed joint.
+                from[joint] = start[joint].min(goal[joint]) - PI;
+                to[joint] = start[joint].max(goal[joint]) + PI;
+            }
+        } else {
+            let center = constraints.centers[joint];
+            let start_offset = start[joint] - center;
+            let goal_offset = goal[joint] - center;
+            if (start_offset / TAU).round() != (goal_offset / TAU).round() {
+                // A straight joint-space path cannot cross the forbidden gap
+                // between periodic copies of a limited joint's allowed interval.
+                return Err("failed".to_string());
+            }
+
+            let mut offset = start_offset % TAU;
+            if offset > PI {
+                offset -= TAU;
+            } else if offset < -PI {
+                offset += TAU;
+            }
+            // Anchor at the accepted start to avoid losing a boundary value to
+            // rounding. Include the accepted goal from this same component too.
+            from[joint] = (start[joint] - (tolerance + offset))
+                .min(start[joint])
+                .min(goal[joint]);
+            to[joint] = (start[joint] + (tolerance - offset))
+                .max(start[joint])
+                .max(goal[joint]);
+        }
+        if !from[joint].is_finite()
+            || !to[joint].is_finite()
+            || !(to[joint] - from[joint]).is_finite()
+        {
+            return Err("failed".to_string());
+        }
+    }
+    Ok((from, to))
 }
 
 fn joint_space_distance(left: &[f64], right: &[f64]) -> f64 {
@@ -257,21 +328,38 @@ impl RRTPlanner {
         stop: &AtomicBool,
     ) -> Result<Vec<Vec<f64>>, String> {
         check_cancelled(stop)?;
-        //return Ok(vec![Vec::from(start.clone()), Vec::from(goal.clone())]);
+        let constraints = kinematics.constraints().as_ref();
+        let bounds = constraints
+            .map(|constraints| joint_space_bounds(constraints, start, goal))
+            .transpose()?;
+        let within_limits = |joints: &Joints| {
+            joints.iter().enumerate().all(|(joint, angle)| {
+                angle.is_finite()
+                    && bounds
+                        .as_ref()
+                        .is_none_or(|(from, to)| *angle >= from[joint] && *angle <= to[joint])
+            }) && constraints.is_none_or(|constraints| constraints.compliant(joints))
+        };
 
         let mut collision_free = |joint_angles: &[f64]| -> bool {
             let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
-            !kinematics.collides(joints)
+            within_limits(joints) && !kinematics.collides(joints)
         };
 
-        // Constraint compliant random joint configuration generator.
+        // Sampling the same connected intervals makes interpolation and
+        // shortcutting stay within the joint limits even with a large step size.
         let random_joint_angles = || -> Vec<f64> {
-            // RRT requires vector and we return array so convert
-            kinematics
-                .constraints()
-                .expect("Set joint ranges on kinematics")
-                .random_angles()
-                .to_vec()
+            let (from, to) = bounds.as_ref().expect("Set joint ranges on kinematics");
+            let mut rng = rand::rng();
+            (0..6)
+                .map(|joint| {
+                    if from[joint] == to[joint] {
+                        from[joint]
+                    } else {
+                        rng.random_range(from[joint]..to[joint])
+                    }
+                })
+                .collect()
         };
 
         // Plan the path with RRT
@@ -287,17 +375,29 @@ impl RRTPlanner {
         )?;
 
         check_cancelled(stop)?;
-        if self.smooth == 0 {
-            return Ok(path);
-        }
+        let path = if self.smooth == 0 {
+            path
+        } else {
+            try_smooth_rrt_path(
+                &path,
+                self.step_size_joint_space,
+                self.smooth,
+                collision_free,
+                stop,
+            )?
+        };
 
-        try_smooth_rrt_path(
-            &path,
-            self.step_size_joint_space,
-            self.smooth,
-            collision_free,
-            stop,
-        )
+        // Resampling can introduce new configurations through interpolation.
+        for configuration in &path {
+            check_cancelled(stop)?;
+            let joints =
+                Joints::try_from(configuration.as_slice()).expect("Cannot convert vector to array");
+            if !within_limits(&joints) {
+                return Err("failed".to_string());
+            }
+        }
+        check_cancelled(stop)?;
+        Ok(path)
     }
 
     fn convert_result(
@@ -339,6 +439,10 @@ impl RRTPlanner {
     /// Plans collision - free relocation from 'start' into 'goal', using
     /// provided instance of KinematicsWithShape for both inverse kinematics and
     /// collision avoidance.
+    /// Endpoints and intermediate configurations must satisfy the joint limits.
+    /// Requested joint values are preserved, including their turns. Each limited
+    /// joint's goal must lie in the same continuous allowed interval as its start;
+    /// for a wrapped move, supply continuous angles such as 175° to 185°.
     /// Returns `Err("Cancelled")` when cancellation is observed during planning,
     /// smoothing, or conversion of the result.
     pub fn plan_rrt(
@@ -381,6 +485,10 @@ impl RRTPlanner {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "rrt_tests.rs"]
+mod constraints_tests;
 
 #[cfg(test)]
 mod tests {
