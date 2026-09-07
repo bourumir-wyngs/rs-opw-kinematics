@@ -148,23 +148,27 @@ where
 ///
 /// `is_free` is called for each newly proposed configuration and must return
 /// `true` only when that configuration is valid and collision-free. It is not
-/// called for the initial `start` or `goal` values. `random_sample` must return
-/// configurations with the same dimension as `start` and `goal`. `extend_length`
-/// is the maximum distance, in configuration space, added to a tree in one
-/// extension step.
+/// called for the initial `start` or `goal` values unless they are exactly equal;
+/// in that case the shared configuration is checked once. `random_sample` must
+/// return configurations with the same dimension as `start` and `goal`.
+/// `extend_length` is the maximum distance, in configuration space, added to a
+/// tree in one extension step.
 ///
 /// Returns a path from `start` to `goal` when the trees connect. The returned
 /// path includes the endpoints and may include the connecting configuration from
 /// both trees as adjacent duplicate entries.
+/// If `start == goal` and the configuration is valid, returns a single-state
+/// path without sampling, even when `num_max_try` is zero.
 ///
 /// Returns `Err("Cancelled")` if `stop` is set before the planning is finished or
-/// `Err("failed")` when no connection is found after `num_max_try` iterations.
+/// `Err("failed")` when the shared endpoint is invalid or no connection is found
+/// after `num_max_try` iterations.
 ///
 /// # Panics
 ///
-/// Panics if `start` and `goal` have different dimensions, if `extend_length` is
-/// not positive, or if `random_sample` returns a configuration with a dimension
-/// different from the tree dimension.
+/// Panics if `start` and `goal` have different dimensions, if a tree is extended
+/// with a non-positive `extend_length`, or if `random_sample` returns a
+/// configuration with a dimension different from the tree dimension.
 pub fn dual_rrt_connect<FF, FR, N>(
     start: &[N],
     goal: &[N],
@@ -180,6 +184,21 @@ where
     N: Float + Debug,
 {
     assert_eq!(start.len(), goal.len());
+    if start == goal {
+        if stop.load(Ordering::Relaxed) {
+            return Err("Cancelled".to_string());
+        }
+        let valid = is_free(start);
+        if stop.load(Ordering::Relaxed) {
+            return Err("Cancelled".to_string());
+        }
+        return if valid {
+            Ok(vec![start.to_vec()])
+        } else {
+            Err("failed".to_string())
+        };
+    }
+
     let mut tree_a = Tree::new("start", start.len());
     let mut tree_b = Tree::new("goal", start.len());
     tree_a.add_vertex(start);
@@ -213,4 +232,101 @@ where
         mem::swap(&mut tree_a, &mut tree_b);
     }
     Err("failed".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dual_rrt_connect;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn identical_valid_endpoints_return_single_state_without_sampling() {
+        for max_try in [0, 10] {
+            let stop = AtomicBool::new(false);
+            let mut checks = 0;
+            let result = dual_rrt_connect(
+                &[0.0_f64],
+                &[0.0],
+                |q| {
+                    checks += 1;
+                    q[0].abs() < 0.1
+                },
+                || panic!("stationary planning must not sample"),
+                1.0,
+                max_try,
+                &stop,
+            );
+
+            assert_eq!(result, Ok(vec![vec![0.0]]));
+            assert_eq!(checks, 1);
+        }
+    }
+
+    #[test]
+    fn identical_invalid_endpoints_are_rejected_without_sampling() {
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[0.0],
+            |_| false,
+            || panic!("stationary planning must not sample"),
+            1.0,
+            10,
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(result, Err("failed".to_string()));
+    }
+
+    #[test]
+    fn identical_endpoints_respect_existing_cancellation() {
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[0.0],
+            |_| panic!("cancelled planning must not check collisions"),
+            || panic!("cancelled planning must not sample"),
+            1.0,
+            0,
+            &AtomicBool::new(true),
+        );
+
+        assert_eq!(result, Err("Cancelled".to_string()));
+    }
+
+    #[test]
+    fn identical_endpoints_respect_cancellation_during_validation() {
+        for is_free in [true, false] {
+            let stop = AtomicBool::new(false);
+            let result = dual_rrt_connect(
+                &[0.0_f64],
+                &[0.0],
+                |_| {
+                    stop.store(true, Ordering::Relaxed);
+                    is_free
+                },
+                || panic!("stationary planning must not sample"),
+                1.0,
+                10,
+                &stop,
+            );
+
+            assert_eq!(result, Err("Cancelled".to_string()));
+        }
+    }
+
+    #[test]
+    fn nearby_distinct_endpoints_are_not_collapsed() {
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[1e-10],
+            |_| true,
+            || vec![1e-10],
+            1.0,
+            1,
+            &AtomicBool::new(false),
+        )
+        .expect("nearby endpoints should connect");
+
+        assert_eq!(result.first().unwrap(), &[0.0]);
+        assert_eq!(result.last().unwrap(), &[1e-10]);
+    }
 }
