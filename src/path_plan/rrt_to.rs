@@ -146,10 +146,11 @@ where
 /// configuration. The two trees are swapped after each unsuccessful iteration,
 /// so both sides of the problem are explored.
 ///
-/// `is_free` is called for each newly proposed configuration and must return
-/// `true` only when that configuration is valid and collision-free. It is not
-/// called for the initial `start` or `goal` values unless they are exactly equal;
-/// in that case the shared configuration is checked once. `random_sample` must
+/// `is_free` must return `true` only when a configuration is valid and
+/// collision-free. Before growing the trees, it checks `start`, then `goal`,
+/// stopping at the first invalid configuration. If the endpoints are exactly
+/// equal, the shared configuration is checked once. It also checks each newly
+/// proposed configuration during tree growth. `random_sample` must
 /// return configurations with the same dimension as `start` and `goal`.
 /// `extend_length` is the maximum distance, in configuration space, added to a
 /// tree in one extension step.
@@ -161,7 +162,7 @@ where
 /// path without sampling, even when `num_max_try` is zero.
 ///
 /// Returns `Err("Cancelled")` if `stop` is set before the planning is finished or
-/// `Err("failed")` when the shared endpoint is invalid or no connection is found
+/// `Err("failed")` when either endpoint is invalid or no connection is found
 /// after `num_max_try` iterations.
 ///
 /// # Panics
@@ -184,19 +185,20 @@ where
     N: Float + Debug,
 {
     assert_eq!(start.len(), goal.len());
-    if start == goal {
+    for root in [start, goal] {
         if stop.load(Ordering::Relaxed) {
             return Err("Cancelled".to_string());
         }
-        let valid = is_free(start);
+        let valid = is_free(root);
         if stop.load(Ordering::Relaxed) {
             return Err("Cancelled".to_string());
         }
-        return if valid {
-            Ok(vec![start.to_vec()])
-        } else {
-            Err("failed".to_string())
-        };
+        if !valid {
+            return Err("failed".to_string());
+        }
+        if start == goal {
+            return Ok(vec![start.to_vec()]);
+        }
     }
 
     let mut tree_a = Tree::new("start", start.len());
@@ -237,7 +239,94 @@ where
 #[cfg(test)]
 mod tests {
     use super::dual_rrt_connect;
+    use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn invalid_initial_roots_are_rejected_without_sampling() {
+        for invalid_root in [0.0_f64, 10.0] {
+            let mut checked = Vec::new();
+            let result = dual_rrt_connect(
+                &[0.0],
+                &[10.0],
+                |q| {
+                    checked.push(q[0]);
+                    q[0] != invalid_root
+                },
+                || panic!("invalid roots must be rejected before sampling"),
+                1.0,
+                10,
+                &AtomicBool::new(false),
+            );
+
+            assert_eq!(result, Err("failed".to_string()));
+            let expected = if invalid_root == 0.0 {
+                vec![0.0]
+            } else {
+                vec![0.0, 10.0]
+            };
+            assert_eq!(checked, expected);
+        }
+    }
+
+    #[test]
+    fn valid_initial_roots_are_checked_before_sampling() {
+        let checked = RefCell::new(Vec::new());
+        let result = dual_rrt_connect(
+            &[0.0_f64],
+            &[10.0],
+            |q| {
+                checked.borrow_mut().push(q[0]);
+                true
+            },
+            || {
+                assert_eq!(*checked.borrow(), vec![0.0, 10.0]);
+                vec![1.0]
+            },
+            1.0,
+            1,
+            &AtomicBool::new(false),
+        )
+        .expect("valid roots should connect");
+
+        assert_eq!(result.first().unwrap(), &[0.0]);
+        assert_eq!(result.last().unwrap(), &[10.0]);
+    }
+
+    #[test]
+    fn initial_roots_respect_cancellation_during_validation() {
+        for cancelled_root in [0.0_f64, 10.0] {
+            for is_free in [true, false] {
+                let stop = AtomicBool::new(false);
+                let mut checked = Vec::new();
+                let result = dual_rrt_connect(
+                    &[0.0],
+                    &[10.0],
+                    |q| {
+                        checked.push(q[0]);
+                        if q[0] == cancelled_root {
+                            stop.store(true, Ordering::Relaxed);
+                            is_free
+                        } else {
+                            true
+                        }
+                    },
+                    || panic!("cancelled planning must not sample"),
+                    1.0,
+                    10,
+                    &stop,
+                );
+
+                assert_eq!(result, Err("Cancelled".to_string()));
+                let expected = if cancelled_root == 0.0 {
+                    vec![0.0]
+                } else {
+                    vec![0.0, 10.0]
+                };
+                assert_eq!(checked, expected);
+            }
+        }
+    }
 
     #[test]
     fn identical_valid_endpoints_return_single_state_without_sampling() {
@@ -278,18 +367,22 @@ mod tests {
     }
 
     #[test]
-    fn identical_endpoints_respect_existing_cancellation() {
-        let result = dual_rrt_connect(
-            &[0.0_f64],
-            &[0.0],
-            |_| panic!("cancelled planning must not check collisions"),
-            || panic!("cancelled planning must not sample"),
-            1.0,
-            0,
-            &AtomicBool::new(true),
-        );
+    fn initial_roots_respect_existing_cancellation() {
+        for goal in [0.0_f64, 10.0] {
+            for max_try in [0, 10] {
+                let result = dual_rrt_connect(
+                    &[0.0],
+                    &[goal],
+                    |_| panic!("cancelled planning must not check collisions"),
+                    || panic!("cancelled planning must not sample"),
+                    1.0,
+                    max_try,
+                    &AtomicBool::new(true),
+                );
 
-        assert_eq!(result, Err("Cancelled".to_string()));
+                assert_eq!(result, Err("Cancelled".to_string()));
+            }
+        }
     }
 
     #[test]
