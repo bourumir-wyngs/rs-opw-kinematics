@@ -83,6 +83,95 @@ fn scale_geometry(mut parameters: Parameters, scale: f64) -> Parameters {
 }
 
 #[test]
+fn constructors_classify_arm_continuum_capabilities_from_geometry() {
+    let folded = Parameters {
+        a1: 0.0,
+        ..Parameters::staubli_tx2_140()
+    };
+    let offset_forearm = Parameters {
+        a2: 0.375,
+        c3: 0.5,
+        ..folded
+    };
+    let unequal_offset_arm = Parameters {
+        c2: 0.3,
+        ..Parameters::staubli_tx40()
+    };
+    let beyond_base_axis_reach = Parameters { a1: 1.5, ..folded };
+    let cases = [
+        ("IRB2400", Parameters::irb2400_10(), [true, false, false]),
+        (
+            "TX2-140",
+            Parameters::staubli_tx2_140(),
+            [true, true, false],
+        ),
+        ("TX40", Parameters::staubli_tx40(), [false, true, false]),
+        ("folded at base axis", folded, [true, true, true]),
+        ("offset forearm", offset_forearm, [true, true, true]),
+        (
+            "unequal offset arm",
+            unequal_offset_arm,
+            [false, false, false],
+        ),
+        (
+            "base axis beyond reach",
+            beyond_base_axis_reach,
+            [false, true, false],
+        ),
+    ];
+
+    // Constraints and the choice of length units cannot change geometric eligibility.
+    let constraints = Constraints::new([0.0; 6], [0.0; 6], BY_PREV);
+    for (name, parameters, expected) in cases {
+        for scale in [1e-6, 1.0, 1e6] {
+            let parameters = scale_geometry(parameters, scale);
+            for robot in [
+                OPWKinematics::new(parameters),
+                OPWKinematics::new_with_constraints(parameters, constraints),
+            ] {
+                assert_eq!(
+                    [robot.j1free, robot.j2free, robot.j1j2free],
+                    expected,
+                    "unexpected continuum capabilities for {name} at scale {scale}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn arm_continuum_capabilities_allow_roundoff_but_preserve_geometry_differences() {
+    let folded = Parameters {
+        a1: 0.0,
+        ..Parameters::staubli_tx2_140()
+    };
+    let roundoff_folded = Parameters {
+        a1: f64::EPSILON,
+        c2: f64::from_bits(folded.c2.to_bits() + 1),
+        ..folded
+    };
+    let unequal_links = Parameters {
+        c2: folded.c2 + 1e-8,
+        ..folded
+    };
+    let displaced_shoulder = Parameters { a1: 1e-8, ..folded };
+    let nonzero_cylinder = Parameters { b: 1e-15, ..folded };
+    for (parameters, expected) in [
+        (roundoff_folded, [true, true, true]),
+        (unequal_links, [true, false, false]),
+        (displaced_shoulder, [true, true, false]),
+        (nonzero_cylinder, [false, true, false]),
+    ] {
+        let robot = OPWKinematics::new(parameters);
+        assert_eq!(
+            [robot.j1free, robot.j2free, robot.j1j2free],
+            expected,
+            "unexpected continuum capabilities for {parameters:?}",
+        );
+    }
+}
+
+#[test]
 fn distance_tolerance_scales_with_robot_geometry() {
     let parameters = Parameters::irb2400_10();
     let robot = OPWKinematics::new(parameters);

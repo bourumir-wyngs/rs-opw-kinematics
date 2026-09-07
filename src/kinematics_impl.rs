@@ -18,6 +18,12 @@ pub struct OPWKinematics {
     /// The parameters that were used to construct this solver.
     pub(crate) parameters: Parameters,
     constraints: Option<Constraints>,
+    /// Geometry permits a free J1 at a wrist center on the base axis.
+    pub(crate) j1free: bool,
+    /// Equal effective arm lengths permit a free J2 when fully folded.
+    pub(crate) j2free: bool,
+    /// Folding onto a shoulder on the base axis permits both J1 and J2 to be free.
+    pub(crate) j1j2free: bool,
     /// Linear tolerance scaled to the total size of the robot geometry.
     pub(crate) distance_tolerance: f64,
 }
@@ -57,9 +63,24 @@ impl OPWKinematics {
             + parameters.c3.abs()
             + parameters.c4.abs();
 
+        let kappa = (parameters.a2 * parameters.a2 + parameters.c3 * parameters.c3).sqrt();
+        let arm_length = parameters.c2.abs() + kappa;
+        // Conservative geometry gates retain roundoff from link cancellation
+        // and wrist-center/TCP subtraction; per-pose checks remain tighter.
+        let transverse_roundoff =
+            16.0 * ARM_ROUNDOFF * (parameters.a1.abs() + arm_length + parameters.c4.abs());
+        let j1free = parameters.b == 0.0 && parameters.a1.abs() <= arm_length + transverse_roundoff;
+        let j2free = parameters.c2 > 0.0
+            && kappa > 0.0
+            && (parameters.c2 - kappa).abs() <= ARM_ROUNDOFF * (parameters.c2 + kappa);
+        let j1j2free = j1free && j2free && parameters.a1.abs() <= transverse_roundoff;
+
         Self {
             parameters,
             constraints,
+            j1free,
+            j2free,
+            j1j2free,
             distance_tolerance: geometry_length * RELATIVE_DISTANCE_TOLERANCE,
         }
     }
@@ -437,13 +458,9 @@ impl OPWKinematics {
         // classifying free joints, separately from workspace-domain bounds.
         let link_error = ARM_ROUNDOFF * (params.c2.abs() + kappa);
         let radial_link_error = link_error + ARM_ROUNDOFF * params.a1.abs();
-        // A nonzero b shoulder cylinder does not leave J1 free.
-        let free_j1 = params.b == 0.0 && radial <= radial_error + radial_link_error;
-        let equal_links = params.c2 > 0.0
-            && kappa > 0.0
-            && (params.c2 - kappa).abs() <= ARM_ROUNDOFF * (params.c2 + kappa);
+        let free_j1 = self.j1free && radial <= radial_error + radial_link_error;
         let folded = |x: f64| {
-            equal_links
+            self.j2free
                 && x.abs() <= planar_error + radial_link_error
                 && tmp3.abs() <= height_error + link_error
         };
@@ -686,7 +703,7 @@ impl OPWKinematics {
         fixed_j6: Option<f64>,
     ) -> Vec<Joints> {
         let mut arms = Vec::new();
-        if recovery.free_j1 && recovery.free_j2.iter().any(|free| *free) {
+        if self.j1j2free && recovery.free_j1 && recovery.free_j2.iter().any(|free| *free) {
             arms.extend(arm_continuum_2d::search(
                 self,
                 pose,
@@ -696,7 +713,7 @@ impl OPWKinematics {
             ));
         } else {
             for shoulder in 0..2 {
-                if recovery.free_j2[shoulder] {
+                if self.j2free && recovery.free_j2[shoulder] {
                     let arm = ArmBranch {
                         q1: recovery.branches[2 * shoulder].q1,
                         q2: 0.0,
@@ -705,7 +722,7 @@ impl OPWKinematics {
                     arms.extend(arm_continuum::search(
                         self, pose, arm, 1, reference, fixed_j6,
                     ));
-                } else if recovery.free_j1 {
+                } else if self.j1free && recovery.free_j1 {
                     for arm in recovery.branches[2 * shoulder..2 * shoulder + 2].iter() {
                         if arm.q2.is_finite() && arm.q3.is_finite() {
                             arms.extend(arm_continuum::search(
