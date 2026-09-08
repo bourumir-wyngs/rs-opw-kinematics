@@ -8,7 +8,9 @@ use glam::{DMat3, DQuat, DVec3};
 use std::f64::consts::PI;
 use std::ops::Index;
 
+#[path = "singularity/arm_continuum.rs"]
 mod arm_continuum;
+#[path = "singularity/arm_continuum_2d.rs"]
 pub(crate) mod arm_continuum_2d;
 
 const DEBUG: bool = false;

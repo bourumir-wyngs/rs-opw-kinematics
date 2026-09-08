@@ -4,7 +4,7 @@
 //! where t = q2 + q3 and A/B/C are linear sinusoids. Their intersections and
 //! vertical tangencies partition J1 into slices with unchanged feasibility
 //! topology. Testing those slices with the one-angle solver avoids a sampling
-//! grid that could step over a narrow feasible component.
+//! grid that could step over a narrow possible component.
 
 use super::{ArmBranch, Joints, OPWKinematics, Pose, arm_continuum, wrapped_angle};
 use glam::DMat3;
@@ -14,7 +14,7 @@ use std::f64::consts::PI;
 type Trig = [f64; 3];
 type Polynomial = Vec<Compensated>;
 
-/// Two-component arithmetic keeps elimination from erasing a small feasible
+/// Two-component arithmetic keeps elimination from erasing a small possible
 /// interval when nearby wrist-limit curves produce nearly equal products.
 /// Coefficients and evaluation stay compensated; angular root intervals use f64.
 #[derive(Clone, Copy, Debug, Default)]

@@ -4,7 +4,7 @@
 //! the form `a*cos(t) + b*sin(t) + c`. Wrist-limit crossings can therefore be
 //! found analytically. Between consecutive crossings, a regular wrist branch
 //! cannot enter or leave its allowed ranges. Sampling each such interval
-//! avoids the arbitrarily narrow feasible intervals that a fixed grid misses.
+//! avoids the arbitrarily narrow possible intervals that a fixed grid misses.
 
 use super::{ArmBranch, Joints, OPWKinematics, PI, Pose, wrapped_angle, wrist_limit_intervals};
 use glam::{DMat3, DVec3};
