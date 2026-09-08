@@ -1,35 +1,49 @@
-//! Feasibility search when a folded arm leaves both J1 and J2 free.
+//! Combined singularity: a fully folded arm leaves both J1 and J2 free.
+//!
+//! With equal arm lengths and the shoulder on the base rotation axis
+//! (`a1 = 0`, `b = 0`), the wrist center folds onto that axis. Changing J1 or J2
+//! then leaves the wrist center unchanged; J3 stays at its folded angle.
+//! Wrist orientation and joint limits still restrict the possible solutions.
 //!
 //! Wrist-limit crossings are curves A(q1) cos(t) + B(q1) sin(t) + C(q1) = 0,
 //! where t = q2 + q3 and A/B/C are linear sinusoids. Their intersections and
 //! vertical tangencies partition J1 into slices with unchanged feasibility
-//! topology. Testing those slices with the one-angle solver avoids a sampling
+//! topology. Testing those slices with the J2-free solver avoids a sampling
 //! grid that could step over a narrow possible component.
 
-use super::{ArmBranch, Joints, OPWKinematics, Pose, arm_continuum, wrapped_angle};
+use super::j2free;
+use crate::kinematic_traits::{Joints, Kinematics, Pose};
+use crate::kinematics_impl::{ArmBranch, OPWKinematics, wrapped_angle};
 use glam::DMat3;
 use std::f64::consts::PI;
 
-// Constant, cosine, and sine coefficients in q1.
+/// Constant, cosine, and sine coefficients of a first harmonic in J1.
 type Trig = [f64; 3];
+/// Compensated coefficients ordered from the constant term to the highest power.
 type Polynomial = Vec<Compensated>;
 
+/// A number represented by a rounded value and its residual rounding error.
+///
 /// Two-component arithmetic keeps elimination from erasing a small possible
 /// interval when nearby wrist-limit curves produce nearly equal products.
 /// Coefficients and evaluation stay compensated; angular root intervals use f64.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Compensated {
+    /// Rounded main value.
     high: f64,
+    /// Residual correction carried through subsequent arithmetic.
     low: f64,
 }
 
 impl From<f64> for Compensated {
+    /// Wraps an `f64` with an initially zero residual.
     fn from(high: f64) -> Self {
         Self { high, low: 0.0 }
     }
 }
 
 impl Compensated {
+    /// Adds both components while retaining the residual rounding error.
     fn plus(self, other: Self) -> Self {
         let sum = self.high + other.high;
         let virtual_other = sum - self.high;
@@ -44,6 +58,7 @@ impl Compensated {
         }
     }
 
+    /// Multiplies both components while retaining the residual rounding error.
     pub(crate) fn times(self, other: Self) -> Self {
         let product = self.high * other.high;
         let error = self.high.mul_add(other.high, -product)
@@ -57,22 +72,30 @@ impl Compensated {
         }
     }
 
+    /// Rounds the combined main value and residual to a single `f64`.
     fn value(self) -> f64 {
         self.high + self.low
     }
+    /// Checks whether both components are exactly zero.
     fn is_zero(self) -> bool {
         self.high == 0.0 && self.low == 0.0
     }
 }
 
+/// A boundary `A(q1) * cos(t) + B(q1) * sin(t) + C(q1) = 0`, with `t = q2 + q3`.
 #[derive(Clone, Copy)]
 struct Curve {
+    /// J1 harmonic multiplying `cos(t)`.
     a: Trig,
+    /// J1 harmonic multiplying `sin(t)`.
     b: Trig,
+    /// J1 harmonic independent of `t`.
     c: Trig,
 }
 
 impl Curve {
+    /// Converts the J1 harmonics to polynomial numerators in `u = tan((q1 - origin) / 2)`.
+    /// Each numerator shares the denominator `1 + u^2`.
     fn polynomials(self, origin: f64) -> [Polynomial; 3] {
         [self.a, self.b, self.c].map(|[constant, cosine, sine]| {
             let (s, c) = origin.sin_cos();
@@ -87,11 +110,11 @@ impl Curve {
     }
 }
 
-// A single continuous representative of a circular model-space joint range.
+/// Returns a continuous model-angle interval for a joint, or `None` for invalid limits.
 fn limits(robot: &OPWKinematics, joint: usize, reference: &Joints) -> Option<[f64; 2]> {
     let sign = robot.parameters.sign_corrections[joint] as f64;
     let offset = robot.parameters.offsets[joint];
-    let (center, tolerance) = if let Some(constraints) = robot.constraints {
+    let (center, tolerance) = if let Some(constraints) = robot.constraints() {
         (constraints.centers[joint], constraints.tolerances[joint])
     } else {
         (reference[joint], PI)
@@ -104,14 +127,17 @@ fn limits(robot: &OPWKinematics, joint: usize, reference: &Joints) -> Option<[f6
     Some([center - half_width, center + half_width])
 }
 
+/// Adds corresponding coefficients of two J1 harmonics.
 fn plus(a: Trig, b: Trig) -> Trig {
     std::array::from_fn(|i| a[i] + b[i])
 }
 
+/// Scales every coefficient of a J1 harmonic.
 fn times(a: Trig, factor: f64) -> Trig {
     a.map(|coefficient| coefficient * factor)
 }
 
+/// Builds curves for J2 limits, wrist limits, wrist poles, and coupled pole-phase limits.
 fn boundaries(
     robot: &OPWKinematics,
     pose: &Pose,
@@ -158,7 +184,7 @@ fn boundaries(
         if joint == 5 && fixed_j6.is_some() {
             continue;
         }
-        let Some(constraints) = robot.constraints else {
+        let Some(constraints) = robot.constraints() else {
             continue;
         };
         if constraints.tolerances[joint] >= PI {
@@ -194,7 +220,7 @@ fn boundaries(
     // Ordinary wrist ray equations then vanish and cannot locate the endpoints
     // of its feasible phase range. Add q4 +/- q6 corner phases explicitly.
     if fixed_j6.is_none()
-        && let Some(constraints) = robot.constraints
+        && let Some(constraints) = robot.constraints()
         && constraints.tolerances[3] < PI
         && constraints.tolerances[5] < PI
         && let (Some(range4), Some(range6)) =
@@ -216,6 +242,7 @@ fn boundaries(
     curves
 }
 
+/// Computes `a + scale * b` with compensated polynomial coefficients.
 pub(crate) fn add(a: &[Compensated], b: &[Compensated], scale: f64) -> Polynomial {
     let mut result = vec![Compensated::default(); a.len().max(b.len())];
     for (i, &value) in a.iter().enumerate() {
@@ -227,6 +254,7 @@ pub(crate) fn add(a: &[Compensated], b: &[Compensated], scale: f64) -> Polynomia
     result
 }
 
+/// Multiplies two polynomials by convolving their compensated coefficients.
 pub(crate) fn multiply(a: &[Compensated], b: &[Compensated]) -> Polynomial {
     let mut result = vec![Compensated::default(); a.len() + b.len() - 1];
     for (i, &x) in a.iter().enumerate() {
@@ -237,6 +265,7 @@ pub(crate) fn multiply(a: &[Compensated], b: &[Compensated]) -> Polynomial {
     result
 }
 
+/// Computes the polynomial difference `a * b - c * d` used to eliminate curve variables.
 fn determinant(
     a: &[Compensated],
     b: &[Compensated],
@@ -246,6 +275,7 @@ fn determinant(
     add(&multiply(a, b), &multiply(c, d), -1.0)
 }
 
+/// Evaluates a polynomial with compensated Horner arithmetic, then rounds to `f64`.
 fn evaluate(polynomial: &[Compensated], x: f64) -> f64 {
     polynomial
         .iter()
@@ -256,6 +286,7 @@ fn evaluate(polynomial: &[Compensated], x: f64) -> f64 {
         .value()
 }
 
+/// Checks whether the residual at `x` fits a coefficient-scaled compensated roundoff bound.
 fn near_zero(polynomial: &[Compensated], x: f64) -> bool {
     let scale = polynomial.iter().rev().fold(0.0, |result, coefficient| {
         result * x.abs() + coefficient.high.abs() + coefficient.low.abs()
@@ -385,7 +416,7 @@ fn bend_slices(
     reference: &Joints,
     fixed_j6: Option<f64>,
 ) -> Vec<f64> {
-    let Some(constraints) = robot.constraints else {
+    let Some(constraints) = robot.constraints() else {
         return Vec::new();
     };
     if constraints.tolerances[4] >= PI {
@@ -442,6 +473,7 @@ fn bend_slices(
     result
 }
 
+/// Finds J1 cuts at interval endpoints, curve intersections, and vertical tangencies.
 fn critical_slices(curves: &[Curve], lower: f64, upper: f64) -> Vec<f64> {
     let origin = lower + (upper - lower) / 2.0;
     let min_t = ((lower - origin) / 2.0).tan();
@@ -486,6 +518,7 @@ fn critical_slices(curves: &[Curve], lower: f64, upper: f64) -> Vec<f64> {
     cuts
 }
 
+/// Selects the best feasible arm branch per J1 slice by searching its free J2 angle.
 pub(crate) fn search(
     robot: &OPWKinematics,
     pose: &Pose,
@@ -529,7 +562,7 @@ pub(crate) fn search(
     for q1 in slices {
         let arm = ArmBranch { q1, q2: 0.0, q3 };
         let mut candidates = Vec::new();
-        for branch in arm_continuum::search(robot, pose, arm, 1, reference, fixed_j6) {
+        for branch in j2free::search(robot, pose, arm, reference, fixed_j6) {
             candidates.extend(robot.arm_wrist_candidates(pose, branch, reference, fixed_j6));
         }
         robot.sort_by_closeness(&mut candidates, reference);

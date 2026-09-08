@@ -1,3 +1,4 @@
+use super::scale_geometry;
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{J5, J6, Joints, Kinematics};
 use crate::kinematics_impl::{
@@ -69,17 +70,6 @@ fn constructors_accept_inclusive_full_turn_joint_offsets() {
             }
         }
     }
-}
-
-fn scale_geometry(mut parameters: Parameters, scale: f64) -> Parameters {
-    parameters.a1 *= scale;
-    parameters.a2 *= scale;
-    parameters.b *= scale;
-    parameters.c1 *= scale;
-    parameters.c2 *= scale;
-    parameters.c3 *= scale;
-    parameters.c4 *= scale;
-    parameters
 }
 
 #[test]

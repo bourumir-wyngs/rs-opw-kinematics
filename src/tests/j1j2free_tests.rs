@@ -1,8 +1,6 @@
 use crate::kinematic_traits::Pose;
-use crate::kinematics_impl::arm_continuum_2d::{
-    Compensated, add, multiply, roots, search, squared_norm_roots,
-};
 use crate::kinematics_impl::{ArmBranch, OPWKinematics, wrapped_angle};
+use crate::singularity::j1j2free::{Compensated, add, multiply, roots, search, squared_norm_roots};
 use std::f64::consts::PI;
 
 #[test]

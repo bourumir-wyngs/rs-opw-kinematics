@@ -1,6 +1,8 @@
+use crate::parameters::opw_kinematics::Parameters;
+
 mod arm_boundary_tests;
-mod arm_continuum_2d_tests;
 mod arm_singularity_tests;
+mod j1j2free_tests;
 mod kinematics_impl_tests;
 mod wrist_singularity_tests;
 
@@ -26,3 +28,14 @@ mod testcases;
 mod tool_base_test;
 #[cfg(feature = "allow_filesystem")]
 mod urdf_extractor;
+
+fn scale_geometry(mut parameters: Parameters, scale: f64) -> Parameters {
+    parameters.a1 *= scale;
+    parameters.a2 *= scale;
+    parameters.b *= scale;
+    parameters.c1 *= scale;
+    parameters.c2 *= scale;
+    parameters.c3 *= scale;
+    parameters.c4 *= scale;
+    parameters
+}

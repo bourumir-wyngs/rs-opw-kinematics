@@ -4,14 +4,11 @@ use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 use crate::kinematic_traits::{J4, J6};
 use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Solutions};
 use crate::parameters::opw_kinematics::Parameters;
+use crate::singularity::wrist_pole::{self, POLE_PHASE_ROUNDOFF_THR};
+use crate::singularity::{j1free, j1j2free, j2free};
 use glam::{DMat3, DQuat, DVec3};
 use std::f64::consts::PI;
 use std::ops::Index;
-
-#[path = "singularity/arm_continuum.rs"]
-mod arm_continuum;
-#[path = "singularity/arm_continuum_2d.rs"]
-pub(crate) mod arm_continuum_2d;
 
 const DEBUG: bool = false;
 
@@ -98,14 +95,8 @@ const ARM_ROUNDOFF: f64 = 64.0 * f64::EPSILON;
 
 // Below this floor the regular wrist atan2 pairs cannot be reliably resolved.
 const WRIST_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON;
-// Arm recovery can amplify roundoff beyond the matrix-only floor. Try pole
-// candidates throughout the pose tolerance, alongside resolvable regular bends.
-// Forward kinematics still validates every candidate.
-const WRIST_POLE_OVERLAP_THR: f64 = ANGULAR_TOLERANCE;
 // Merge roundoff duplicates without losing resolvable nonzero wrist bends.
-const JOINT_DUPLICATE_THR: f64 = 64.0 * f64::EPSILON;
-// Allow only arithmetic roundoff when a recovered pole phase touches a limit.
-const POLE_PHASE_ROUNDOFF_THR: f64 = 64.0 * f64::EPSILON * (1.0 + 2.0 * PI);
+pub(crate) const JOINT_DUPLICATE_THR: f64 = 64.0 * f64::EPSILON;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RotationMatrix {
@@ -522,43 +513,14 @@ impl OPWKinematics {
         let sin5_e2 = q6_x.hypot(q6_y);
         let q5 = sin5_e1.atan2(m.clamp(-1.0, 1.0));
 
-        let pole = if sin5_e1 <= WRIST_POLE_OVERLAP_THR
-            && sin5_e2 <= WRIST_POLE_OVERLAP_THR
-            && near.j4.is_finite()
-            && near.j6.is_finite()
-        {
-            // Upper-left block of R_arm^T * R_target. Its sum/difference
-            // terms remain well-conditioned when the usual atan2 pairs vanish.
-            let r00 = matrix[(0, 0)] * cos23 * cos1 + matrix[(1, 0)] * cos23 * sin1
-                - matrix[(2, 0)] * sin23;
-            let r01 = matrix[(0, 1)] * cos23 * cos1 + matrix[(1, 1)] * cos23 * sin1
-                - matrix[(2, 1)] * sin23;
-            let r10 = matrix[(1, 0)] * cos1 - matrix[(0, 0)] * sin1;
-            let r11 = matrix[(1, 1)] * cos1 - matrix[(0, 1)] * sin1;
-
-            // At q5=0 the observable phase is q4+q6; at q5=pi it is q4-q6.
-            let sign = if m >= 0.0 { 1.0 } else { -1.0 };
-            let phase = (sign * r10 - r01).atan2(r11 + sign * r00);
-            // Work with bounded representatives so large references cannot
-            // swallow the correction or enter the caller's normalization loops.
-            // inverse_continuing restores the turn count near the reference.
-            let near4 = near.j4.rem_euclid(2.0 * PI);
-            let near6 = near.j6.rem_euclid(2.0 * PI);
-            let previous_phase = near4 + sign * near6;
-            let correction = (phase - previous_phase + PI).rem_euclid(2.0 * PI) - PI;
-
-            // Equal splitting minimizes squared wrist motion. The existing
-            // L1 solution sorter can tie on other splits of the same correction.
-            // Offer an exact-pole candidate; the caller still checks it with FK.
-            Some(WristBranch {
-                q4: near4 + correction / 2.0,
-                q5: if m >= 0.0 { 0.0 } else { PI },
-                q6: near6 + sign * correction / 2.0,
-            })
-        } else {
-            // Outside the overlap, or without a finite reference, use only regular solutions.
-            None
-        };
+        let pole = wrist_pole::recover(
+            matrix,
+            (sin1, cos1),
+            (sin23, cos23),
+            m,
+            [sin5_e1, sin5_e2],
+            near,
+        );
 
         // Normal wrist IK: solve J4 and J6 individually using the nonzero J5 bend.
         let regular = (pole.is_none()
@@ -599,29 +561,14 @@ impl OPWKinematics {
         let mut joints = std::array::from_fn(|i| {
             (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
         });
-        if wrist.q5 == 0.0 || wrist.q5.abs() == PI {
-            if fixed_j6.is_some() {
-                // At a five-axis pole J4 is free: the ignored tool roll must
-                // not tie its choice to the provisional six-axis wrist phase.
-                joints[J4] = wrapped_angle(reference[J4]);
-                if let Some(constraints) = self.constraints {
-                    joints[J4] = nearest_feasible_j4(reference[J4], &constraints)?;
-                }
-            } else if let Some(constraints) = self.constraints {
-                let sign = if wrist.q5 == 0.0 { 1.0 } else { -1.0 }
-                    * params.sign_corrections[J4] as f64
-                    * params.sign_corrections[J6] as f64;
-                let phase = wrapped_angle(joints[J4]) + sign * wrapped_angle(joints[J6]);
-                let pair = nearest_feasible_pole(
-                    phase,
-                    sign,
-                    [reference[J4], reference[J6]],
-                    &constraints,
-                )?;
-                joints[J4] = pair[0];
-                joints[J6] = pair[1];
-            }
-        }
+        wrist_pole::adjust_joints(
+            &mut joints,
+            wrist.q5,
+            params,
+            reference,
+            self.constraints.as_ref(),
+            fixed_j6,
+        )?;
         if let Some(j6) = fixed_j6 {
             joints[J6] = j6;
         }
@@ -706,7 +653,7 @@ impl OPWKinematics {
     ) -> Vec<Joints> {
         let mut arms = Vec::new();
         if self.j1j2free && recovery.free_j1 && recovery.free_j2.iter().any(|free| *free) {
-            arms.extend(arm_continuum_2d::search(
+            arms.extend(j1j2free::search(
                 self,
                 pose,
                 recovery.folded_q3,
@@ -721,15 +668,11 @@ impl OPWKinematics {
                         q2: 0.0,
                         q3: recovery.folded_q3,
                     };
-                    arms.extend(arm_continuum::search(
-                        self, pose, arm, 1, reference, fixed_j6,
-                    ));
+                    arms.extend(j2free::search(self, pose, arm, reference, fixed_j6));
                 } else if self.j1free && recovery.free_j1 {
                     for arm in recovery.branches[2 * shoulder..2 * shoulder + 2].iter() {
                         if arm.q2.is_finite() && arm.q3.is_finite() {
-                            arms.extend(arm_continuum::search(
-                                self, pose, *arm, 0, reference, fixed_j6,
-                            ));
+                            arms.extend(j1free::search(self, pose, *arm, reference, fixed_j6));
                         }
                     }
                 }
@@ -908,7 +851,7 @@ impl OPWKinematics {
 
     /// Sorts the solutions vector by closeness to the `previous` joint.
     /// Joints must be pre-normalized to be as close as possible, not away by 360 degrees
-    fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
+    pub(crate) fn sort_by_closeness(&self, solutions: &mut Solutions, previous: &Joints) {
         let sorting_weight = self
             .constraints
             .as_ref()
@@ -935,7 +878,7 @@ pub(crate) fn wrapped_angle(angle: f64) -> f64 {
 
 /// Allowed displacements from a reference, bounded to the nearest full turn.
 /// A circular range may cross the +/-pi cut, so include its neighboring copies.
-fn wrist_limit_intervals(
+pub(crate) fn wrist_limit_intervals(
     center: f64,
     tolerance: f64,
     reference: f64,
@@ -957,200 +900,6 @@ fn wrist_limit_intervals(
             let upper = (center + shift + tolerance).min(PI);
             (center.is_finite() && tolerance >= 0.0 && lower <= upper).then_some((lower, upper))
         })
-}
-
-/// Choose free five-axis J4 using the public sorter's weighted L1 distance.
-fn nearest_feasible_j4(reference: f64, constraints: &Constraints) -> Option<f64> {
-    let near = wrapped_angle(reference);
-    let center = constraints.centers[J4];
-    let margin = JOINT_DUPLICATE_THR * (1.0 + reference.abs());
-    let mut best = None;
-    let mut best_distance = f64::INFINITY;
-    let mut best_motion = f64::INFINITY;
-    for (lower, upper) in wrist_limit_intervals(center, constraints.tolerances[J4], near, 1.0) {
-        // The score is piecewise linear on each feasible interval. Its only
-        // kinks occur at the previous value and the raw constraint center.
-        for candidate in [0.0, center - reference, lower, upper] {
-            let displacement = candidate.clamp(lower, upper);
-            let inward = displacement
-                + (lower + (upper - lower) / 2.0 - displacement).clamp(-margin, margin);
-            // Also try just inside an endpoint: exact +pi normalizes to -pi,
-            // and constraint-boundary rounding can reject the exact endpoint.
-            for displacement in [displacement, inward] {
-                let angle = wrapped_angle(near + displacement);
-                let mut joints = constraints.centers;
-                joints[J4] = angle;
-                if !angle.is_finite() || !constraints.compliant(&joints) {
-                    continue;
-                }
-                // Score and check the actual representation continuation will
-                // return, retaining the caller's original reference and turns.
-                normalize_near(&mut joints[J4], reference);
-                if !joints[J4].is_finite() || !constraints.compliant(&joints) {
-                    continue;
-                }
-                let distance = weighted_distance(
-                    &[joints[J4]],
-                    &[reference],
-                    &[center],
-                    constraints.sorting_weight,
-                );
-                let motion = (joints[J4] - reference).abs();
-                let roundoff =
-                    64.0 * f64::EPSILON * (1.0 + distance.abs().max(best_distance.abs()));
-                if best.is_none()
-                    || distance < best_distance - roundoff
-                    || ((distance - best_distance).abs() <= roundoff && motion < best_motion)
-                {
-                    best = Some(angle);
-                    best_distance = distance;
-                    best_motion = motion;
-                }
-            }
-        }
-    }
-    best
-}
-
-/// Intersects J4 + sign*J6 = phase (modulo 2*pi) with both circular limits,
-/// choosing the feasible pair using the public sorter's weighted L1 distance.
-fn nearest_feasible_pole(
-    phase: f64,
-    sign: f64,
-    reference: [f64; 2],
-    constraints: &Constraints,
-) -> Option<[f64; 2]> {
-    let near = reference.map(wrapped_angle);
-    let correction = wrapped_angle(phase - near[0] - sign * near[1]);
-    let intervals4 = wrist_limit_intervals(
-        constraints.centers[J4],
-        constraints.tolerances[J4],
-        near[0],
-        1.0,
-    );
-    let intervals6 = wrist_limit_intervals(
-        constraints.centers[J6],
-        constraints.tolerances[J6],
-        near[1],
-        sign,
-    );
-
-    // Constraint comparisons are inclusive but exact. Check the actual angle
-    // representations used by inverse and inverse_continuing so conversion
-    // roundoff cannot turn a feasible endpoint into a rejected solution.
-    let compliant = |pair: [f64; 2]| {
-        let mut joints = constraints.centers;
-        for (joint, angle) in [J4, J6].into_iter().zip(pair) {
-            joints[joint] = angle;
-            while joints[joint] > PI {
-                joints[joint] -= 2.0 * PI;
-            }
-            while joints[joint] < -PI {
-                joints[joint] += 2.0 * PI;
-            }
-        }
-        if !constraints.compliant(&joints) {
-            return None;
-        }
-        normalize_near(&mut joints[J4], reference[0]);
-        normalize_near(&mut joints[J6], reference[1]);
-        constraints
-            .compliant(&joints)
-            .then_some([joints[J4], joints[J6]])
-    };
-
-    let mut best = None;
-    let mut best_distance = f64::INFINITY;
-    let mut best_motion = f64::INFINITY;
-    let centers = [constraints.centers[J4], constraints.centers[J6]];
-    let inward = |value: f64, lower: f64, upper: f64, margin: f64| {
-        value + (lower + (upper - lower) / 2.0 - value).clamp(-margin, margin)
-    };
-    let margin = JOINT_DUPLICATE_THR * (1.0 + reference[0].abs().max(reference[1].abs()));
-    for (lower4, upper4) in intervals4 {
-        for (lower6, upper6) in intervals6.clone() {
-            // x = J4 - near4 and y = sign*(J6 - near6) lie in [-pi, pi].
-            // Their sum can require either neighboring phase winding.
-            for winding in [-1.0, 0.0, 1.0] {
-                let sum = correction + winding * 2.0 * PI;
-                let lower = lower4.max(sum - upper6);
-                let upper = upper4.min(sum - lower6);
-                // A phase recovered with roundoff can miss a touching corner
-                // by a few ulps. Keep that corner eligible without widening
-                // either joint limit; check the final phase residual below.
-                if lower - upper > POLE_PHASE_ROUNDOFF_THR {
-                    continue;
-                }
-                // Along y=sum-x the weighted L1 score is piecewise linear.
-                // Its minimum lies at an endpoint or where a joint equals its
-                // reference or center. Keep the balanced split for tied scores.
-                // Centers stay in user coordinates, as in the public sorter.
-                let candidates = [
-                    sum / 2.0,
-                    lower,
-                    upper,
-                    0.0,
-                    sum,
-                    centers[0] - reference[0],
-                    sum - sign * (centers[1] - reference[1]),
-                    // At the turn cut, +pi normalizes to -pi. A point just
-                    // inside can have a better distance to the raw centers.
-                    inward(lower, lower, upper, margin),
-                    inward(upper, lower, upper, margin),
-                ];
-                for candidate in candidates {
-                    let mut x = candidate
-                        .clamp(lower.min(upper), lower.max(upper))
-                        .clamp(lower4, upper4);
-                    let mut y = (sum - x).clamp(lower6, upper6);
-                    let make_pair = |x, y| [near[0] + x, near[1] + sign * y];
-                    let mut pair = make_pair(x, y);
-                    if compliant(pair).is_none() && lower < upper {
-                        // Move a rejected endpoint slightly inside its feasible
-                        // segment, preserving the phase whenever possible.
-                        x = inward(x, lower, upper, margin);
-                        y = sum - x;
-                        pair = make_pair(x, y);
-                    }
-                    if compliant(pair).is_none() {
-                        // At a touching corner, rounding may put both joints just
-                        // outside. Nudge each inward by only a bounded roundoff
-                        // amount; strict constraints and FK validation still apply.
-                        let margin = POLE_PHASE_ROUNDOFF_THR / 4.0;
-                        x = inward(x, lower4, upper4, margin);
-                        y = inward(y, lower6, upper6, margin);
-                        pair = make_pair(x, y);
-                    }
-                    let Some(normalized) = compliant(pair) else {
-                        continue;
-                    };
-                    if (x + y - sum).abs() > POLE_PHASE_ROUNDOFF_THR {
-                        continue;
-                    }
-                    let distance = weighted_distance(
-                        &normalized,
-                        &reference,
-                        &centers,
-                        constraints.sorting_weight,
-                    );
-                    // Preserve balanced motion only when the requested scores
-                    // tie within arithmetic roundoff.
-                    let motion = x * x + y * y;
-                    let roundoff =
-                        64.0 * f64::EPSILON * (1.0 + distance.abs().max(best_distance.abs()));
-                    if best.is_none()
-                        || distance < best_distance - roundoff
-                        || ((distance - best_distance).abs() <= roundoff && motion < best_motion)
-                    {
-                        best = Some(pair);
-                        best_distance = distance;
-                        best_motion = motion;
-                    }
-                }
-            }
-        }
-    }
-    best
 }
 
 /// Normalizes the angle `now` to be as close as possible to `must_be_near`
@@ -1176,7 +925,7 @@ pub(crate) fn calculate_distance(joint1: &[f64], joint2: &[f64]) -> f64 {
 
 /// Shared ranking for whole solutions and the joints free at a wrist pole.
 /// Callers normalize candidates near previous before comparing raw coordinates.
-fn weighted_distance(
+pub(crate) fn weighted_distance(
     joints: &[f64],
     previous: &[f64],
     centers: &[f64],

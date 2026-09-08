@@ -1,4 +1,10 @@
-//! Candidate arm angles for a one-dimensional singular arm family.
+//! Shared angle sampling for the J1-free and J2-free singular arm families.
+//!
+//! J1 is free when the wrist center lies on the base rotation axis. J2 is free
+//! when equal effective arm lengths fold back onto the shoulder. This sampler
+//! handles either free angle; the combined J1/J2 solver also uses it through
+//! the J2 solver at fixed J1 slices. Wrist orientation and joint limits guide
+//! the choice of candidate angles.
 //!
 //! With either J1 or J2 free, every entry of the relative wrist rotation has
 //! the form `a*cos(t) + b*sin(t) + c`. Wrist-limit crossings can therefore be
@@ -6,8 +12,10 @@
 //! cannot enter or leave its allowed ranges. Sampling each such interval
 //! avoids the arbitrarily narrow possible intervals that a fixed grid misses.
 
-use super::{ArmBranch, Joints, OPWKinematics, PI, Pose, wrapped_angle, wrist_limit_intervals};
+use crate::kinematic_traits::{Joints, Kinematics, Pose};
+use crate::kinematics_impl::{OPWKinematics, wrapped_angle, wrist_limit_intervals};
 use glam::{DMat3, DVec3};
+use std::f64::consts::PI;
 
 const TWO_PI: f64 = 2.0 * PI;
 const ROOT_ROUNDOFF: f64 = 64.0 * f64::EPSILON;
@@ -15,12 +23,16 @@ const ROOT_ROUNDOFF: f64 = 64.0 * f64::EPSILON;
 /// A first-harmonic polynomial of the free model angle.
 #[derive(Clone, Copy)]
 struct Trig {
+    /// Coefficient of the free angle's cosine.
     cosine: f64,
+    /// Coefficient of the free angle's sine.
     sine: f64,
+    /// Angle-independent term.
     constant: f64,
 }
 
 impl Trig {
+    /// Multiplies every coefficient by the given factor.
     fn scaled(self, factor: f64) -> Self {
         Self {
             cosine: self.cosine * factor,
@@ -29,6 +41,7 @@ impl Trig {
         }
     }
 
+    /// Adds two polynomials coefficient by coefficient.
     fn plus(self, other: Self) -> Self {
         Self {
             cosine: self.cosine + other.cosine,
@@ -37,6 +50,7 @@ impl Trig {
         }
     }
 
+    /// Appends wrapped angles where the polynomial equals the target.
     fn roots(self, target: f64, roots: &mut Vec<f64>) {
         let constant = self.constant - target;
         let radius = self.cosine.hypot(self.sine);
@@ -58,14 +72,19 @@ impl Trig {
     }
 }
 
+/// A vector whose components are first-harmonic polynomials of the free angle.
 #[derive(Clone, Copy)]
-struct TrigVector {
-    cosine: DVec3,
-    sine: DVec3,
-    constant: DVec3,
+pub(super) struct TrigVector {
+    /// Vector coefficient of the free angle's cosine.
+    pub(super) cosine: DVec3,
+    /// Vector coefficient of the free angle's sine.
+    pub(super) sine: DVec3,
+    /// Angle-independent vector term.
+    pub(super) constant: DVec3,
 }
 
 impl TrigVector {
+    /// Projects the vector polynomial onto a fixed vector.
     fn dot(self, vector: DVec3) -> Trig {
         Trig {
             cosine: self.cosine.dot(vector),
@@ -75,53 +94,7 @@ impl TrigVector {
     }
 }
 
-/// Analytic columns of R_arm. Building coefficients directly avoids inserting
-/// the small sin(pi) residue from interpolation at nominal cardinal angles.
-fn arm_axes(arm: ArmBranch, free_joint: usize) -> [TrigVector; 3] {
-    if free_joint == 0 {
-        let (s23, c23) = (arm.q2 + arm.q3).sin_cos();
-        [
-            TrigVector {
-                cosine: DVec3::new(c23, 0.0, 0.0),
-                sine: DVec3::new(0.0, c23, 0.0),
-                constant: DVec3::new(0.0, 0.0, -s23),
-            },
-            TrigVector {
-                cosine: DVec3::Y,
-                sine: -DVec3::X,
-                constant: DVec3::ZERO,
-            },
-            TrigVector {
-                cosine: DVec3::new(s23, 0.0, 0.0),
-                sine: DVec3::new(0.0, s23, 0.0),
-                constant: DVec3::new(0.0, 0.0, c23),
-            },
-        ]
-    } else {
-        debug_assert_eq!(free_joint, 1);
-        let (s1, c1) = arm.q1.sin_cos();
-        let (s3, c3) = arm.q3.sin_cos();
-        let radial = DVec3::new(c1, s1, 0.0);
-        [
-            TrigVector {
-                cosine: radial * c3 - DVec3::Z * s3,
-                sine: -radial * s3 - DVec3::Z * c3,
-                constant: DVec3::ZERO,
-            },
-            TrigVector {
-                cosine: DVec3::ZERO,
-                sine: DVec3::ZERO,
-                constant: DVec3::new(-s1, c1, 0.0),
-            },
-            TrigVector {
-                cosine: radial * s3 + DVec3::Z * c3,
-                sine: radial * c3 - DVec3::Z * s3,
-                constant: DVec3::ZERO,
-            },
-        ]
-    }
-}
-
+/// Appends angles where the vector `(x, y)` lies on an atan2 boundary line.
 /// Both directions of an atan2 boundary ray are intentional: the opposite
 /// direction belongs to the flipped Euler representation of the same wrist.
 fn ray_roots(x: Trig, y: Trig, angle: f64, roots: &mut Vec<f64>) {
@@ -129,6 +102,7 @@ fn ray_roots(x: Trig, y: Trig, angle: f64, roots: &mut Vec<f64>) {
     y.scaled(cosine).plus(x.scaled(-sine)).roots(0.0, roots);
 }
 
+/// Appends wrist-bend boundary crossings, preserving narrow ranges near poles.
 fn bend_roots(cosine: Trig, x: Trig, y: Trig, angle: f64, roots: &mut Vec<f64>) {
     cosine.roots(angle.cos(), roots);
     let sine = angle.sin().abs();
@@ -137,7 +111,7 @@ fn bend_roots(cosine: Trig, x: Trig, y: Trig, angle: f64, roots: &mut Vec<f64>) 
         // allowed bend is nonzero. Keep those narrow ranges by solving the
         // two atan2 components' squared norm instead. Compensated polynomial
         // arithmetic preserves the small squared sine during root isolation.
-        roots.extend(super::arm_continuum_2d::squared_norm_roots(
+        roots.extend(super::j1j2free::squared_norm_roots(
             [x.constant, x.cosine, x.sine],
             [y.constant, y.cosine, y.sine],
             sine,
@@ -145,14 +119,15 @@ fn bend_roots(cosine: Trig, x: Trig, y: Trig, angle: f64, roots: &mut Vec<f64>) 
     }
 }
 
-pub(super) fn search(
+/// Samples a free joint's angles at wrist boundaries and between consecutive crossings.
+pub(super) fn sample_angles(
     robot: &OPWKinematics,
     pose: &Pose,
-    arm: ArmBranch,
+    axes: [TrigVector; 3],
     free_joint: usize,
     reference: &Joints,
     fixed_j6: Option<f64>,
-) -> Vec<ArmBranch> {
+) -> Vec<f64> {
     let parameters = &robot.parameters;
     let model_angle = |joint: usize, angle: f64| {
         wrapped_angle(
@@ -165,7 +140,7 @@ pub(super) fn search(
         return Vec::new();
     }
 
-    let [axis_x, axis_y, axis_z] = arm_axes(arm, free_joint);
+    let [axis_x, axis_y, axis_z] = axes;
     let matrix = DMat3::from_quat(pose.rotation);
     let q4_x = axis_x.dot(matrix.z_axis);
     let q4_y = axis_y.dot(matrix.z_axis);
@@ -186,7 +161,7 @@ pub(super) fn search(
             continue;
         }
         let mut angles = vec![model_angle(joint, reference[joint])];
-        if let Some(constraints) = robot.constraints {
+        if let Some(constraints) = robot.constraints() {
             let center = model_angle(joint, constraints.centers[joint]);
             angles.push(center);
             let tolerance = constraints.tolerances[joint];
@@ -232,7 +207,7 @@ pub(super) fn search(
         }
     }
 
-    let (center, tolerance) = robot.constraints.map_or((0.0, PI), |constraints| {
+    let (center, tolerance) = robot.constraints().map_or((0.0, PI), |constraints| {
         (
             model_angle(free_joint, constraints.centers[free_joint]),
             constraints.tolerances[free_joint],
@@ -265,15 +240,7 @@ pub(super) fn search(
             // inclusive constraint being lost to the last few ulps of recovery.
             samples.extend([lower + inset, lower + width / 2.0, upper - inset]);
         }
-        for angle in samples {
-            let mut candidate = arm;
-            if free_joint == 0 {
-                candidate.q1 = angle;
-            } else {
-                candidate.q2 = angle;
-            }
-            result.push(candidate);
-        }
+        result.extend(samples);
     }
     // Joint conversion, pole fitting, FK, limits, and final ranking are shared
     // with the ordinary arm branches in the caller.

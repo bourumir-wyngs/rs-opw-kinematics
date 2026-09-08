@@ -101,6 +101,8 @@ For 5 DOF, J6 stays fixed and J4 is free at a wrist pole. When constraints are
 present, the J4 choice follows their `sorting_weight`, balancing distance from
 the previous angle and the constraint center. Tied scores favor the previous angle.
 
+See [Supported singularities](#supported-singularities) for the arm and wrist cases handled by the solver.
+
 The project rs-opw-kinematics has now evolved beyond being just a set of "useful building blocks." It now
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
 integrating collision checking and both joint-based and Cartesian path planning with collision avoidance.
@@ -164,6 +166,56 @@ constraint from -&pi; to &pi; already permits free rotation, covering any angle.
 Since 1.8.2, convenience method exists to specify constraints as ranges in degrees.
 
 Please see the [example](examples/constraints.rs).
+
+## Supported singularities
+
+1. Free base rotation (J1). With `b = 0` and the wrist center on the base rotation axis,
+   the position equations cannot determine J1. The solver searches J1 while keeping J2
+   and J3 fixed for each arm branch, then recovers compatible wrist angles. The built-in
+   Stäubli TX2-140 is tested at such a pose; ABB IRB2400 geometry also permits this case.
+
+2. Free shoulder rotation (J2). When `c2² = a2² + c3²`, the arm can fold completely at
+   model `J3 = π - atan2(a2, c3)`. The wrist center returns to the shoulder rotation axis,
+   so J2 can vary while J1 and J3 stay fixed. The solver searches this family for
+   candidates compatible with wrist orientation and joint limits. Both Stäubli TX2-140
+   and TX40 presets have the required equal effective arm lengths.
+
+3. J1 and J2 free together. A fully folded arm with `c2² = a2² + c3²`,
+   `a1 = 0`, and `b = 0` places the wrist center at the shoulder on the base axis. Both J1 and J2
+   can vary while J3 remains folded. The solver selects J1 slices and searches J2
+   within each slice, using wrist-limit boundaries to locate feasible regions.
+   Tests use a TX2-140-based geometry with `a1` changed to zero; no unchanged built-in
+   preset currently has this combination.
+
+4. Fully extended or folded elbow. At model `J3 = -atan2(a2, c3)` or
+   `J3 = π - atan2(a2, c3)`, the effective arm links are parallel or antiparallel
+   and elbow branches merge at the outer or inner reach boundary. The inverse equations
+   retain reachable boundary solutions despite arithmetic roundoff. With unequal
+   effective lengths, J2 remains determined at the folded boundary. Tests cover both
+   boundaries with the ABB IRB2400 preset.
+
+5. Shoulder-cylinder boundary. With a nonzero lateral offset `b`, the wrist center
+   can lie exactly `abs(b)` from the base axis. The two shoulder branches meet at this
+   boundary, but J1 remains determined. The solver handles the square-root boundary
+   with a roundoff allowance. Tests cover the Stäubli TX40 and cases where shoulder
+   and elbow boundaries occur together.
+
+6. Wrist pole at J5 = 0°. The J4 and J6 axes align, and the target orientation fixes
+   only their sum, `J4 + J6`. The solver recovers this phase and chooses a coupled pair
+   near the reference. Without joint limits, the required phase correction is split
+   equally between J4 and J6. With limits, it selects a feasible pair according to the
+   configured preference for previous angles and constraint centers.
+
+7. Wrist pole at J5 = ±180°. The wrist is reversed, so the target fixes the difference,
+   `J4 - J6`. Recovery follows the same approach as the zero pole, but the phase correction
+   moves J4 and J6 in opposite directions. 
+
+8. Wrist poles in five-axis IK. At either wrist pole, J6 stays fixed and rotation around
+   the tool axis is ignored. J4 is therefore free to follow the reference and its joint
+   limits. The solver preserves the requested position and tool-axis direction; it does
+   not require the six-axis J4/J6 phase. 
+
+Arm and wrist singularities can occur together. 
 
 ## Pose
 

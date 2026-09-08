@@ -1,22 +1,12 @@
 //! Regression tests for numerical domains at the arm workspace boundaries.
 
+use super::scale_geometry;
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{Joints, Kinematics, Pose};
 use crate::kinematics_impl::{ANGULAR_TOLERANCE, OPWKinematics};
 use crate::parameters::opw_kinematics::Parameters;
 use glam::DVec3;
 use std::f64::consts::PI;
-
-fn scale_geometry(mut p: Parameters, scale: f64) -> Parameters {
-    p.a1 *= scale;
-    p.a2 *= scale;
-    p.b *= scale;
-    p.c1 *= scale;
-    p.c2 *= scale;
-    p.c3 *= scale;
-    p.c4 *= scale;
-    p
-}
 
 fn isolate_shoulder(p: Parameters, joints: &Joints) -> OPWKinematics {
     // Otherwise a reachable alternate shoulder can hide the missing branch,
