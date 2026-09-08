@@ -203,7 +203,7 @@ Please see the [example](examples/constraints.rs).
 6. Wrist pole at J5 = 0°. The J4 and J6 axes align, and the target orientation fixes
    only their sum, `J4 + J6`. The solver recovers this phase and chooses a coupled pair
    near the reference. Without joint limits, the required phase correction is split
-   equally between J4 and J6. With limits, it selects a feasible pair according to the
+   equally between J4 and J6. With limits, it selects a possible pair according to the
    configured preference for previous angles and constraint centers.
 
 7. Wrist pole at J5 = ±180°. The wrist is reversed, so the target fixes the difference,
