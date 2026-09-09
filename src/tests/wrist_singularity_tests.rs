@@ -1,5 +1,5 @@
 use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
-use crate::kinematic_traits::{CONSTRAINT_CENTERED, J2, J4, J5, J6, Joints, Kinematics, Pose};
+use crate::kinematic_traits::{CONSTRAINT_CENTERED, J2, J3, J4, J5, J6, Joints, Kinematics, Pose};
 use crate::kinematics_impl::{
     ANGULAR_TOLERANCE, ArmBranch, J4J6Near, OPWKinematics, RotationMatrix, calculate_distance,
     compare_poses, normalize_near,
@@ -1424,6 +1424,14 @@ fn six_dof_continuation_validates_final_normalized_pose() {
             }
         }
     }
+
+    // Each restored angle is finite, but their sum overflows inside FK.
+    for large in [1e308, -1e308] {
+        let mut previous = target;
+        previous[J2] = large;
+        previous[J3] = large;
+        assert!(robot.inverse_continuing(&pose, &previous).is_empty());
+    }
 }
 
 #[test]
@@ -1507,6 +1515,15 @@ fn five_dof_continuation_validates_final_normalized_pose() {
                             assert_five_dof_pose(&robot, solution, &pose);
                         }
                     }
+                }
+
+                // Both continuation entry points must reject FK overflow
+                // before constructing a pose, including when c4 is zero.
+                for large in [1e308, -1e308] {
+                    let mut previous = target;
+                    previous[J2] = large;
+                    previous[J3] = large;
+                    assert!(inverse(&previous).is_empty());
                 }
             }
         }

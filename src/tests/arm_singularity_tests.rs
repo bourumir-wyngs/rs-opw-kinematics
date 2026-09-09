@@ -61,6 +61,30 @@ fn singular_candidates_are_bounded_before_validation() {
     }
 }
 
+#[test]
+fn singular_continuation_rejects_overflowing_arm_references() {
+    for kind in [0, 1, 4] {
+        for transformed in [false, true] {
+            let (mut parameters, mut witness) = fixture(kind, 1.0, transformed, 50.0);
+            // Include opposite J2/J3 signs in user coordinates: the overflow
+            // occurs after converting to model coordinates.
+            if transformed {
+                parameters.sign_corrections[2] *= -1;
+                witness[2] *= -1.0;
+            }
+            let robot = OPWKinematics::new(parameters);
+            let pose = robot.forward(&witness);
+            for large in [1e308, -1e308] {
+                let mut previous = witness;
+                previous[1] = large * f64::from(parameters.sign_corrections[1]);
+                previous[2] = large * f64::from(parameters.sign_corrections[2]);
+                assert!(robot.inverse_continuing(&pose, &previous).is_empty());
+                assert!(robot.inverse_continuing_5dof(&pose, &previous).is_empty());
+            }
+        }
+    }
+}
+
 fn angular_error(a: f64, b: f64) -> f64 {
     ((a - b + PI).rem_euclid(TAU) - PI).abs()
 }

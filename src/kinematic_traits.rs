@@ -78,6 +78,14 @@ pub trait Kinematics: Send + Sync {
     /// For 5 DOF robot, the rotation of the joint 6 should normally be 0.0
     /// but some other value can be given, meaning the tool is mounted with
     /// fixed rotation offset.
+    ///
+    /// # Panics
+    ///
+    /// [`OPWKinematics`](crate::kinematics_impl::OPWKinematics) panics if the
+    /// computed pose is invalid, including when finite joint angles overflow
+    /// intermediate calculations. Use
+    /// [`OPWKinematics::try_forward`](crate::kinematics_impl::OPWKinematics::try_forward)
+    /// to receive a [`PoseError`](crate::pose::PoseError) instead.
     fn forward(&self, qs: &Joints) -> Pose;
 
     /// Calculates the inverse kinematics for a robot while ignoring the rotation

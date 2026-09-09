@@ -4,6 +4,7 @@ use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
 use crate::kinematic_traits::{J4, J6};
 use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Solutions};
 use crate::parameters::opw_kinematics::Parameters;
+use crate::pose::PoseError;
 use crate::singularity::wrist_pole::{self, POLE_PHASE_ROUNDOFF_THR};
 use crate::singularity::{j1free, j1j2free, j2free};
 use glam::{DMat3, DQuat, DVec3};
@@ -213,66 +214,7 @@ impl Kinematics for OPWKinematics {
     }
 
     fn forward(&self, joints: &Joints) -> Pose {
-        let p = &self.parameters;
-
-        // Apply sign corrections and offsets
-        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
-        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
-        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
-        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
-        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
-        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
-
-        let psi3 = f64::atan2(p.a2, p.c3);
-        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
-
-        // Precompute q23_psi3 for better readability and reuse
-        let q23_psi3 = q2 + q3 + psi3;
-        let sin_q23_psi3 = q23_psi3.sin();
-        let cos_q23_psi3 = q23_psi3.cos();
-
-        let cx1 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
-        let cy1 = p.b;
-        let cz1 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
-
-        let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
-        let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
-        let cz0 = cz1 + p.c1;
-
-        // Precompute sines and cosines for efficiency
-        let (s1, c1) = q1.sin_cos();
-        let (s2, c2) = q2.sin_cos();
-        let (s3, c3) = q3.sin_cos();
-        let (s4, c4) = q4.sin_cos();
-        let (s5, c5) = q5.sin_cos();
-        let (s6, c6) = q6.sin_cos();
-
-        // Compute rotation matrix r_0c
-        let r_0c = mat3_from_rows([
-            [
-                c1 * c2 * c3 - c1 * s2 * s3,
-                -s1,
-                c1 * c2 * s3 + c1 * s2 * c3,
-            ],
-            [s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3],
-            [-s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3],
-        ]);
-
-        // Compute rotation matrix r_ce
-        let r_ce = mat3_from_rows([
-            [c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5],
-            [s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5],
-            [-s5 * c6, s5 * s6, c5],
-        ]);
-
-        // Compute the final rotation matrix r_oe
-        let r_oe = r_0c * r_ce;
-
-        // Calculate the final translation
-        let translation = DVec3::new(cx0, cy0, cz0) + p.c4 * (r_oe * DVec3::Z);
-        let rotation = DQuat::from_mat3(&r_oe);
-
-        Pose::from_parts(translation, rotation)
+        self.try_forward(joints).expect("pose parts must be valid")
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -362,6 +304,111 @@ impl Kinematics for OPWKinematics {
 }
 
 impl OPWKinematics {
+    /// Computes the TCP pose from joint angles in radians, returning an error if
+    /// the computed pose is invalid.
+    ///
+    /// This is the fallible counterpart of [`Kinematics::forward`]. On success,
+    /// the translation is finite and the rotation is normalized. Joint limits
+    /// are not checked, and success does not guarantee accuracy for extremely
+    /// large angles that have lost precision.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors from [`Pose::try_from_parts`]:
+    ///
+    /// - [`PoseError::NonFiniteTranslation`] if the computed translation contains
+    ///   NaN or infinity.
+    /// - [`PoseError::NonFiniteRotation`] if the computed quaternion or its norm
+    ///   is non-finite.
+    /// - [`PoseError::ZeroRotation`] if the computed quaternion has zero norm.
+    ///
+    /// Non-finite joint angles or geometry parameters, and arithmetic overflow
+    /// during forward kinematics, can cause these errors. Even finite inputs
+    /// can overflow: for example, J2 and J3 both equal to `1e308` radians with
+    /// positive sign corrections overflow when added, yielding
+    /// [`PoseError::NonFiniteTranslation`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+    /// use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+    /// use rs_opw_kinematics::pose::PoseError;
+    ///
+    /// let robot = OPWKinematics::new(Parameters::irb2400_10());
+    /// let pose = robot.try_forward(&[0.0; 6])?;
+    /// assert!(pose.translation.is_finite());
+    ///
+    /// let overflowing = [0.0, 1e308, 1e308, 0.0, 0.0, 0.0];
+    /// assert_eq!(
+    ///     robot.try_forward(&overflowing),
+    ///     Err(PoseError::NonFiniteTranslation),
+    /// );
+    /// # Ok::<(), PoseError>(())
+    /// ```
+    pub fn try_forward(&self, joints: &Joints) -> Result<Pose, PoseError> {
+        let p = &self.parameters;
+
+        // Apply sign corrections and offsets
+        let q1 = joints[0] * p.sign_corrections[0] as f64 - p.offsets[0];
+        let q2 = joints[1] * p.sign_corrections[1] as f64 - p.offsets[1];
+        let q3 = joints[2] * p.sign_corrections[2] as f64 - p.offsets[2];
+        let q4 = joints[3] * p.sign_corrections[3] as f64 - p.offsets[3];
+        let q5 = joints[4] * p.sign_corrections[4] as f64 - p.offsets[4];
+        let q6 = joints[5] * p.sign_corrections[5] as f64 - p.offsets[5];
+
+        let psi3 = f64::atan2(p.a2, p.c3);
+        let k = f64::sqrt(p.a2 * p.a2 + p.c3 * p.c3);
+
+        // Precompute q23_psi3 for better readability and reuse
+        let q23_psi3 = q2 + q3 + psi3;
+        let sin_q23_psi3 = q23_psi3.sin();
+        let cos_q23_psi3 = q23_psi3.cos();
+
+        let cx1 = p.c2 * f64::sin(q2) + k * sin_q23_psi3 + p.a1;
+        let cy1 = p.b;
+        let cz1 = p.c2 * f64::cos(q2) + k * cos_q23_psi3;
+
+        let cx0 = cx1 * f64::cos(q1) - cy1 * f64::sin(q1);
+        let cy0 = cx1 * f64::sin(q1) + cy1 * f64::cos(q1);
+        let cz0 = cz1 + p.c1;
+
+        // Precompute sines and cosines for efficiency
+        let (s1, c1) = q1.sin_cos();
+        let (s2, c2) = q2.sin_cos();
+        let (s3, c3) = q3.sin_cos();
+        let (s4, c4) = q4.sin_cos();
+        let (s5, c5) = q5.sin_cos();
+        let (s6, c6) = q6.sin_cos();
+
+        // Compute rotation matrix r_0c
+        let r_0c = mat3_from_rows([
+            [
+                c1 * c2 * c3 - c1 * s2 * s3,
+                -s1,
+                c1 * c2 * s3 + c1 * s2 * c3,
+            ],
+            [s1 * c2 * c3 - s1 * s2 * s3, c1, s1 * c2 * s3 + s1 * s2 * c3],
+            [-s2 * c3 - c2 * s3, 0.0, -s2 * s3 + c2 * c3],
+        ]);
+
+        // Compute rotation matrix r_ce
+        let r_ce = mat3_from_rows([
+            [c4 * c5 * c6 - s4 * s6, -c4 * c5 * s6 - s4 * c6, c4 * s5],
+            [s4 * c5 * c6 + c4 * s6, -s4 * c5 * s6 + c4 * c6, s4 * s5],
+            [-s5 * c6, s5 * s6, c5],
+        ]);
+
+        // Compute the final rotation matrix r_oe
+        let r_oe = r_0c * r_ce;
+
+        // Calculate the final translation
+        let translation = DVec3::new(cx0, cy0, cz0) + p.c4 * (r_oe * DVec3::Z);
+        let rotation = DQuat::from_mat3(&r_oe);
+
+        Pose::try_from_parts(translation, rotation)
+    }
+
     /// Computes discrete arm branches and detects free angles on the same geometry.
     fn arm_branches(&self, pose: &Pose) -> ArmRecovery {
         let params = &self.parameters;
@@ -628,7 +675,9 @@ impl OPWKinematics {
                     continue;
                 }
             }
-            let actual = self.forward(&joints);
+            let Ok(actual) = self.try_forward(&joints) else {
+                continue;
+            };
             let orientation_error = if fixed_j6.is_some() {
                 (actual.rotation * DVec3::Z - pose.rotation * DVec3::Z).length()
             } else {
@@ -738,7 +787,9 @@ impl OPWKinematics {
                 }
             }
             if valid {
-                let check_pose = self.forward(&solution);
+                let Ok(check_pose) = self.try_forward(&solution) else {
+                    continue;
+                };
                 if compare_poses(
                     pose,
                     &check_pose,
@@ -786,8 +837,14 @@ impl OPWKinematics {
                 }
             }
             if valid {
-                let check_xyz = self.forward(&solution).translation;
-                if Self::compare_xyz_only(&pose.translation, &check_xyz, self.distance_tolerance) {
+                let Ok(check_pose) = self.try_forward(&solution) else {
+                    continue;
+                };
+                if Self::compare_xyz_only(
+                    &pose.translation,
+                    &check_pose.translation,
+                    self.distance_tolerance,
+                ) {
                     push_unique(&mut result, solution);
                 } else {
                     if DEBUG {
@@ -829,12 +886,10 @@ impl OPWKinematics {
             if !solution.iter().all(|joint| joint.is_finite()) {
                 return false;
             }
-            let actual = self.forward(solution);
-            if !actual.translation.is_finite()
-                || !actual.rotation.is_finite()
-                || !pose.translation.is_finite()
-                || !pose.rotation.is_finite()
-            {
+            let Ok(actual) = self.try_forward(solution) else {
+                return false;
+            };
+            if !pose.translation.is_finite() || !pose.rotation.is_finite() {
                 return false;
             }
             let orientation_error = if five_dof {
