@@ -129,4 +129,16 @@ impl Kinematics for Parallelogram {
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
     }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        let mut joints = *joints;
+        joints[self.coupled] -= self.scaling * joints[self.driven];
+        self.robot.to_constraint_joints(&joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        let mut joints = self.robot.from_constraint_joints(joints);
+        joints[self.coupled] += self.scaling * joints[self.driven];
+        joints
+    }
 }

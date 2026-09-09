@@ -333,6 +333,14 @@ impl Kinematics for KinematicsWithShape {
         self.kinematics.constraints()
     }
 
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.kinematics.to_constraint_joints(joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.kinematics.from_constraint_joints(joints)
+    }
+
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
         self.kinematics.forward_with_joint_poses(joints)
     }

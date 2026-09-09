@@ -98,9 +98,26 @@ pub trait Kinematics: Send + Sync {
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions;
 
     /// Returns constraints under what the solver is operating.
-    /// Constraints are remembered here and can be used for generating random
-    /// joint angles needed by RRT, or say providing limits of sliders in GUI.
+    /// These limits apply to [`Self::to_constraint_joints`], which can differ
+    /// from the public joint coordinates when joints are coupled. Convert samples
+    /// from these limits with [`Self::from_constraint_joints`] before using them.
     fn constraints(&self) -> &Option<Constraints>;
+
+    /// Converts public joint coordinates to the coordinates used by [`Self::constraints`].
+    /// The default is identity. Wrappers with coupled joints must override both
+    /// conversion methods; wrappers that only transform poses must forward them.
+    /// The conversions must be mutually inverse affine maps without angle
+    /// normalization, so straight segments and requested turns are preserved.
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        *joints
+    }
+
+    /// Converts constraint coordinates back to public joint coordinates.
+    /// See [`Self::to_constraint_joints`] for the conversion contract.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        *joints
+    }
 
     /// Computes the forward kinematics for a 6-DOF robotic arm and returns an array of poses
     /// representing the position and orientation of each joint, including the final end-effector.

@@ -343,15 +343,25 @@ impl RRTPlanner {
         check_cancelled(stop)?;
         let constraints = kinematics.constraints().as_ref();
         let bounds = constraints
-            .map(|constraints| joint_space_bounds(constraints, start, goal))
+            .map(|constraints| {
+                joint_space_bounds(
+                    constraints,
+                    &kinematics.to_constraint_joints(start),
+                    &kinematics.to_constraint_joints(goal),
+                )
+            })
             .transpose()?;
         let within_limits = |joints: &Joints| {
-            joints.iter().enumerate().all(|(joint, angle)| {
+            if !joints.iter().all(|angle| angle.is_finite()) {
+                return false;
+            }
+            let constraint_joints = kinematics.to_constraint_joints(joints);
+            constraint_joints.iter().enumerate().all(|(joint, angle)| {
                 angle.is_finite()
                     && bounds
                         .as_ref()
                         .is_none_or(|(from, to)| *angle >= from[joint] && *angle <= to[joint])
-            }) && constraints.is_none_or(|constraints| constraints.compliant(joints))
+            }) && constraints.is_none_or(|constraints| constraints.compliant(&constraint_joints))
         };
 
         let mut collision_free = |joint_angles: &[f64]| -> bool {
@@ -359,20 +369,22 @@ impl RRTPlanner {
             within_limits(joints) && !kinematics.collides(joints)
         };
 
-        // Sampling the same connected intervals makes interpolation and
-        // shortcutting stay within the joint limits even with a large step size.
+        // Sample the connected intervals in constraint coordinates, then apply
+        // any coupling. Affine conversion keeps interpolation and shortcutting
+        // within the limits while distances remain in public joint coordinates.
         let random_joint_angles = || -> Vec<f64> {
             let (from, to) = bounds.as_ref().expect("Set joint ranges on kinematics");
             let mut rng = rand::rng();
-            (0..6)
-                .map(|joint| {
-                    if from[joint] == to[joint] {
-                        from[joint]
-                    } else {
-                        rng.random_range(from[joint]..to[joint])
-                    }
-                })
-                .collect()
+            let constraint_joints = std::array::from_fn(|joint| {
+                if from[joint] == to[joint] {
+                    from[joint]
+                } else {
+                    rng.random_range(from[joint]..to[joint])
+                }
+            });
+            kinematics
+                .from_constraint_joints(&constraint_joints)
+                .to_vec()
         };
 
         // Plan the path with RRT
@@ -456,6 +468,8 @@ impl RRTPlanner {
     /// Requested joint values are preserved, including their turns. Each limited
     /// joint's goal must lie in the same continuous allowed interval as its start;
     /// for a wrapped move, supply continuous angles such as 175° to 185°.
+    /// For coupled joints, limits and connected intervals are checked in the
+    /// underlying constraint coordinates. Paths and step sizes use public joints.
     /// Returns `Err("Cancelled")` when cancellation is observed during planning,
     /// smoothing, or conversion of the result.
     pub fn plan_rrt(

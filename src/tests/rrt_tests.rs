@@ -1,10 +1,13 @@
 use super::{RRTPlanner, joint_space_bounds};
 use crate::collisions::{CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::{BY_PREV, Constraints};
-use crate::kinematic_traits::{Joints, Kinematics};
+use crate::frame::{Frame, FrameTransform};
+use crate::kinematic_traits::{J2, J3, Joints, Kinematics, Pose};
 use crate::kinematics_impl::OPWKinematics;
 use crate::kinematics_with_shape::KinematicsWithShape;
+use crate::parallelogram::Parallelogram;
 use crate::parameters::opw_kinematics::Parameters;
+use crate::tool::{Base, Tool};
 use parry3d::math::Vector;
 use parry3d::shape::TriMesh;
 use std::f64::consts::{PI, TAU};
@@ -43,6 +46,211 @@ fn first_joint_constraints(from: f64, to: f64) -> Constraints {
     lower[0] = from;
     upper[0] = to;
     Constraints::new(lower, upper, BY_PREV)
+}
+
+fn parallelogram_robot(constraints: Constraints, scaling: f64) -> KinematicsWithShape {
+    let mut robot = robot_with_constraints(constraints);
+    robot.kinematics = Arc::new(Parallelogram {
+        robot: Arc::new(OPWKinematics::new_with_constraints(
+            Parameters::irb2400_10(),
+            constraints,
+        )),
+        scaling,
+        driven: J2,
+        coupled: J3,
+    });
+    // Separate the tiny link meshes by more than the robot's reach, keeping
+    // collision checks active while every configuration is collision-free.
+    robot.body.joint_meshes = std::array::from_fn(|joint| {
+        let radius = 10.0 * (joint + 1) as f32;
+        TriMesh::new(
+            vec![
+                Vector::new(radius, 0.0, 0.0),
+                Vector::new(radius + 0.01, 0.0, 0.0),
+                Vector::new(radius, 0.01, 0.0),
+                Vector::new(radius, 0.0, 0.01),
+            ],
+            vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+        )
+        .expect("test tetrahedron should be valid")
+    });
+    robot.body.safety = SafetyDistances::standard(CheckMode::FirstCollisionOnly);
+    robot
+}
+
+#[test]
+fn parallelogram_ik_endpoints_and_samples_use_underlying_limits() {
+    let constraints = Constraints::from_degrees(
+        [
+            -10.0..=10.0,
+            70.0..=100.0,
+            -30.0..=30.0,
+            10.0..=30.0,
+            30.0..=50.0,
+            -10.0..=10.0,
+        ],
+        BY_PREV,
+    );
+
+    for scaling in [1.0, -1.5] {
+        for with_pose_wrappers in [false, true] {
+            let mut robot = parallelogram_robot(constraints, scaling);
+            if with_pose_wrappers {
+                robot.kinematics = Arc::new(Tool {
+                    robot: Arc::new(Base {
+                        robot: Arc::new(Frame {
+                            robot: robot.kinematics,
+                            frame: FrameTransform::IDENTITY,
+                        }),
+                        base: Pose::identity(),
+                    }),
+                    tool: Pose::identity(),
+                });
+            }
+            let [start, goal] = [
+                [0.0_f64, 80.0, 20.0, 20.0, 40.0, 0.0],
+                [5.0_f64, 90.0, 10.0, 25.0, 45.0, 5.0],
+            ]
+            .map(|degrees| {
+                let mut expected = degrees.map(f64::to_radians);
+                expected[J3] += scaling * expected[J2];
+                let pose = robot.forward(&expected);
+                let joints = robot
+                    .inverse(&pose)
+                    .into_iter()
+                    .find(|solution| {
+                        solution
+                            .iter()
+                            .zip(expected)
+                            .all(|(a, b)| (a - b).abs() < 1e-6)
+                    })
+                    .expect("IK must return the valid coupled configuration");
+                assert!(!constraints.compliant(&joints));
+                joints
+            });
+
+            // A large step forces insertion of the sampled configuration. With
+            // untransformed samples, every draw violates the underlying J3 limit.
+            for step_size_joint_space in [0.1, 100.0] {
+                for smooth in [0, 8] {
+                    let planner = RRTPlanner {
+                        step_size_joint_space,
+                        max_try: 1,
+                        smooth,
+                        debug: false,
+                    };
+                    let path = planner
+                        .plan_rrt(&start, &goal, &robot, &AtomicBool::new(false))
+                        .expect("valid parallelogram IK endpoints must be plannable");
+                    assert_eq!(path.first(), Some(&start));
+                    assert_eq!(path.last(), Some(&goal));
+                    let check_configuration = |joints: &Joints| {
+                        let mut underlying = *joints;
+                        underlying[J3] -= scaling * underlying[J2];
+                        assert!(
+                            constraints.compliant(&underlying),
+                            "invalid state: {joints:?}"
+                        );
+                        assert!(!robot.collides(joints));
+                    };
+                    for joints in &path {
+                        check_configuration(joints);
+                    }
+                    for edge in path.windows(2) {
+                        let distance = super::joint_space_distance(&edge[0], &edge[1]);
+                        assert!(distance <= step_size_joint_space + 1e-12);
+                        for step in 1..10 {
+                            let p = step as f64 / 10.0;
+                            let joints =
+                                std::array::from_fn(|j| edge[0][j] + p * (edge[1][j] - edge[0][j]));
+                            check_configuration(&joints);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn parallelogram_rejects_underlying_limit_violations_and_disconnected_turns() {
+    let mut lower = [-PI; 6];
+    let mut upper = [PI; 6];
+    lower[J3] = -30_f64.to_radians();
+    upper[J3] = 30_f64.to_radians();
+    let constraints = Constraints::new(lower, upper, BY_PREV);
+    let robot = parallelogram_robot(constraints, 1.0);
+    let valid = [0.0_f64, 80.0, 100.0, 20.0, 40.0, 0.0].map(f64::to_radians);
+    let mut invalid = valid;
+    invalid[J3] = 20_f64.to_radians(); // Underlying J3 is -60 degrees.
+    assert!(constraints.compliant(&invalid));
+    let mut disconnected = valid;
+    disconnected[J3] += TAU; // Underlying J3 is in another allowed interval.
+
+    for rejected in [invalid, disconnected] {
+        for (start, goal) in [(valid, rejected), (rejected, valid), (invalid, invalid)] {
+            for smooth in [0, 8] {
+                let planner = RRTPlanner {
+                    step_size_joint_space: 100.0,
+                    max_try: 1,
+                    smooth,
+                    debug: false,
+                };
+                assert_eq!(
+                    planner.plan_rrt(&start, &goal, &robot, &AtomicBool::new(false)),
+                    Err("failed".to_string())
+                );
+            }
+        }
+    }
+
+    // A full turn of the driven joint is valid when the coupled public joint
+    // follows it: the underlying limited joint then stays in the same interval.
+    let mut goal = valid;
+    goal[J2] += TAU;
+    goal[J3] += TAU;
+    for smooth in [0, 8] {
+        let planner = RRTPlanner {
+            step_size_joint_space: 0.1,
+            max_try: 1,
+            smooth,
+            debug: false,
+        };
+        let path = planner
+            .plan_rrt(&valid, &goal, &robot, &AtomicBool::new(false))
+            .expect("coupling must preserve the requested driven joint turn");
+        assert_eq!(path.first(), Some(&valid));
+        assert_eq!(path.last(), Some(&goal));
+        for joints in path {
+            let mut underlying = joints;
+            underlying[J3] -= underlying[J2];
+            assert!(constraints.compliant(&underlying));
+        }
+    }
+}
+
+#[test]
+fn parallelogram_collision_offsets_use_underlying_limits() {
+    let constraints = Constraints::new([-0.5; 6], [0.5; 6], BY_PREV);
+    let robot = parallelogram_robot(constraints, 1.0);
+    let mut initial = [0.0; 6];
+    initial[J2] = 0.4;
+    initial[J3] = 0.8;
+    let mut from = initial;
+    from[J3] = 0.6; // Underlying J3 = 0.2, valid despite the public J3 limit.
+    let mut to = initial;
+    to[J3] = -0.2; // Underlying J3 = -0.6, invalid despite the public J3 limit.
+    let offsets = robot
+        .body
+        .non_colliding_offsets(&initial, &from, &to, &robot);
+    assert!(offsets.contains(&from));
+    assert!(!offsets.contains(&to));
+    for joints in offsets {
+        let mut underlying = joints;
+        underlying[J3] -= underlying[J2];
+        assert!(constraints.compliant(&underlying));
+        assert!(!robot.collides(&joints));
+    }
 }
 
 fn first_joint(value: f64) -> Joints {

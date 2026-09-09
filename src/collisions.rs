@@ -396,7 +396,7 @@ impl RobotBody {
 
                 // Discard perturbations that go out of constraints.
                 if let Some(constraints) = kinematics.constraints()
-                    && !constraints.compliant(&new_joints)
+                    && !constraints.compliant(&kinematics.to_constraint_joints(&new_joints))
                 {
                     return None;
                 }

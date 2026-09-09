@@ -300,6 +300,14 @@ impl Kinematics for Frame {
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
     }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.to_constraint_joints(joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.from_constraint_joints(joints)
+    }
 }
 
 /// Defines error when points specified as source or target for creating the frame are colinear (on the same line).

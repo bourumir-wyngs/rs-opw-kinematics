@@ -105,6 +105,14 @@ impl Kinematics for Tool {
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
     }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.to_constraint_joints(joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.from_constraint_joints(joints)
+    }
 }
 
 impl Kinematics for Base {
@@ -144,6 +152,14 @@ impl Kinematics for Base {
 
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
+    }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.to_constraint_joints(joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.from_constraint_joints(joints)
     }
 }
 
