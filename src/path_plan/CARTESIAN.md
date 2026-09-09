@@ -117,6 +117,8 @@ The suffix planner handles a failed graph edge in this order:
 
 A successful reconfiguration appends joint-space states with `MoveKind::Joint` and `RECONFIGURING`. `LIN_INTERP` is
 removed from reconfiguration output flags, but landing, parking, and direction semantics are preserved where relevant.
+Only the final bridge waypoint inherits the target's original-pose flags (`TRACE`, `LAND`, or `PARK`). Transit
+waypoints approaching a `PARK` target carry `PARKING` so they retain their parking-phase meaning without marking arrival.
 
 Reconfiguration inside `LANDING`, `PARKING`, or `PARK` is treated as less serious than reconfiguration inside the
 actual trace. Trace reconfiguration is considered a stroke interruption.

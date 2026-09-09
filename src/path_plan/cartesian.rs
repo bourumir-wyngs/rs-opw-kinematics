@@ -1299,8 +1299,19 @@ impl Cartesian<'_> {
                 if self.debug {
                     eprintln!("  ... closed with RRT {} steps", path.len());
                 }
-                for joints in path {
-                    let flags = reconfiguring_output_flags(pose.flags);
+                let endpoint_flags = reconfiguring_output_flags(pose.flags);
+                let mut transit_flags = endpoint_flags & !PathFlags::ORIGINAL;
+                if endpoint_flags.contains(PathFlags::PARK) {
+                    // Preserve the parking phase without marking transit as arrival.
+                    transit_flags |= PathFlags::PARKING;
+                }
+                let last_index = path.len().saturating_sub(1);
+                for (index, joints) in path.into_iter().enumerate() {
+                    let flags = if index == last_index {
+                        endpoint_flags
+                    } else {
+                        transit_flags
+                    };
                     if self.should_emit_output_state(flags) {
                         trace.push(AnnotatedJoints {
                             joints,
@@ -1602,7 +1613,7 @@ mod tests {
         AnnotatedJoints, AnnotatedPose, Cartesian, DEFAULT_MAX_SOLUTIONS_AWAIT,
         DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
         DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome,
-        add_or_update_state, append_suffix_candidates_by_strategy_order,
+        Transition, add_or_update_state, append_suffix_candidates_by_strategy_order,
         best_state_indices_by_cost, canceled_cartesian_graph_failure, interpolation_flags_for_edge,
         is_stroke_interrupting_reconfiguration, limit_layer_states_by_cost,
         reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
@@ -1679,6 +1690,86 @@ mod tests {
         let trace_fallback = reconfiguring_output_flags(PathFlags::TRACE);
         assert!(trace_fallback.contains(PathFlags::TRACE));
         assert!(trace_fallback.contains(PathFlags::RECONFIGURING));
+    }
+
+    #[test]
+    fn reconfiguration_bridge_marks_original_pose_only_at_endpoint() {
+        let mut robot = linear_robot();
+        robot.kinematics = Arc::new(LinearKinematics {
+            constraints: Some(Constraints::new([-2.0; 6], [2.0; 6], 0.0)),
+        });
+        let mut planner = test_planner(&robot, usize::MAX);
+        let stop = AtomicBool::new(false);
+
+        for target_flags in [
+            PathFlags::TRACE | PathFlags::FORWARDS,
+            PathFlags::LAND | PathFlags::LANDING | PathFlags::BACKWARDS,
+            PathFlags::PARK | PathFlags::FORWARDS,
+            PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS,
+            PathFlags::LIN_INTERP | PathFlags::PARKING | PathFlags::BACKWARDS,
+        ] {
+            for include_interpolation in [false, true] {
+                planner.include_linear_interpolation = include_interpolation;
+                // Exercise both an actual RRT bridge and the stationary shortcut.
+                for start_value in [0.0, 1.0] {
+                    let starting = joints(start_value);
+                    let target = annotated_pose_at(1.0, target_flags);
+                    let transition = Transition {
+                        from: annotated_pose_at(start_value, PathFlags::TRACE),
+                        to: target,
+                        previous: starting,
+                        solutions: vec![joints(1.0)],
+                    };
+                    let mut path = Vec::new();
+                    assert!(planner.append_reconfiguration(
+                        &starting,
+                        &target,
+                        &transition,
+                        &stop,
+                        &mut path,
+                    ));
+                    if start_value == 0.0 {
+                        assert!(path.len() > 2, "bridge must exercise transit waypoints");
+                    } else {
+                        assert_eq!(path.len(), 1);
+                    }
+
+                    let (endpoint, transit) = path.split_last().unwrap();
+                    assert_eq!(endpoint.joints, joints(1.0));
+                    assert_eq!(
+                        (endpoint.flags & PathFlags::ORIGINAL).bits(),
+                        (target_flags & PathFlags::ORIGINAL).bits(),
+                    );
+                    for waypoint in transit {
+                        assert!(
+                            !waypoint.flags.intersects(PathFlags::ORIGINAL),
+                            "transit waypoint falsely marks target {target_flags}: {waypoint:?}"
+                        );
+                        if target_flags.contains(PathFlags::PARK) {
+                            assert!(waypoint.flags.contains(PathFlags::PARKING));
+                        }
+                    }
+                    for waypoint in &path {
+                        assert_eq!(waypoint.move_into, MoveKind::Joint);
+                        assert!(waypoint.flags.contains(PathFlags::RECONFIGURING));
+                        assert!(!waypoint.flags.contains(PathFlags::LIN_INTERP));
+                        assert!(waypoint.flags.contains(
+                            target_flags
+                                & (PathFlags::LANDING
+                                    | PathFlags::PARKING
+                                    | PathFlags::FORWARDS
+                                    | PathFlags::BACKWARDS)
+                        ));
+                    }
+                    let rank = PlanRank::from_path(&path, &DEFAULT_TRANSITION_COSTS);
+                    assert_eq!(
+                        rank.is_good_enough(),
+                        !target_flags.contains(PathFlags::TRACE),
+                        "phase classification changed for {target_flags}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]
