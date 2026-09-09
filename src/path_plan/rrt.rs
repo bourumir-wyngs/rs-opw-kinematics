@@ -607,11 +607,156 @@ mod tests {
     #[test]
     fn smooth_zero_returns_raw_path() {
         let stop = AtomicBool::new(false);
-        let path = vec![vec![0.0, 0.0], vec![1.0, 1.0], vec![2.0, 0.0]];
+        let path = vec![
+            vec![0.0, 0.0],
+            vec![0.0, 0.0],
+            vec![1.0, 1.0],
+            vec![2.0, 0.0],
+        ];
 
-        let smoothed = smooth_rrt_path(&path, 1.0, 0, |_| true, &stop);
+        let smoothed = smooth_rrt_path(
+            &path,
+            1.0,
+            0,
+            |_| panic!("a zero smoothing budget must not check collisions"),
+            &stop,
+        );
 
         assert_eq!(smoothed, path);
+    }
+
+    #[test]
+    fn smoothing_empty_and_single_state_paths_never_checks_collisions() {
+        for path in [vec![], vec![vec![0.25; 6]]] {
+            for smooth in [0, 8] {
+                assert_eq!(
+                    try_smooth_rrt_path(
+                        &path,
+                        0.1,
+                        smooth,
+                        |_| panic!("there are no edges to check"),
+                        &AtomicBool::new(false),
+                    ),
+                    Ok(path.clone())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn smoothing_invalid_step_sizes_preserves_the_path_without_collision_checks() {
+        let path = vec![vec![0.0, 0.0], vec![1.0, 1.0], vec![2.0, 0.0]];
+        for step in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                try_smooth_rrt_path(
+                    &path,
+                    step,
+                    8,
+                    |_| panic!("invalid step sizes must not produce samples"),
+                    &AtomicBool::new(false),
+                ),
+                Ok(path.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn rejected_shortcuts_consume_exactly_the_smoothing_budget() {
+        // With three points there is only one shortcut candidate. The original
+        // edges are shorter than the step size, so resampling adds no checks.
+        let path = vec![vec![0.0, 0.0], vec![0.6, 0.4], vec![1.2, 0.0]];
+        for smooth in [1, 3, 8] {
+            let mut checked = Vec::new();
+            let result = try_smooth_rrt_path(
+                &path,
+                1.0,
+                smooth,
+                |q| {
+                    checked.push(q.to_vec());
+                    false
+                },
+                &AtomicBool::new(false),
+            );
+
+            assert_eq!(result, Ok(path.clone()));
+            assert_eq!(checked, vec![vec![0.6, 0.0]; smooth]);
+        }
+    }
+
+    #[test]
+    fn resampling_uses_euclidean_distance_and_preserves_six_joint_endpoints() {
+        let start = vec![0.0; 6];
+        let goal = vec![3.0, 4.0, 0.0, 0.0, 0.0, 0.0];
+        let path = vec![start.clone(), goal.clone()];
+        let mut checked = Vec::new();
+        let result = try_smooth_rrt_path(
+            &path,
+            2.0,
+            1,
+            |q| {
+                checked.push(q.to_vec());
+                true
+            },
+            &AtomicBool::new(false),
+        )
+        .expect("a collision-free five-unit segment should be resampled");
+
+        assert_eq!(result.first(), Some(&start));
+        assert_eq!(result.last(), Some(&goal));
+        assert_eq!(result.len(), 4);
+        assert_eq!(checked, result[1..3]);
+        for (index, q) in result.iter().enumerate() {
+            assert!((q[0] - index as f64).abs() < 1e-12);
+            assert!((q[1] - index as f64 * 4.0 / 3.0).abs() < 1e-12);
+            assert_eq!(&q[2..], &[0.0; 4]);
+        }
+        for edge in result.windows(2) {
+            let distance = (edge[1][0] - edge[0][0]).hypot(edge[1][1] - edge[0][1]);
+            assert!(distance <= 2.0);
+        }
+    }
+
+    #[test]
+    fn late_resampling_collision_restores_the_complete_original_path() {
+        let path = vec![vec![0.0], vec![0.0], vec![4.0]];
+        let mut checked = Vec::new();
+        let result = smooth_rrt_path(
+            &path,
+            1.0,
+            1,
+            |q| {
+                checked.push(q[0]);
+                q[0] < 2.0
+            },
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(checked, vec![1.0, 2.0]);
+        assert_eq!(result, path);
+    }
+
+    #[test]
+    fn planner_result_conversion_preserves_values_and_errors() {
+        let planner = RRTPlanner::default();
+        let stop = AtomicBool::new(false);
+        let start = [1.0, -2.0, 3.0, -4.0, 5.0, -6.0];
+        let goal = [6.0, -5.0, 4.0, -3.0, 2.0, -1.0];
+
+        assert_eq!(planner.convert_result(Ok(vec![]), &stop), Ok(vec![]));
+        assert_eq!(
+            planner.convert_result(Ok(vec![start.to_vec(), goal.to_vec()]), &stop),
+            Ok(vec![start, goal])
+        );
+        assert_eq!(
+            planner.convert_result(Err("planning error".to_string()), &stop),
+            Err("planning error".to_string())
+        );
+        for dimension in [0, 5, 7] {
+            assert_eq!(
+                planner.convert_result(Ok(vec![start.to_vec(), vec![0.0; dimension]]), &stop),
+                Err("One of the inner vectors does not have 6 elements.".to_string())
+            );
+        }
     }
 
     #[test]

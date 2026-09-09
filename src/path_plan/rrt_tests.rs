@@ -1,7 +1,7 @@
 use super::{RRTPlanner, joint_space_bounds};
-use crate::collisions::{CheckMode, RobotBody, SafetyDistances};
+use crate::collisions::{CheckMode, CollisionBody, NEVER_COLLIDES, RobotBody, SafetyDistances};
 use crate::constraints::{BY_PREV, Constraints};
-use crate::kinematic_traits::Joints;
+use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_impl::OPWKinematics;
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::parameters::opw_kinematics::Parameters;
@@ -49,6 +49,153 @@ fn first_joint(value: f64) -> Joints {
     let mut joints = [0.0; 6];
     joints[0] = value;
     joints
+}
+
+fn robot_with_obstacle() -> KinematicsWithShape {
+    let mut robot = robot_with_constraints(Constraints::new([-0.25; 6], [0.25; 6], BY_PREV));
+    // Place a small tetrahedron one unit from J1's rotation axis. The obstacle
+    // occupies its zero-angle position; rotating J1 by 0.1 radians clears it.
+    robot.body.joint_meshes[0] = TriMesh::new(
+        vec![
+            Vector::new(1.0, 0.0, 0.0),
+            Vector::new(1.01, 0.0, 0.0),
+            Vector::new(1.0, 0.01, 0.0),
+            Vector::new(1.0, 0.0, 0.01),
+        ],
+        vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+    )
+    .expect("test tetrahedron should be valid");
+    robot.body.collision_environment.push(CollisionBody {
+        mesh: robot.body.joint_meshes[0].clone(),
+        pose: robot.kinematics.forward_with_joint_poses(&[0.0; 6])[0].to_f32(),
+    });
+    robot.body.safety = SafetyDistances {
+        to_robot_default: NEVER_COLLIDES,
+        to_environment: 0.02,
+        ..SafetyDistances::standard(CheckMode::FirstCollisionOnly)
+    };
+    robot
+}
+
+#[test]
+fn colliding_endpoints_are_rejected_including_stationary_requests() {
+    let robot = robot_with_obstacle();
+    let blocked = first_joint(0.0);
+    let free = first_joint(0.2);
+    assert!(robot.constraints().as_ref().unwrap().compliant(&blocked));
+    assert!(robot.collides(&blocked));
+    assert!(!robot.collides(&free));
+
+    for (start, goal) in [(blocked, free), (free, blocked), (blocked, blocked)] {
+        for smooth in [0, 8] {
+            let planner = RRTPlanner {
+                max_try: 1,
+                smooth,
+                ..RRTPlanner::default()
+            };
+            assert_eq!(
+                planner.plan_rrt(&start, &goal, &robot, &AtomicBool::new(false)),
+                Err("failed".to_string())
+            );
+        }
+    }
+}
+
+#[test]
+fn collision_checked_paths_preserve_endpoints_and_clearance() {
+    let mut robot = robot_with_obstacle();
+    // Every sample lies in an interval clear of the obstacle, so success does
+    // not depend on drawing a lucky random sample, even with a one-try budget.
+    let constraints = first_joint_constraints(0.1, 0.25);
+    robot.kinematics = Arc::new(OPWKinematics::new_with_constraints(
+        Parameters::new(),
+        constraints,
+    ));
+    assert!(robot.collides(&first_joint(0.0)));
+    let start = first_joint(0.1);
+    let goal = first_joint(0.2);
+
+    for smooth in [0, 8] {
+        let planner = RRTPlanner {
+            step_size_joint_space: 0.05,
+            max_try: 1,
+            smooth,
+            debug: false,
+        };
+        let path = planner
+            .plan_rrt(&start, &goal, &robot, &AtomicBool::new(false))
+            .expect("the allowed interval clears the obstacle");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
+        for joints in &path {
+            assert!(constraints.compliant(joints));
+            assert!(!robot.collides(joints), "colliding waypoint: {joints:?}");
+        }
+        for edge in path.windows(2) {
+            let distance = edge[0]
+                .iter()
+                .zip(edge[1])
+                .map(|(from, to)| (to - from).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            assert!(distance <= planner.step_size_joint_space + 1e-12);
+            for step in 1..10 {
+                let p = step as f64 / 10.0;
+                let joints = std::array::from_fn(|j| edge[0][j] + p * (edge[1][j] - edge[0][j]));
+                assert!(
+                    !robot.collides(&joints),
+                    "colliding edge sample: {joints:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn zero_search_budget_only_allows_valid_stationary_requests() {
+    let robot = robot_with_obstacle();
+    let start = first_joint(0.1);
+    let goal = first_joint(0.2);
+    assert!(!robot.collides(&start));
+    assert!(!robot.collides(&goal));
+
+    for smooth in [0, 8] {
+        let planner = RRTPlanner {
+            max_try: 0,
+            smooth,
+            ..RRTPlanner::default()
+        };
+        assert_eq!(
+            planner.plan_rrt(&start, &goal, &robot, &AtomicBool::new(false)),
+            Err("failed".to_string())
+        );
+        assert_eq!(
+            planner.plan_rrt(&start, &start, &robot, &AtomicBool::new(false)),
+            Ok(vec![start])
+        );
+    }
+}
+
+#[test]
+fn overflowing_sampling_intervals_are_rejected() {
+    let robot = robot_with_constraints(Constraints::new([0.0; 6], [0.0; 6], BY_PREV));
+    for (start, goal) in [
+        (first_joint(-f64::MAX), first_joint(f64::MAX)),
+        (first_joint(f64::MAX), first_joint(-f64::MAX)),
+    ] {
+        for smooth in [0, 8] {
+            let planner = RRTPlanner {
+                max_try: 1,
+                smooth,
+                ..RRTPlanner::default()
+            };
+            assert_eq!(
+                planner.plan_rrt(&start, &goal, &robot, &AtomicBool::new(false)),
+                Err("failed".to_string())
+            );
+        }
+    }
 }
 
 fn assert_valid_path(constraints: Constraints, start: Joints, goal: Joints) {

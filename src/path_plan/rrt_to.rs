@@ -270,8 +270,147 @@ where
 #[cfg(test)]
 mod tests {
     use super::dual_rrt_connect;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn trapped_search_uses_exactly_the_sampling_budget_and_alternates_trees() {
+        for max_try in [0, 1, 2, 5] {
+            let samples = Cell::new(0);
+            let mut checked = Vec::new();
+            let result = dual_rrt_connect(
+                &[0.0_f64],
+                &[10.0],
+                |q| {
+                    checked.push(q[0]);
+                    q[0] == 0.0 || q[0] == 10.0
+                },
+                || {
+                    samples.set(samples.get() + 1);
+                    vec![5.0]
+                },
+                1.0,
+                max_try,
+                &AtomicBool::new(false),
+            );
+
+            assert_eq!(result, Err("failed".to_string()));
+            assert_eq!(samples.get(), max_try);
+            let mut expected = vec![0.0, 10.0];
+            expected.extend((0..max_try).map(
+                |iteration| {
+                    if iteration % 2 == 0 { 1.0 } else { 9.0 }
+                },
+            ));
+            assert_eq!(checked, expected);
+        }
+    }
+
+    #[test]
+    fn connects_around_an_obstacle_after_swapping_trees() {
+        let start = [0.0_f64, 0.0];
+        let goal = [4.0, 0.0];
+        // A wall blocks the direct route. The scripted samples grow both trees
+        // up its sides before connecting across the top on the fourth attempt.
+        let is_free = |q: &[f64]| q[0] <= 0.0 || q[0] >= 4.0 || q[1] >= 2.0;
+        assert!(!is_free(&[2.0, 0.0]));
+
+        for max_try in [3, 4] {
+            let samples =
+                RefCell::new([[0.0, 2.0], [4.0, 2.0], [0.0, 2.0], [4.0, 2.0]].into_iter());
+            let mut checked = Vec::new();
+            let result = dual_rrt_connect(
+                &start,
+                &goal,
+                |q| {
+                    checked.push(q.to_vec());
+                    is_free(q)
+                },
+                || {
+                    samples
+                        .borrow_mut()
+                        .next()
+                        .expect("sampling budget exceeded")
+                        .to_vec()
+                },
+                1.0,
+                max_try,
+                &AtomicBool::new(false),
+            );
+
+            assert_eq!(samples.borrow().len(), 4 - max_try);
+            if max_try == 3 {
+                assert_eq!(result, Err("failed".to_string()));
+                continue;
+            }
+
+            let path = result.expect("the trees should connect above the wall");
+            // Success occurs with the goal tree active: reconstruction must
+            // still order the path from the original start to the original goal.
+            assert_eq!(path.first().unwrap(), &start);
+            assert_eq!(path.last().unwrap(), &goal);
+            assert!(checked.iter().any(|q| !is_free(q)));
+            assert!(path.iter().all(|q| is_free(q) && checked.contains(q)));
+            assert!(path.iter().any(|q| q[1] >= 2.0));
+            for edge in path.windows(2) {
+                let dx = edge[1][0] - edge[0][0];
+                let dy = edge[1][1] - edge[0][1];
+                assert!(dx.hypot(dy) <= 1.0 + 1e-12);
+                for step in 0..=10 {
+                    let p = step as f64 / 10.0;
+                    assert!(is_free(&[edge[0][0] + p * dx, edge[0][1] + p * dy]));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn six_dimensional_f32_paths_preserve_endpoints_and_step_lengths() {
+        let start = [0.0_f32; 6];
+        let goal = [1.0_f32, -2.0, 3.0, -4.0, 5.0, -6.0];
+        let mut checked = Vec::new();
+        let path = dual_rrt_connect(
+            &start,
+            &goal,
+            |q| {
+                checked.push(q.to_vec());
+                q.len() == 6 && q.iter().all(|angle| angle.is_finite())
+            },
+            || goal.to_vec(),
+            0.5,
+            1,
+            &AtomicBool::new(false),
+        )
+        .expect("an unobstructed route should connect in one attempt");
+
+        assert_eq!(path.first().unwrap(), &start);
+        assert_eq!(path.last().unwrap(), &goal);
+        assert!(path.len() > 2);
+        assert!(path.iter().all(|q| checked.contains(q)));
+        for edge in path.windows(2) {
+            let distance = edge[0]
+                .iter()
+                .zip(&edge[1])
+                .map(|(from, to)| (to - from).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            assert!(distance <= 0.5 + 1e-5, "oversized step: {distance}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "assertion `left == right` failed")]
+    fn mismatched_endpoint_dimensions_panic_before_callbacks() {
+        let _ = dual_rrt_connect(
+            &[0.0_f64],
+            &[1.0, 2.0],
+            |_| panic!("dimension validation must precede collision checking"),
+            || panic!("dimension validation must precede sampling"),
+            1.0,
+            1,
+            &AtomicBool::new(false),
+        );
+    }
 
     #[test]
     fn invalid_initial_roots_are_rejected_without_sampling() {
