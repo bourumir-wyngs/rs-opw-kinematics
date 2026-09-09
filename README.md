@@ -200,20 +200,15 @@ Please see the [example](examples/constraints.rs).
    with a roundoff allowance. Tests cover the Stäubli TX40 and cases where shoulder
    and elbow boundaries occur together.
 
-6. Wrist pole at J5 = 0°. The J4 and J6 axes align, and the target orientation fixes
+6. Wrist joint J5 = 0°. The J4 and J6 axes align, and the target orientation fixes
    only their sum, `J4 + J6`. The solver recovers this phase and chooses a coupled pair
    near the reference. Without joint limits, the required phase correction is split
    equally between J4 and J6. With limits, it selects a possible pair according to the
    configured preference for previous angles and constraint centers.
 
-7. Wrist pole at J5 = ±180°. The wrist is reversed, so the target fixes the difference,
+7. Wrist joint at J5 = 180°. The wrist is reversed, so the target fixes the difference,
    `J4 - J6`. Recovery follows the same approach as the zero pole, but the phase correction
    moves J4 and J6 in opposite directions. 
-
-8. Wrist poles in five-axis IK. At either wrist pole, J6 stays fixed and rotation around
-   the tool axis is ignored. J4 is therefore free to follow the reference and its joint
-   limits. The solver preserves the requested position and tool-axis direction; it does
-   not require the six-axis J4/J6 phase. 
 
 Arm and wrist singularities can occur together. 
 
