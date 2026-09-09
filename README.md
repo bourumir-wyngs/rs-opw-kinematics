@@ -584,6 +584,12 @@ available from `rs_opw_kinematics::rrt` for custom sampling and collision checks
 See the [example](examples/path_planning_rrt.rs) for how to define the robot and other boilerplate code. The direct output
 is a `Vec<Joints>`, with each entry representing a step in the trajectory.
 
+Run the RRT regression tests with `cargo test --lib rrt`. They cover scripted
+obstacle detours and tree swapping, mesh collision checks, joint limits,
+cancellation, search and smoothing budgets, and resampling. To run them with
+only the required feature, use
+`cargo test --no-default-features --features stroke_planning --lib rrt`.
+
 ## Cartesian stroke
 Producing a robot's movement over the surface of an object performing a task (such as welding, painting, or washing)
 involves more than simply converting a single pose into joint rotations. Such a task requires a series of poses where

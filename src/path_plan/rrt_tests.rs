@@ -1,5 +1,5 @@
 use super::{RRTPlanner, joint_space_bounds};
-use crate::collisions::{CheckMode, CollisionBody, NEVER_COLLIDES, RobotBody, SafetyDistances};
+use crate::collisions::{CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{Joints, Kinematics};
 use crate::kinematics_impl::OPWKinematics;
@@ -55,22 +55,26 @@ fn robot_with_obstacle() -> KinematicsWithShape {
     let mut robot = robot_with_constraints(Constraints::new([-0.25; 6], [0.25; 6], BY_PREV));
     // Place a small tetrahedron one unit from J1's rotation axis. The obstacle
     // occupies its zero-angle position; rotating J1 by 0.1 radians clears it.
-    robot.body.joint_meshes[0] = TriMesh::new(
-        vec![
-            Vector::new(1.0, 0.0, 0.0),
-            Vector::new(1.01, 0.0, 0.0),
-            Vector::new(1.0, 0.01, 0.0),
-            Vector::new(1.0, 0.0, 0.01),
-        ],
-        vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
-    )
-    .expect("test tetrahedron should be valid");
+    // With zero-length links all rotations preserve distance from the origin.
+    // Distinct radii keep the link meshes apart with self-collision checks on.
+    robot.body.joint_meshes = std::array::from_fn(|joint| {
+        let radius = 1.0 + joint as f32;
+        TriMesh::new(
+            vec![
+                Vector::new(radius, 0.0, 0.0),
+                Vector::new(radius + 0.01, 0.0, 0.0),
+                Vector::new(radius, 0.01, 0.0),
+                Vector::new(radius, 0.0, 0.01),
+            ],
+            vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+        )
+        .expect("test tetrahedron should be valid")
+    });
     robot.body.collision_environment.push(CollisionBody {
         mesh: robot.body.joint_meshes[0].clone(),
         pose: robot.kinematics.forward_with_joint_poses(&[0.0; 6])[0].to_f32(),
     });
     robot.body.safety = SafetyDistances {
-        to_robot_default: NEVER_COLLIDES,
         to_environment: 0.02,
         ..SafetyDistances::standard(CheckMode::FirstCollisionOnly)
     };
