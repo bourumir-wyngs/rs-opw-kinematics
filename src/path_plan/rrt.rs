@@ -500,7 +500,7 @@ impl RRTPlanner {
 }
 
 #[cfg(test)]
-#[path = "rrt_tests.rs"]
+#[path = "../tests/rrt_tests.rs"]
 mod constraints_tests;
 
 #[cfg(test)]

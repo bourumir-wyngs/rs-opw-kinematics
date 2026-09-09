@@ -35,7 +35,7 @@ use `MoveKind::Joint`.
 The current strategy is suffix-first:
 
 1. Check that `from` is collision-free.
-2. Compute IK strategies for `land` using `robot.inverse_continuing(land, from)`.
+2. Compute IK strategies for `land` using the underlying `inverse_continuing(land, from)`, retaining only collision-free candidates.
 3. Build the annotated Cartesian pose sequence from `land`, `steps`, and `park`.
 4. For each landing IK strategy, try to plan the Cartesian suffix first.
 5. In the fast pass, probe landing strategies in deterministic batches and stop starting later batches once
@@ -83,8 +83,10 @@ forward.
 - Edge cost is `transition_costs(previous, candidate, transition_coefficients)`.
 - Edges whose cost is above `max_transition_cost` are rejected.
 
-`KinematicsWithShape::inverse_continuing()` is used for target poses. That means IK solutions are filtered through the
-robot's collision model before the graph sees them.
+The underlying kinematics generates IK candidates for each target pose and previous joint state. The graph applies
+the transition-cost limit first, then checks the surviving candidates through the robot's collision model. Thus an
+over-cost edge does not incur a geometry check. Landing candidates and failed-edge RRT targets still receive full
+collision filtering without the Cartesian transition-cost limit.
 
 Near-duplicate joint states are deduplicated with `JOINT_DEDUP_EPSILON_RAD`. If the same layer gets numerically
 equivalent states through different predecessors, only the cheaper predecessor is kept.
@@ -170,6 +172,26 @@ landing, parking, or park moves does not count as a stroke interruption.
 The planner uses several optimizations to keep Cartesian stroke planning practical when IK returns many branches or
 when RRT would otherwise dominate runtime.
 
+### Cost Filtering Before Collision Checks
+
+Computing the weighted joint-transition cost is inexpensive compared with mesh collision and safety-distance queries.
+Cartesian graph expansion rejects candidates above `max_transition_cost` before evaluating their geometry. Every
+retained candidate still has to be collision-free; this does not change sampling, safety margins, or graph limits.
+
+### Per-Call Collision Cache
+
+Each `plan()` or `plan_fast_approximate()` call caches both clear and colliding outcomes, keyed by the exact bit patterns
+of all six joint values. Parallel suffix strategies, adaptive refinements, and capped/exhaustive retries share this
+cache. IK itself is not cached: continuing IK can depend on the previous joint state.
+
+The cache holds at most 65,536 entries. After it fills, additional uncached states are checked normally without being
+stored. Geometry checks run outside the cache lock, so concurrent misses may duplicate a check without serializing
+strategy work. RRT's own motion checks are unchanged.
+
+All entries are discarded when the planning call returns. The robot model, scene, and safety distances must stay fixed
+during a call, including state behind custom kinematics implementations. Changes between calls are checked afresh.
+The approximate tolerance used for graph deduplication is never used for collision-cache keys.
+
 ### Suffix Before Onboarding
 
 The planner checks whether the Cartesian suffix can be followed before it runs onboarding RRT. This avoids spending RRT
@@ -247,7 +269,8 @@ inserted pose inherits semantic flags such as `LANDING`, `PARKING`, `FORWARDS`, 
 
 Each refinement rebuilds the graph from the landing configuration or the endpoint of the last committed RRT bridge.
 The planner leaves the output prefix unchanged until it selects a complete Cartesian extension or an RRT bridge. This
-allows a newly inserted midpoint to select a different prefix, at the cost of repeating prefix IK and collision checks.
+allows a newly inserted midpoint to select a different prefix. Prefix IK is repeated, but exact joint configurations
+already in the per-call collision cache reuse their checked results.
 
 Refinement helps distinguish a genuinely impossible transition from a transition that is simply too coarse for the
 current sampling. `linear_recursion_depth` limits how many times this can happen.
