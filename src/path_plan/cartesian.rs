@@ -101,6 +101,8 @@ pub struct Cartesian<'a> {
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
     /// much better on their own. They are still checked internally; disable this
     /// only when the downstream robot executes retained poses as Cartesian moves.
+    /// Cartesian endpoints before RRT bridges are always retained, without
+    /// [`PathFlags::LIN_INTERP`], to preserve the change in motion mode.
     pub include_linear_interpolation: bool,
 
     /// Debug mode for logging
@@ -1102,14 +1104,8 @@ impl Cartesian<'_> {
                     let prefix_len = first_candidate.planned_prefix.len();
                     let failed_pose_index = pose_index + prefix_len;
                     if self.refine_transition(&mut poses, failed_pose_index) {
-                        self.append_cartesian_extension(
-                            &first_candidate.planned_prefix,
-                            &poses[pose_index..failed_pose_index],
-                            &mut trace,
-                            &mut previous_joints,
-                            &mut step,
-                        );
-                        pose_index = failed_pose_index;
+                        // Rebuild from the same graph start so the midpoint can
+                        // select a different prefix within the configured beam.
                         continue;
                     }
 
@@ -1251,6 +1247,25 @@ impl Cartesian<'_> {
                 same_joints(state.previous_joints, &candidate.transition.previous),
                 "Reconfiguration candidate prefix should end at its transition start"
             );
+
+            if let Some(prefix_end) = prefix_poses.last() {
+                // The Cartesian-to-joint boundary is required even when other
+                // interpolation samples are omitted from the output.
+                let flags = prefix_end.flags & !PathFlags::LIN_INTERP;
+                if self.should_emit_output_state(prefix_end.flags) {
+                    state
+                        .trace
+                        .last_mut()
+                        .expect("Cartesian prefix should append its endpoint")
+                        .flags = flags;
+                } else {
+                    state.trace.push(AnnotatedJoints {
+                        joints: *state.previous_joints,
+                        flags,
+                        move_into: MoveKind::Cartesian,
+                    });
+                }
+            }
 
             if self.append_reconfiguration(
                 state.previous_joints,
@@ -1610,10 +1625,11 @@ impl Cartesian<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AnnotatedJoints, AnnotatedPose, Cartesian, DEFAULT_MAX_SOLUTIONS_AWAIT,
-        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome,
-        Transition, add_or_update_state, append_suffix_candidates_by_strategy_order,
+        AnnotatedJoints, AnnotatedPose, Cartesian, CartesianGraphFailureCandidate,
+        DEFAULT_MAX_SOLUTIONS_AWAIT, DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
+        DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES, DEFAULT_TRANSITION_COSTS, LayerState, MoveKind,
+        PathFlags, PlanRank, ReconfigurationAppendState, SuffixPlanningOutcome, Transition,
+        add_or_update_state, append_suffix_candidates_by_strategy_order,
         best_state_indices_by_cost, canceled_cartesian_graph_failure, interpolation_flags_for_edge,
         is_stroke_interrupting_reconfiguration, limit_layer_states_by_cost,
         reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
@@ -1770,6 +1786,122 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn reconfiguration_preserves_cartesian_motion_to_prefix_endpoint() {
+        let mut robot = linear_robot();
+        robot.kinematics = Arc::new(LinearKinematics {
+            constraints: Some(Constraints::new([-3.0; 6], [3.0; 6], 0.0)),
+        });
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.max_transition_cost = 1.5;
+        planner.allow_reconfigure = true;
+
+        for include_interpolation in [false, true] {
+            planner.include_linear_interpolation = include_interpolation;
+            // Cover an empty prefix, an already emitted endpoint, and an omitted endpoint.
+            for prefix_flags in [
+                None,
+                Some(PathFlags::TRACE | PathFlags::FORWARDS),
+                Some(PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS),
+            ] {
+                let mut poses = vec![annotated_pose_at(0.0, PathFlags::LAND)];
+                if let Some(flags) = prefix_flags {
+                    poses.push(annotated_pose_at(
+                        0.25,
+                        PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS,
+                    ));
+                    poses.push(annotated_pose_at(0.5, flags));
+                }
+                // The Cartesian prefix has cost 1.5 per edge; the jump to 2.0 needs RRT.
+                poses.push(annotated_pose_at(2.0, PathFlags::TRACE));
+                poses.push(annotated_pose_at(2.25, PathFlags::PARK));
+                let path = planner
+                    .plan_with_limits(&joints(0.0), &[joints(0.0)], &poses, usize::MAX, usize::MAX)
+                    .expect("the prefix and RRT bridge should form a complete path")
+                    .path;
+                let bridge_index = path
+                    .iter()
+                    .position(|step| step.flags.contains(PathFlags::RECONFIGURING))
+                    .expect("path should require an RRT bridge");
+                let boundary = &path[bridge_index - 1];
+
+                if let Some(flags) = prefix_flags {
+                    assert_eq!(boundary.joints, joints(0.5));
+                    assert_eq!(boundary.move_into, MoveKind::Cartesian);
+                    assert!(!boundary.flags.contains(PathFlags::RECONFIGURING));
+                    assert!(!boundary.flags.contains(PathFlags::LIN_INTERP));
+                    assert!(boundary.flags.contains(flags & !PathFlags::LIN_INTERP));
+                    assert_eq!(
+                        path[..bridge_index]
+                            .iter()
+                            .filter(|step| { step.joints == joints(0.5) })
+                            .count(),
+                        1,
+                        "the boundary should be emitted once"
+                    );
+                } else {
+                    assert_eq!(boundary.joints, joints(0.0));
+                    assert!(boundary.flags.contains(PathFlags::LAND));
+                    assert_eq!(boundary.move_into, MoveKind::Joint);
+                }
+                if !include_interpolation {
+                    assert!(
+                        path.iter()
+                            .all(|step| !step.flags.contains(PathFlags::LIN_INTERP))
+                    );
+                }
+                assert!(
+                    path[bridge_index..]
+                        .iter()
+                        .filter(|step| { step.flags.contains(PathFlags::RECONFIGURING) })
+                        .all(|step| step.move_into == MoveKind::Joint)
+                );
+                assert_eq!(path.last().unwrap().joints, joints(2.25));
+                assert_eq!(path.last().unwrap().move_into, MoveKind::Cartesian);
+            }
+        }
+    }
+
+    #[test]
+    fn failed_reconfiguration_restores_trace_and_cursors() {
+        let robot = linear_robot();
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.include_linear_interpolation = false;
+        let stop = AtomicBool::new(false);
+        let prefix_pose = annotated_pose_at(0.5, PathFlags::LIN_INTERP | PathFlags::LANDING);
+        let target = annotated_pose_at(2.0, PathFlags::TRACE);
+        let failure = CartesianGraphFailureCandidate {
+            planned_prefix: vec![joints(0.5)],
+            transition: Transition {
+                from: prefix_pose,
+                to: target,
+                previous: joints(0.5),
+                solutions: Vec::new(),
+            },
+            prefix_cost: 3.0,
+        };
+        let mut trace = vec![joint_step(0.0, PathFlags::LAND, MoveKind::Joint)];
+        let mut previous = joints(0.0);
+        let mut step = 1;
+        assert!(!planner.append_reconfiguration_candidates(
+            &[failure],
+            &[prefix_pose],
+            &target,
+            &mut ReconfigurationAppendState {
+                stop: &stop,
+                trace: &mut trace,
+                previous_joints: &mut previous,
+                step: &mut step,
+            },
+        ));
+        assert_eq!(trace.len(), 1);
+        assert_eq!(trace[0].joints, joints(0.0));
+        assert!(trace[0].flags.contains(PathFlags::LAND));
+        assert_eq!(trace[0].move_into, MoveKind::Joint);
+        assert_eq!(previous, joints(0.0));
+        assert_eq!(step, 1);
     }
 
     #[test]
@@ -2159,6 +2291,73 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_refinement_preserves_alternative_prefixes() {
+        let mut robot = test_robot();
+        robot.kinematics = Arc::new(RefinementTestKinematics);
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        planner.max_transition_cost = 0.25;
+        planner.linear_recursion_depth = 1;
+        planner.max_reconfiguration_prefix_candidates = usize::MAX;
+        planner.rrt.max_try = 0;
+
+        let explicit_midpoint = planner
+            .plan(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0), pose_at(1.5)],
+                &pose_at(2.0),
+            )
+            .expect("the more expensive prefix reaches the midpoint and park");
+        assert_eq!(
+            explicit_midpoint
+                .iter()
+                .map(|step| step.joints[0])
+                .collect::<Vec<_>>(),
+            vec![0.0, 0.2, 0.4, 0.6],
+        );
+
+        for include_interpolation in [true, false] {
+            planner.include_linear_interpolation = include_interpolation;
+            let adaptive = planner
+                .plan(
+                    &joints(0.0),
+                    &pose_at(0.0),
+                    vec![pose_at(1.0)],
+                    &pose_at(2.0),
+                )
+                .expect("inserting the same midpoint must retain the feasible prefix");
+            let expected_joints = if include_interpolation {
+                vec![0.0, 0.2, 0.4, 0.6]
+            } else {
+                vec![0.0, 0.2, 0.6]
+            };
+            assert_eq!(
+                adaptive
+                    .iter()
+                    .map(|step| step.joints[0])
+                    .collect::<Vec<_>>(),
+                expected_joints,
+            );
+            assert!(adaptive[0].flags.contains(PathFlags::LAND));
+            assert!(adaptive[1].flags.contains(PathFlags::TRACE));
+            assert!(adaptive.last().unwrap().flags.contains(PathFlags::PARK));
+            assert!(adaptive[1..].iter().all(|step| {
+                step.move_into == MoveKind::Cartesian
+                    && !step.flags.contains(PathFlags::RECONFIGURING)
+            }));
+            if include_interpolation {
+                assert!(
+                    adaptive[2]
+                        .flags
+                        .contains(PathFlags::LIN_INTERP | PathFlags::PARKING)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn plan_without_linear_interpolation_outputs_land_trace_park_with_move_kinds() {
         let robot = linear_robot();
         let mut planner = test_planner(&robot, usize::MAX);
@@ -2342,6 +2541,49 @@ mod tests {
         }
 
         /// Returns identity joint poses because collision checks are disabled in the test robot.
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            [Pose::identity(); 6]
+        }
+    }
+
+    /// Mock IK where only the more expensive prefix can reach an inserted midpoint.
+    struct RefinementTestKinematics;
+
+    impl Kinematics for RefinementTestKinematics {
+        fn inverse(&self, pose: &Pose) -> Solutions {
+            let values: &[f64] = match pose.translation.x {
+                0.0 => &[0.0],
+                1.0 => &[0.1, 0.2],
+                1.5 => &[0.4],
+                2.0 => &[0.6],
+                _ => &[],
+            };
+            values
+                .iter()
+                .map(|&value| [value, 0.0, 0.0, 0.0, 0.0, 0.0])
+                .collect()
+        }
+
+        fn inverse_continuing(&self, pose: &Pose, _previous: &Joints) -> Solutions {
+            self.inverse(pose)
+        }
+
+        fn forward(&self, _joints: &Joints) -> Pose {
+            Pose::identity()
+        }
+
+        fn inverse_5dof(&self, pose: &Pose, _j6: f64) -> Solutions {
+            self.inverse(pose)
+        }
+
+        fn inverse_continuing_5dof(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            self.inverse_continuing(pose, previous)
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            &None
+        }
+
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
             [Pose::identity(); 6]
         }

@@ -26,6 +26,9 @@ It returns `Vec<AnnotatedJoints>`. Each output state includes:
 
 `include_linear_interpolation` controls whether intermediate Cartesian check poses are emitted. Even when they are not
 emitted, they are still used internally for IK, continuity, and collision checks.
+The endpoint of a Cartesian prefix before an RRT bridge is always emitted with `MoveKind::Cartesian` and without
+`LIN_INTERP`. This required waypoint preserves the Cartesian move into the bridge's start; subsequent RRT waypoints
+use `MoveKind::Joint`.
 
 ## Main Planning Strategy
 
@@ -111,7 +114,8 @@ unbounded prefix candidates. `Cartesian::plan_fast_approximate()` keeps this pre
 The suffix planner handles a failed graph edge in this order:
 
 1. Try adaptive refinement if the edge has not reached `linear_recursion_depth`.
-2. If refinement is possible, insert the midpoint and run the graph again from there.
+2. If refinement is possible, insert the midpoint and rerun the graph from the same starting configuration,
+   retaining alternative prefixes within the configured beam.
 3. If refinement is exhausted and `allow_reconfigure` is false, fail the strategy.
 4. If reconfiguration is allowed, try RRT from the best failure candidates.
 
@@ -240,6 +244,10 @@ prefixes is controlled by `max_reconfiguration_prefix_candidates`.
 
 Before using RRT for a failed Cartesian edge, the planner may split that edge by inserting an interpolated midpoint. The
 inserted pose inherits semantic flags such as `LANDING`, `PARKING`, `FORWARDS`, and `BACKWARDS`.
+
+Each refinement rebuilds the graph from the landing configuration or the endpoint of the last committed RRT bridge.
+The planner leaves the output prefix unchanged until it selects a complete Cartesian extension or an RRT bridge. This
+allows a newly inserted midpoint to select a different prefix, at the cost of repeating prefix IK and collision checks.
 
 Refinement helps distinguish a genuinely impossible transition from a transition that is simply too coarse for the
 current sampling. `linear_recursion_depth` limits how many times this can happen.

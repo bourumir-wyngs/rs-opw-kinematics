@@ -622,6 +622,8 @@ Cartesian stroke configurations, then tries to connect them to the starting posi
     between checked configurations can be missed.
   - These "intermediate" poses are flagged and can be included in the output (for simpler robots) or excluded (for
     advanced robots capable of executing Cartesian strokes using their built-in software).
+    Cartesian endpoints before RRT bridges are always retained, without `LIN_INTERP`, so the output preserves
+    the change from Cartesian to joint motion.
 
 The following function takes a configured robot, starting joints, landing and
 parking poses, and the stroke poses. See [cartesian_stroke.rs](examples/cartesian_stroke.rs)

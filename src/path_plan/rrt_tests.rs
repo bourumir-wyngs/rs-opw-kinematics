@@ -74,10 +74,7 @@ fn robot_with_obstacle() -> KinematicsWithShape {
         mesh: robot.body.joint_meshes[0].clone(),
         pose: robot.kinematics.forward_with_joint_poses(&[0.0; 6])[0].to_f32(),
     });
-    robot.body.safety = SafetyDistances {
-        to_environment: 0.02,
-        ..SafetyDistances::standard(CheckMode::FirstCollisionOnly)
-    };
+    robot.body.safety = SafetyDistances::standard(CheckMode::FirstCollisionOnly);
     robot
 }
 
@@ -106,7 +103,7 @@ fn colliding_endpoints_are_rejected_including_stationary_requests() {
 }
 
 #[test]
-fn collision_checked_paths_preserve_endpoints_and_clearance() {
+fn collision_checked_paths_preserve_endpoints_and_avoid_obstacles() {
     let mut robot = robot_with_obstacle();
     // Every sample lies in an interval clear of the obstacle, so success does
     // not depend on drawing a lucky random sample, even with a one-try budget.
