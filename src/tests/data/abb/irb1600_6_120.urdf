@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!--
+Source: https://github.com/ros-industrial/abb/blob/45f4769d826cf3ac62a65495f2db67b78b0c81df/abb_irb1600_support/urdf/irb1600_6_12_macro.xacro
+Kinematic joints only; visual, collision, inertial, dynamics and limit data omitted.
+Empty xacro prefix; radians(90) expanded to its numeric value.
+-->
+<robot name="irb1600_6_120">
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.15 0 0.4865" rpy="0 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 1 0" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0 0 0.475" rpy="0 0 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 1 0" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0.300 0 0" rpy="0 0 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="1 0 0" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="0.300 0 0" rpy="0 0 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 1 0" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0.065 0 0" rpy="0 0 0" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="1 0 0" />
+  </joint>
+  <joint name="base_link-base" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+  <joint type="fixed" name="joint_6-flange">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link_6" />
+    <child link="flange" />
+  </joint>
+  <joint name="link_6-tool0" type="fixed">
+    <origin xyz="0 0 0" rpy="0 1.5707963267948966 0" />
+    <parent link="flange" />
+    <child link="tool0" />
+  </joint>
+</robot>

@@ -1,3 +1,6 @@
+//! Plan a joint-space path with default features.
+//! Enable playback with `cargo run --example path_planning_rrt --features visualization`.
+
 use anyhow::Result;
 #[cfg(all(feature = "stroke_planning", feature = "rs-read-trimesh"))]
 use anyhow::anyhow;
@@ -248,7 +251,9 @@ fn wait_for_visualization(
     not(feature = "visualization")
 ))]
 fn play_planned_path(_robot: KinematicsWithShape, _path: &[Joints]) -> Result<()> {
-    println!("Build configuration does not support visualization");
+    println!(
+        "To play the path, run: cargo run --example path_planning_rrt --features visualization"
+    );
     Ok(())
 }
 

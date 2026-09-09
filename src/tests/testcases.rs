@@ -1,11 +1,101 @@
 #[cfg(test)]
 mod tests {
-    use crate::kinematic_traits::{Kinematics, Singularity};
+    use crate::kinematic_traits::{Joints, Kinematics, Solutions};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::tests::test_utils;
     use glam::DQuat;
     use std::f64::consts::PI;
+
+    // Stored solutions have six decimal places in degrees. One decimal unit
+    // allows their rounding error plus the much smaller IK roundoff.
+    const FIXTURE_JOINT_TOLERANCE: f64 = 1e-6 * PI / 180.0;
+    // The reference implementation's acos can store an exact pole as
+    // 179.999999 degrees, so pole classification and J5 matching need two units.
+    const FIXTURE_POLE_TOLERANCE: f64 = 2.0 * FIXTURE_JOINT_TOLERANCE;
+
+    fn found_fixture_branch(
+        solutions: &Solutions,
+        expected: &Joints,
+        parameters: &Parameters,
+    ) -> bool {
+        let q5 = expected[4] * parameters.sign_corrections[4] as f64 - parameters.offsets[4];
+        if q5.sin().abs() > FIXTURE_POLE_TOLERANCE {
+            return test_utils::found_joints_approx_equal(
+                solutions,
+                expected,
+                FIXTURE_JOINT_TOLERANCE,
+            )
+            .is_some();
+        }
+
+        // At poles, require every stored arm/J5 family. The independent C++
+        // fixture's J4/J6 splits can be invalid (e.g. case 1241 has a 9-degree
+        // orientation error), so they cannot be used as the wrist-phase oracle.
+        // assert_fixture_branches checks every returned full pose against the
+        // stored target instead, accepting only valid members of that family.
+        solutions.iter().any(|solution| {
+            let mut family = *expected;
+            family[3] = solution[3];
+            family[5] = solution[5];
+            test_utils::found_joints_approx_equal(
+                std::slice::from_ref(solution),
+                &family,
+                FIXTURE_POLE_TOLERANCE,
+            )
+            .is_some()
+        })
+    }
+
+    fn assert_fixture_branches(
+        kinematics: &OPWKinematics,
+        parameters: &Parameters,
+        case: &test_utils::Case,
+        solutions: &Solutions,
+    ) {
+        assert!(
+            !case.solutions.is_empty(),
+            "No stored branches for case {}",
+            case.id
+        );
+        assert!(
+            !solutions.is_empty(),
+            "No inverse solution for case {} on {}",
+            case.id,
+            case.parameters
+        );
+        let pose = case.pose.as_pose();
+        for solution in solutions {
+            assert!(
+                solution.iter().all(|joint| joint.is_finite())
+                    && test_utils::are_poses_close(
+                        &kinematics.forward(solution),
+                        &pose,
+                        1e-6,
+                        1e-6,
+                    ),
+                "Invalid inverse solution for case {} on {}: {:?}",
+                case.id,
+                case.parameters,
+                solution
+            );
+        }
+        for (branch, expected) in case.solutions.iter().enumerate() {
+            assert!(
+                found_fixture_branch(solutions, &expected.map(f64::to_radians), parameters),
+                "Missing stored branch {branch} for case {} on {}: {:?} degrees",
+                case.id,
+                case.parameters,
+                expected
+            );
+        }
+        assert!(
+            found_fixture_branch(solutions, &case.joints_in_radians(), parameters),
+            "Missing original joint branch for case {} on {}",
+            case.id,
+            case.parameters
+        );
+    }
 
     #[test]
     fn test_load_yaml() {
@@ -134,45 +224,9 @@ mod tests {
             });
             let kinematics = OPWKinematics::new(*parameters);
 
-            // Exclude singularity cases that are covered by another test
-            if kinematics
-                .kinematic_singularity(&case.joints_in_radians())
-                .is_none()
-            {
-                // Try forward on the initial data set first.
-                let solutions = kinematics.inverse(&case.pose.as_pose());
-                if test_utils::found_joints_approx_equal(
-                    &solutions,
-                    &case.joints_in_radians(),
-                    0.001_f64.to_radians(),
-                )
-                .is_none()
-                {
-                    println!(
-                        "**** No valid solution for case {} on {} ****",
-                        case.id, case.parameters
-                    );
-                    let joints_str = &case
-                        .joints
-                        .iter()
-                        .map(|&val| format!("{:5.2}", val))
-                        .collect::<Vec<String>>()
-                        .join(" ");
-                    println!("Expected joints: [{}]", joints_str);
-
-                    println!("Solutions Matrix:");
-                    for solution in &solutions {
-                        let mut row_str = String::new();
-                        for computed in solution {
-                            row_str.push_str(&format!("{:5.2} ", computed.to_degrees()));
-                        }
-                        println!("[{}]", row_str.trim_end());
-                    }
-
-                    println!("---");
-                    panic!("Inverse kinematics does not produce valid solution");
-                }
-            }
+            let pose = case.pose.as_pose();
+            let solutions = kinematics.inverse(&pose);
+            assert_fixture_branches(&kinematics, parameters, case, &solutions);
         }
     }
 
@@ -186,9 +240,6 @@ mod tests {
         println!("Inverse IK: {} test cases", cases.len());
 
         for case in cases.iter() {
-            if case.id != 1241 {
-                //continue;
-            }
             let parameters = all_parameters.get(&case.parameters).unwrap_or_else(|| {
                 panic!(
                     "Parameters for the robot [{}] are unknown",
@@ -198,6 +249,7 @@ mod tests {
             let kinematics = OPWKinematics::new(*parameters);
             let solutions =
                 kinematics.inverse_continuing(&case.pose.as_pose(), &case.joints_in_radians());
+            assert_fixture_branches(&kinematics, parameters, case, &solutions);
             let found_matching = test_utils::found_joints_approx_equal(
                 &solutions,
                 &case.joints_in_radians(),
@@ -327,43 +379,6 @@ mod tests {
             "Fully matching joints must come first. Expected Some(0), got {:?}",
             found_matching
         );
-    }
-
-    #[test]
-    fn test_singularity_a() {
-        // Assuming joint[4] close to π triggers A type singularity
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, -PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 0.0, PI])
-                .unwrap(),
-            Singularity::A
-        );
-        assert_eq!(
-            robot
-                .kinematic_singularity(&[0.0, 0.8, 0.0, 0.0, 3. * PI, 0.0])
-                .unwrap(),
-            Singularity::A
-        );
-    }
-
-    #[test]
-    fn test_no_singularity() {
-        let robot = OPWKinematics::new(Parameters::irb2400_10());
-        let joints = [0.0, 0.1, 0.2, 0.3, 0.4, PI];
-        assert_eq!(robot.kinematic_singularity(&joints), None);
     }
 
     #[test]

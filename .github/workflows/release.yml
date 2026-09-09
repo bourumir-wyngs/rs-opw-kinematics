@@ -75,6 +75,9 @@ jobs:
       - name: Run tests with all features
         run: cargo test --all-features --all-targets --verbose
 
+      - name: Run doctests with all features
+        run: cargo test --all-features --doc --verbose
+
       - name: Run URDF extractor
         run: cargo run src/tests/data/fanuc/lrmate200ib_macro.xacro
 
@@ -90,6 +93,9 @@ jobs:
       - name: Build all examples
         run: cargo build --examples
 
+      - name: Build all examples with visualization
+        run: cargo build --examples --features visualization
+
       - name: Build all examples without default features
         run: cargo build --examples --no-default-features
 
@@ -101,7 +107,7 @@ jobs:
 
           if git rev-parse --verify --quiet "2.0.0^{commit}" >/dev/null; then
             echo "baseline_rev=2.0.0" >> "$GITHUB_OUTPUT"
-            echo "release_type=patch" >> "$GITHUB_OUTPUT"
+            echo "release_type=major" >> "$GITHUB_OUTPUT"
             echo "Using 2.0.0 as semver baseline."
           elif git rev-parse --verify --quiet "1.3.0^{commit}" >/dev/null; then
             echo "baseline_rev=1.3.0" >> "$GITHUB_OUTPUT"
@@ -112,11 +118,14 @@ jobs:
             exit 1
           fi
 
-      - name: Check semver compatibility against selected baseline
-        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}"
+      - name: Check core API compatibility against selected baseline
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --only-explicit-features
 
-      - name: Check semver compatibility against selected baseline with yaml-rust2
-        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --features yaml-rust2
+      - name: Check default-feature API compatibility against selected baseline
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --default-features
+
+      - name: Check visualization API compatibility against selected baseline
+        run: cargo semver-checks check-release --manifest-path Cargo.toml --baseline-rev "${{ steps.semver-baseline.outputs.baseline_rev }}" --release-type "${{ steps.semver-baseline.outputs.release_type }}" --default-features --features visualization
 
       - name: Verify crate packaging
         run: cargo publish --dry-run

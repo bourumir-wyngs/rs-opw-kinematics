@@ -456,7 +456,7 @@ pub(crate) fn compute_jacobian(
 mod tests {
     use super::*;
     use crate::constraints::Constraints;
-    use crate::kinematic_traits::{Pose, Singularity, Solutions};
+    use crate::kinematic_traits::{Pose, Solutions};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parameters::opw_kinematics::Parameters;
     use glam::{DQuat, DVec3};
@@ -500,10 +500,6 @@ mod tests {
                 DVec3::new(angle.cos(), angle.sin(), 0.0),
                 DQuat::from_rotation_z(angle),
             )
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn constraints(&self) -> &Option<Constraints> {

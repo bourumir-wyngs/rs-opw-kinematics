@@ -26,13 +26,16 @@ It returns `Vec<AnnotatedJoints>`. Each output state includes:
 
 `include_linear_interpolation` controls whether intermediate Cartesian check poses are emitted. Even when they are not
 emitted, they are still used internally for IK, continuity, and collision checks.
+The endpoint of a Cartesian prefix before an RRT bridge is always emitted with `MoveKind::Cartesian` and without
+`LIN_INTERP`. This required waypoint preserves the Cartesian move into the bridge's start; subsequent RRT waypoints
+use `MoveKind::Joint`.
 
 ## Main Planning Strategy
 
 The current strategy is suffix-first:
 
 1. Check that `from` is collision-free.
-2. Compute IK strategies for `land` using `robot.inverse_continuing(land, from)`.
+2. Compute IK strategies for `land` using the underlying `inverse_continuing(land, from)`, retaining only collision-free candidates.
 3. Build the annotated Cartesian pose sequence from `land`, `steps`, and `park`.
 4. For each landing IK strategy, try to plan the Cartesian suffix first.
 5. In the fast pass, probe landing strategies in deterministic batches and stop starting later batches once
@@ -80,8 +83,10 @@ forward.
 - Edge cost is `transition_costs(previous, candidate, transition_coefficients)`.
 - Edges whose cost is above `max_transition_cost` are rejected.
 
-`KinematicsWithShape::inverse_continuing()` is used for target poses. That means IK solutions are filtered through the
-robot's collision model before the graph sees them.
+The underlying kinematics generates IK candidates for each target pose and previous joint state. The graph applies
+the transition-cost limit first, then checks the surviving candidates through the robot's collision model. Thus an
+over-cost edge does not incur a geometry check. Landing candidates and failed-edge RRT targets still receive full
+collision filtering without the Cartesian transition-cost limit.
 
 Near-duplicate joint states are deduplicated with `JOINT_DEDUP_EPSILON_RAD`. If the same layer gets numerically
 equivalent states through different predecessors, only the cheaper predecessor is kept.
@@ -111,12 +116,15 @@ unbounded prefix candidates. `Cartesian::plan_fast_approximate()` keeps this pre
 The suffix planner handles a failed graph edge in this order:
 
 1. Try adaptive refinement if the edge has not reached `linear_recursion_depth`.
-2. If refinement is possible, insert the midpoint and run the graph again from there.
+2. If refinement is possible, insert the midpoint and rerun the graph from the same starting configuration,
+   retaining alternative prefixes within the configured beam.
 3. If refinement is exhausted and `allow_reconfigure` is false, fail the strategy.
 4. If reconfiguration is allowed, try RRT from the best failure candidates.
 
 A successful reconfiguration appends joint-space states with `MoveKind::Joint` and `RECONFIGURING`. `LIN_INTERP` is
 removed from reconfiguration output flags, but landing, parking, and direction semantics are preserved where relevant.
+Only the final bridge waypoint inherits the target's original-pose flags (`TRACE`, `LAND`, or `PARK`). Transit
+waypoints approaching a `PARK` target carry `PARKING` so they retain their parking-phase meaning without marking arrival.
 
 Reconfiguration inside `LANDING`, `PARKING`, or `PARK` is treated as less serious than reconfiguration inside the
 actual trace. Trace reconfiguration is considered a stroke interruption.
@@ -163,6 +171,26 @@ landing, parking, or park moves does not count as a stroke interruption.
 
 The planner uses several optimizations to keep Cartesian stroke planning practical when IK returns many branches or
 when RRT would otherwise dominate runtime.
+
+### Cost Filtering Before Collision Checks
+
+Computing the weighted joint-transition cost is inexpensive compared with mesh collision and safety-distance queries.
+Cartesian graph expansion rejects candidates above `max_transition_cost` before evaluating their geometry. Every
+retained candidate still has to be collision-free; this does not change sampling, safety margins, or graph limits.
+
+### Per-Call Collision Cache
+
+Each `plan()` or `plan_fast_approximate()` call caches both clear and colliding outcomes, keyed by the exact bit patterns
+of all six joint values. Parallel suffix strategies, adaptive refinements, and capped/exhaustive retries share this
+cache. IK itself is not cached: continuing IK can depend on the previous joint state.
+
+The cache holds at most 65,536 entries. After it fills, additional uncached states are checked normally without being
+stored. Geometry checks run outside the cache lock, so concurrent misses may duplicate a check without serializing
+strategy work. RRT's own motion checks are unchanged.
+
+All entries are discarded when the planning call returns. The robot model, scene, and safety distances must stay fixed
+during a call, including state behind custom kinematics implementations. Changes between calls are checked afresh.
+The approximate tolerance used for graph deduplication is never used for collision-cache keys.
 
 ### Suffix Before Onboarding
 
@@ -238,6 +266,11 @@ prefixes is controlled by `max_reconfiguration_prefix_candidates`.
 
 Before using RRT for a failed Cartesian edge, the planner may split that edge by inserting an interpolated midpoint. The
 inserted pose inherits semantic flags such as `LANDING`, `PARKING`, `FORWARDS`, and `BACKWARDS`.
+
+Each refinement rebuilds the graph from the landing configuration or the endpoint of the last committed RRT bridge.
+The planner leaves the output prefix unchanged until it selects a complete Cartesian extension or an RRT bridge. This
+allows a newly inserted midpoint to select a different prefix. Prefix IK is repeated, but exact joint configurations
+already in the per-call collision cache reuse their checked results.
 
 Refinement helps distinguish a genuinely impossible transition from a transition that is simply too coarse for the
 current sampling. `linear_recursion_depth` limits how many times this can happen.

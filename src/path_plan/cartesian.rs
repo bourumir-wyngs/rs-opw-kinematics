@@ -4,15 +4,16 @@
 //! follows the requested TCP poses, optionally bridges infeasible stroke
 //! segments with joint-space RRT reconfiguration, and exits at the park pose.
 
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
+use crate::kinematic_traits::{Joints, Pose, Solutions};
 use crate::kinematics_with_shape::KinematicsWithShape;
 use crate::rrt::RRTPlanner;
 use crate::utils::{dump_joints, transition_costs};
 use bitflags::bitflags;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Reasonable default transition costs. Rotation of smaller joints is more tolerable.
@@ -33,6 +34,64 @@ pub const DEFAULT_MAX_SOLUTIONS_AWAIT: usize = 3;
 
 /// Joint-space tolerance used to merge numerically equivalent IK states in DP layers.
 const JOINT_DEDUP_EPSILON_RAD: f64 = 1e-6;
+
+/// Bound cache memory independently of stroke length and exhaustive search limits.
+const MAX_COLLISION_CACHE_ENTRIES: usize = 65_536;
+
+/// Collision results for one planning call on a fixed robot and scene.
+///
+/// Exact joint bits are required: the graph's approximate deduplication tolerance
+/// must not allow a nearby, potentially colliding configuration to reuse a result.
+/// This cache is shared by suffix strategies and retries, but never by separate
+/// planning calls. Kinematics and collision geometry must stay fixed during planning.
+struct PlanningCollisionCache<'a> {
+    robot: &'a KinematicsWithShape,
+    results: Mutex<HashMap<[u64; 6], bool>>,
+    max_entries: usize,
+}
+
+impl<'a> PlanningCollisionCache<'a> {
+    fn new(robot: &'a KinematicsWithShape) -> Self {
+        Self {
+            robot,
+            results: Mutex::new(HashMap::new()),
+            max_entries: MAX_COLLISION_CACHE_ENTRIES,
+        }
+    }
+
+    fn collides(&self, joints: &Joints) -> bool {
+        let key = joints.map(f64::to_bits);
+        if let Some(&result) = self
+            .results
+            .lock()
+            .expect("Collision cache poisoned")
+            .get(&key)
+        {
+            return result;
+        }
+
+        // Do not hold the lock during geometry checks (which also use Rayon).
+        // Concurrent misses may duplicate a check, but cannot change its result.
+        let result = self.robot.collides(joints);
+        let mut results = self.results.lock().expect("Collision cache poisoned");
+        if results.len() < self.max_entries {
+            results.insert(key, result);
+        }
+        // Once full, uncached states still receive the same collision checks.
+        result
+    }
+
+    /// Full collision filtering for landing candidates and joint-space RRT targets.
+    /// Unlike Cartesian edges, these must not be restricted by the transition-cost limit.
+    fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+        self.robot
+            .kinematics
+            .inverse_continuing(pose, previous)
+            .into_iter()
+            .filter(|joints| !self.collides(joints))
+            .collect()
+    }
+}
 
 /// Configurable Cartesian stroke planner for a robot with collision geometry.
 pub struct Cartesian<'a> {
@@ -101,6 +160,8 @@ pub struct Cartesian<'a> {
     /// Otherwise, they are discarded, many robots can do Cartesian stroke
     /// much better on their own. They are still checked internally; disable this
     /// only when the downstream robot executes retained poses as Cartesian moves.
+    /// Cartesian endpoints before RRT bridges are always retained, without
+    /// [`PathFlags::LIN_INTERP`], to preserve the change in motion mode.
     pub include_linear_interpolation: bool,
 
     /// Debug mode for logging
@@ -701,6 +762,10 @@ impl Cartesian<'_> {
     /// suffix, and onboarding caps limit the fast pass only; if that pass cannot produce an
     /// acceptable complete path, the planner retries with less restrictive layer and
     /// reconfiguration-prefix limits before returning failure or the best fallback path.
+    ///
+    /// Collision results for exact joint configurations are cached only during this call.
+    /// The kinematic model, collision geometry, and safety distances must remain fixed
+    /// until planning returns, including any state behind custom kinematics implementations.
     pub fn plan(
         &self,
         from: &Joints,
@@ -708,7 +773,8 @@ impl Cartesian<'_> {
         steps: Vec<Pose>,
         park: &Pose,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park)?;
+        let collisions = PlanningCollisionCache::new(self.robot);
+        let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park, &collisions)?;
 
         let layer_state_limit = self.cartesian_layer_state_limit();
         let reconfiguration_prefix_limit = self.reconfiguration_prefix_candidate_limit();
@@ -718,6 +784,7 @@ impl Cartesian<'_> {
             &poses,
             layer_state_limit,
             reconfiguration_prefix_limit,
+            &collisions,
         );
 
         if layer_state_limit == usize::MAX && reconfiguration_prefix_limit == usize::MAX {
@@ -732,7 +799,14 @@ impl Cartesian<'_> {
                         "Fast Cartesian planning produced a fallback path; retrying without layer or reconfiguration-prefix limits"
                     );
                 }
-                match self.plan_with_limits(from, &strategies, &poses, usize::MAX, usize::MAX) {
+                match self.plan_with_limits(
+                    from,
+                    &strategies,
+                    &poses,
+                    usize::MAX,
+                    usize::MAX,
+                    &collisions,
+                ) {
                     Ok(exhaustive_outcome) => {
                         if exhaustive_outcome.rank.is_better_than(&fast_fallback.rank) {
                             Ok(exhaustive_outcome.path)
@@ -749,7 +823,7 @@ impl Cartesian<'_> {
                         "Fast Cartesian planning failed; retrying without layer or reconfiguration-prefix limits"
                     );
                 }
-                self.plan_with_limits(from, &strategies, &poses, usize::MAX, usize::MAX)
+                self.plan_with_limits(from, &strategies, &poses, usize::MAX, usize::MAX, &collisions)
                     .map(|outcome| outcome.path)
                     .map_err(|second_err| {
                         format!(
@@ -765,6 +839,7 @@ impl Cartesian<'_> {
     /// Unlike [`Self::plan`], this does not retry the Cartesian suffix graph with unbounded
     /// layers or unbounded reconfiguration-prefix candidates. Use this only when lower latency is
     /// more important than avoiding pruning false negatives.
+    /// Collision caching has the same per-call lifetime and fixed-model requirements as [`Self::plan`].
     pub fn plan_fast_approximate(
         &self,
         from: &Joints,
@@ -772,13 +847,15 @@ impl Cartesian<'_> {
         steps: Vec<Pose>,
         park: &Pose,
     ) -> Result<Vec<AnnotatedJoints>, String> {
-        let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park)?;
+        let collisions = PlanningCollisionCache::new(self.robot);
+        let (strategies, poses) = self.prepare_plan_inputs(from, land, steps, park, &collisions)?;
         self.plan_with_limits(
             from,
             &strategies,
             &poses,
             self.cartesian_layer_state_limit(),
             self.reconfiguration_prefix_candidate_limit(),
+            &collisions,
         )
         .map(|outcome| outcome.path)
     }
@@ -790,11 +867,12 @@ impl Cartesian<'_> {
         land: &Pose,
         steps: Vec<Pose>,
         park: &Pose,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<(Vec<Joints>, Vec<AnnotatedPose>), String> {
-        if self.robot.collides(from) {
+        if collisions.collides(from) {
             return Err("Onboarding point collides".into());
         }
-        let strategies = self.robot.inverse_continuing(land, from);
+        let strategies = collisions.inverse_continuing(land, from);
         if strategies.is_empty() {
             return Err("Unable to start from onboarding point".into());
         }
@@ -813,6 +891,7 @@ impl Cartesian<'_> {
         poses: &[AnnotatedPose],
         layer_state_limit: usize,
         reconfiguration_prefix_limit: usize,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<PlanningOutcome, String> {
         let max_solutions_await = self.max_solutions_await_limit();
         let mut suffix_candidates = self.collect_suffix_candidates(
@@ -821,6 +900,7 @@ impl Cartesian<'_> {
             Some(max_solutions_await),
             layer_state_limit,
             reconfiguration_prefix_limit,
+            collisions,
         );
 
         let suffix_probe_was_limited = max_solutions_await < strategies.len();
@@ -881,6 +961,7 @@ impl Cartesian<'_> {
                 None,
                 layer_state_limit,
                 reconfiguration_prefix_limit,
+                collisions,
             );
             if !suffix_candidates.is_empty() {
                 sort_suffix_candidates_by_rank(&mut suffix_candidates);
@@ -924,6 +1005,7 @@ impl Cartesian<'_> {
         solution_limit: Option<usize>,
         layer_state_limit: usize,
         reconfiguration_prefix_limit: usize,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Vec<SuffixPlanningOutcome> {
         let suffix_stop = Arc::new(AtomicBool::new(false));
         let solution_limit = solution_limit.map(|limit| limit.max(1));
@@ -946,6 +1028,7 @@ impl Cartesian<'_> {
                         &suffix_stop,
                         layer_state_limit,
                         reconfiguration_prefix_limit,
+                        collisions,
                     ) {
                         Ok(suffix) => {
                             let outcome = SuffixPlanningOutcome::new(
@@ -1057,6 +1140,7 @@ impl Cartesian<'_> {
         stop: &AtomicBool,
         layer_state_limit: usize,
         reconfiguration_prefix_limit: usize,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         if self.debug {
             eprintln!("Cartesian suffix planning started, computing strategy {work_path_start:?}");
@@ -1078,6 +1162,7 @@ impl Cartesian<'_> {
                 stop,
                 layer_state_limit,
                 reconfiguration_prefix_limit,
+                collisions,
             ) {
                 Ok(extension) => {
                     self.append_cartesian_extension(
@@ -1102,14 +1187,8 @@ impl Cartesian<'_> {
                     let prefix_len = first_candidate.planned_prefix.len();
                     let failed_pose_index = pose_index + prefix_len;
                     if self.refine_transition(&mut poses, failed_pose_index) {
-                        self.append_cartesian_extension(
-                            &first_candidate.planned_prefix,
-                            &poses[pose_index..failed_pose_index],
-                            &mut trace,
-                            &mut previous_joints,
-                            &mut step,
-                        );
-                        pose_index = failed_pose_index;
+                        // Rebuild from the same graph start so the midpoint can
+                        // select a different prefix within the configured beam.
                         continue;
                     }
 
@@ -1252,6 +1331,25 @@ impl Cartesian<'_> {
                 "Reconfiguration candidate prefix should end at its transition start"
             );
 
+            if let Some(prefix_end) = prefix_poses.last() {
+                // The Cartesian-to-joint boundary is required even when other
+                // interpolation samples are omitted from the output.
+                let flags = prefix_end.flags & !PathFlags::LIN_INTERP;
+                if self.should_emit_output_state(prefix_end.flags) {
+                    state
+                        .trace
+                        .last_mut()
+                        .expect("Cartesian prefix should append its endpoint")
+                        .flags = flags;
+                } else {
+                    state.trace.push(AnnotatedJoints {
+                        joints: *state.previous_joints,
+                        flags,
+                        move_into: MoveKind::Cartesian,
+                    });
+                }
+            }
+
             if self.append_reconfiguration(
                 state.previous_joints,
                 failed_pose,
@@ -1299,8 +1397,19 @@ impl Cartesian<'_> {
                 if self.debug {
                     eprintln!("  ... closed with RRT {} steps", path.len());
                 }
-                for joints in path {
-                    let flags = reconfiguring_output_flags(pose.flags);
+                let endpoint_flags = reconfiguring_output_flags(pose.flags);
+                let mut transit_flags = endpoint_flags & !PathFlags::ORIGINAL;
+                if endpoint_flags.contains(PathFlags::PARK) {
+                    // Preserve the parking phase without marking transit as arrival.
+                    transit_flags |= PathFlags::PARKING;
+                }
+                let last_index = path.len().saturating_sub(1);
+                for (index, joints) in path.into_iter().enumerate() {
+                    let flags = if index == last_index {
+                        endpoint_flags
+                    } else {
+                        transit_flags
+                    };
                     if self.should_emit_output_state(flags) {
                         trace.push(AnnotatedJoints {
                             joints,
@@ -1355,6 +1464,7 @@ impl Cartesian<'_> {
     /// cheapest states are retained as a beam, and failure reports contain the best previous-layer
     /// prefixes for possible RRT reconfiguration.
     /// The returned path excludes `starting` and contains one joint state per target pose.
+    #[allow(clippy::too_many_arguments)]
     fn plan_cartesian_graph(
         &self,
         starting: &Joints,
@@ -1363,6 +1473,7 @@ impl Cartesian<'_> {
         stop: &AtomicBool,
         layer_state_limit: usize,
         reconfiguration_prefix_limit: usize,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<Vec<Joints>, CartesianGraphFailure> {
         if targets.is_empty() {
             return Ok(Vec::new());
@@ -1389,6 +1500,7 @@ impl Cartesian<'_> {
 
                 let solutions = self
                     .robot
+                    .kinematics
                     .inverse_continuing(&target.pose, &previous.joints);
                 for candidate in &solutions {
                     let edge_cost = transition_costs(
@@ -1396,7 +1508,8 @@ impl Cartesian<'_> {
                         candidate,
                         &self.transition_coefficients,
                     );
-                    if edge_cost <= self.max_transition_cost {
+                    // Reject impossible Cartesian edges before expensive geometry checks.
+                    if edge_cost <= self.max_transition_cost && !collisions.collides(candidate) {
                         add_or_update_state(
                             &mut next_layer,
                             *candidate,
@@ -1423,7 +1536,7 @@ impl Cartesian<'_> {
                         let planned_prefix =
                             reconstruct_path(&layers, previous_layer_index, previous_state_index);
                         let previous = previous_state.joints;
-                        let solutions = self.robot.inverse_continuing(&target.pose, &previous);
+                        let solutions = collisions.inverse_continuing(&target.pose, &previous);
 
                         CartesianGraphFailureCandidate {
                             planned_prefix,
@@ -1597,26 +1710,32 @@ impl Cartesian<'_> {
 }
 
 #[cfg(test)]
+#[path = "../tests/cartesian_additional_tests.rs"]
+mod additional_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
-        AnnotatedJoints, AnnotatedPose, Cartesian, DEFAULT_MAX_SOLUTIONS_AWAIT,
-        DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES, DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES,
-        DEFAULT_TRANSITION_COSTS, LayerState, MoveKind, PathFlags, PlanRank, SuffixPlanningOutcome,
-        add_or_update_state, append_suffix_candidates_by_strategy_order,
-        best_state_indices_by_cost, canceled_cartesian_graph_failure, interpolation_flags_for_edge,
+        AnnotatedJoints, AnnotatedPose, Cartesian, CartesianGraphFailureCandidate,
+        DEFAULT_MAX_SOLUTIONS_AWAIT, DEFAULT_PREFERRED_ONBOARDING_SUFFIX_CANDIDATES,
+        DEFAULT_RECONFIGURATION_PREFIX_CANDIDATES, DEFAULT_TRANSITION_COSTS, LayerState, MoveKind,
+        PathFlags, PlanRank, PlanningCollisionCache, ReconfigurationAppendState,
+        SuffixPlanningOutcome, Transition, add_or_update_state,
+        append_suffix_candidates_by_strategy_order, best_state_indices_by_cost,
+        canceled_cartesian_graph_failure, interpolation_flags_for_edge,
         is_stroke_interrupting_reconfiguration, limit_layer_states_by_cost,
         reconfiguring_output_flags, should_emit_output_state, sort_suffix_candidates_by_rank,
     };
-    use crate::collisions::{CheckMode, RobotBody, SafetyDistances};
+    use crate::collisions::{CheckMode, CollisionBody, NEVER_COLLIDES, RobotBody, SafetyDistances};
     use crate::constraints::Constraints;
-    use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+    use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
     use crate::kinematics_with_shape::KinematicsWithShape;
     use crate::rrt::RRTPlanner;
     use glam::DVec3;
     use parry3d::math::Vector;
     use parry3d::shape::TriMesh;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn output_filter_honors_linear_interpolation_flag() {
@@ -1679,6 +1798,209 @@ mod tests {
         let trace_fallback = reconfiguring_output_flags(PathFlags::TRACE);
         assert!(trace_fallback.contains(PathFlags::TRACE));
         assert!(trace_fallback.contains(PathFlags::RECONFIGURING));
+    }
+
+    #[test]
+    fn reconfiguration_bridge_marks_original_pose_only_at_endpoint() {
+        let mut robot = linear_robot();
+        robot.kinematics = Arc::new(LinearKinematics {
+            constraints: Some(Constraints::new([-2.0; 6], [2.0; 6], 0.0)),
+        });
+        let mut planner = test_planner(&robot, usize::MAX);
+        let stop = AtomicBool::new(false);
+
+        for target_flags in [
+            PathFlags::TRACE | PathFlags::FORWARDS,
+            PathFlags::LAND | PathFlags::LANDING | PathFlags::BACKWARDS,
+            PathFlags::PARK | PathFlags::FORWARDS,
+            PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS,
+            PathFlags::LIN_INTERP | PathFlags::PARKING | PathFlags::BACKWARDS,
+        ] {
+            for include_interpolation in [false, true] {
+                planner.include_linear_interpolation = include_interpolation;
+                // Exercise both an actual RRT bridge and the stationary shortcut.
+                for start_value in [0.0, 1.0] {
+                    let starting = joints(start_value);
+                    let target = annotated_pose_at(1.0, target_flags);
+                    let transition = Transition {
+                        from: annotated_pose_at(start_value, PathFlags::TRACE),
+                        to: target,
+                        previous: starting,
+                        solutions: vec![joints(1.0)],
+                    };
+                    let mut path = Vec::new();
+                    assert!(planner.append_reconfiguration(
+                        &starting,
+                        &target,
+                        &transition,
+                        &stop,
+                        &mut path,
+                    ));
+                    if start_value == 0.0 {
+                        assert!(path.len() > 2, "bridge must exercise transit waypoints");
+                    } else {
+                        assert_eq!(path.len(), 1);
+                    }
+
+                    let (endpoint, transit) = path.split_last().unwrap();
+                    assert_eq!(endpoint.joints, joints(1.0));
+                    assert_eq!(
+                        (endpoint.flags & PathFlags::ORIGINAL).bits(),
+                        (target_flags & PathFlags::ORIGINAL).bits(),
+                    );
+                    for waypoint in transit {
+                        assert!(
+                            !waypoint.flags.intersects(PathFlags::ORIGINAL),
+                            "transit waypoint falsely marks target {target_flags}: {waypoint:?}"
+                        );
+                        if target_flags.contains(PathFlags::PARK) {
+                            assert!(waypoint.flags.contains(PathFlags::PARKING));
+                        }
+                    }
+                    for waypoint in &path {
+                        assert_eq!(waypoint.move_into, MoveKind::Joint);
+                        assert!(waypoint.flags.contains(PathFlags::RECONFIGURING));
+                        assert!(!waypoint.flags.contains(PathFlags::LIN_INTERP));
+                        assert!(waypoint.flags.contains(
+                            target_flags
+                                & (PathFlags::LANDING
+                                    | PathFlags::PARKING
+                                    | PathFlags::FORWARDS
+                                    | PathFlags::BACKWARDS)
+                        ));
+                    }
+                    let rank = PlanRank::from_path(&path, &DEFAULT_TRANSITION_COSTS);
+                    assert_eq!(
+                        rank.is_good_enough(),
+                        !target_flags.contains(PathFlags::TRACE),
+                        "phase classification changed for {target_flags}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reconfiguration_preserves_cartesian_motion_to_prefix_endpoint() {
+        let mut robot = linear_robot();
+        robot.kinematics = Arc::new(LinearKinematics {
+            constraints: Some(Constraints::new([-3.0; 6], [3.0; 6], 0.0)),
+        });
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.max_transition_cost = 1.5;
+        planner.allow_reconfigure = true;
+
+        for include_interpolation in [false, true] {
+            planner.include_linear_interpolation = include_interpolation;
+            // Cover an empty prefix, an already emitted endpoint, and an omitted endpoint.
+            for prefix_flags in [
+                None,
+                Some(PathFlags::TRACE | PathFlags::FORWARDS),
+                Some(PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS),
+            ] {
+                let mut poses = vec![annotated_pose_at(0.0, PathFlags::LAND)];
+                if let Some(flags) = prefix_flags {
+                    poses.push(annotated_pose_at(
+                        0.25,
+                        PathFlags::LIN_INTERP | PathFlags::LANDING | PathFlags::FORWARDS,
+                    ));
+                    poses.push(annotated_pose_at(0.5, flags));
+                }
+                // The Cartesian prefix has cost 1.5 per edge; the jump to 2.0 needs RRT.
+                poses.push(annotated_pose_at(2.0, PathFlags::TRACE));
+                poses.push(annotated_pose_at(2.25, PathFlags::PARK));
+                let path = planner
+                    .plan_with_limits(
+                        &joints(0.0),
+                        &[joints(0.0)],
+                        &poses,
+                        usize::MAX,
+                        usize::MAX,
+                        &PlanningCollisionCache::new(&robot),
+                    )
+                    .expect("the prefix and RRT bridge should form a complete path")
+                    .path;
+                let bridge_index = path
+                    .iter()
+                    .position(|step| step.flags.contains(PathFlags::RECONFIGURING))
+                    .expect("path should require an RRT bridge");
+                let boundary = &path[bridge_index - 1];
+
+                if let Some(flags) = prefix_flags {
+                    assert_eq!(boundary.joints, joints(0.5));
+                    assert_eq!(boundary.move_into, MoveKind::Cartesian);
+                    assert!(!boundary.flags.contains(PathFlags::RECONFIGURING));
+                    assert!(!boundary.flags.contains(PathFlags::LIN_INTERP));
+                    assert!(boundary.flags.contains(flags & !PathFlags::LIN_INTERP));
+                    assert_eq!(
+                        path[..bridge_index]
+                            .iter()
+                            .filter(|step| { step.joints == joints(0.5) })
+                            .count(),
+                        1,
+                        "the boundary should be emitted once"
+                    );
+                } else {
+                    assert_eq!(boundary.joints, joints(0.0));
+                    assert!(boundary.flags.contains(PathFlags::LAND));
+                    assert_eq!(boundary.move_into, MoveKind::Joint);
+                }
+                if !include_interpolation {
+                    assert!(
+                        path.iter()
+                            .all(|step| !step.flags.contains(PathFlags::LIN_INTERP))
+                    );
+                }
+                assert!(
+                    path[bridge_index..]
+                        .iter()
+                        .filter(|step| { step.flags.contains(PathFlags::RECONFIGURING) })
+                        .all(|step| step.move_into == MoveKind::Joint)
+                );
+                assert_eq!(path.last().unwrap().joints, joints(2.25));
+                assert_eq!(path.last().unwrap().move_into, MoveKind::Cartesian);
+            }
+        }
+    }
+
+    #[test]
+    fn failed_reconfiguration_restores_trace_and_cursors() {
+        let robot = linear_robot();
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.include_linear_interpolation = false;
+        let stop = AtomicBool::new(false);
+        let prefix_pose = annotated_pose_at(0.5, PathFlags::LIN_INTERP | PathFlags::LANDING);
+        let target = annotated_pose_at(2.0, PathFlags::TRACE);
+        let failure = CartesianGraphFailureCandidate {
+            planned_prefix: vec![joints(0.5)],
+            transition: Transition {
+                from: prefix_pose,
+                to: target,
+                previous: joints(0.5),
+                solutions: Vec::new(),
+            },
+            prefix_cost: 3.0,
+        };
+        let mut trace = vec![joint_step(0.0, PathFlags::LAND, MoveKind::Joint)];
+        let mut previous = joints(0.0);
+        let mut step = 1;
+        assert!(!planner.append_reconfiguration_candidates(
+            &[failure],
+            &[prefix_pose],
+            &target,
+            &mut ReconfigurationAppendState {
+                stop: &stop,
+                trace: &mut trace,
+                previous_joints: &mut previous,
+                step: &mut step,
+            },
+        ));
+        assert_eq!(trace.len(), 1);
+        assert_eq!(trace[0].joints, joints(0.0));
+        assert!(trace[0].flags.contains(PathFlags::LAND));
+        assert_eq!(trace[0].move_into, MoveKind::Joint);
+        assert_eq!(previous, joints(0.0));
+        assert_eq!(step, 1);
     }
 
     #[test]
@@ -1962,6 +2284,7 @@ mod tests {
                 &stop,
                 planner.cartesian_layer_state_limit(),
                 planner.reconfiguration_prefix_candidate_limit(),
+                &PlanningCollisionCache::new(&robot),
             )
             .expect_err("stopped graph planning should return a failure");
 
@@ -1992,6 +2315,7 @@ mod tests {
                 &stop,
                 planner.cartesian_layer_state_limit(),
                 planner.reconfiguration_prefix_candidate_limit(),
+                &PlanningCollisionCache::new(&robot),
             )
             .expect_err("tight beam should prune the only branch that can reach the second target");
 
@@ -2034,12 +2358,273 @@ mod tests {
             &stop,
             planner.cartesian_layer_state_limit(),
             planner.reconfiguration_prefix_candidate_limit(),
+            &PlanningCollisionCache::new(&robot),
         ) {
             Ok(path) => path,
             Err(_) => panic!("wider beam should keep the required branch"),
         };
 
         assert_eq!(path, vec![joints(3.0), joints(4.0)]);
+    }
+
+    #[test]
+    fn cartesian_cost_limit_precedes_collision_checks() {
+        let (robot, recording) = collision_test_robot(GraphTestKinematics::new());
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.max_transition_cost = 12.0;
+        let collisions = PlanningCollisionCache::new(&robot);
+
+        // IK returns 1, 2, 3. From 4, branch 1 exceeds the cost limit;
+        // branch 2 meets it exactly but collides; branch 3 is feasible.
+        let path = planner
+            .plan_cartesian_graph(
+                &joints(4.0),
+                &annotated_pose(PathFlags::LAND),
+                &[annotated_pose_at(1.0, PathFlags::TRACE)],
+                &AtomicBool::new(false),
+                usize::MAX,
+                usize::MAX,
+                &collisions,
+            )
+            .unwrap_or_else(|_| panic!("the feasible branch should still be checked and retained"));
+
+        assert_eq!(path, vec![joints(3.0)]);
+        assert_eq!(
+            *recording.checks.lock().unwrap(),
+            vec![joints(2.0), joints(3.0)]
+        );
+
+        // The feasible branch at the exact limit must also be retained.
+        planner.max_transition_cost = 6.0;
+        let boundary_path = planner
+            .plan_cartesian_graph(
+                &joints(4.0),
+                &annotated_pose(PathFlags::LAND),
+                &[annotated_pose_at(1.0, PathFlags::TRACE)],
+                &AtomicBool::new(false),
+                usize::MAX,
+                usize::MAX,
+                &collisions,
+            )
+            .unwrap_or_else(|_| panic!("an edge at the cost limit remains feasible"));
+        assert_eq!(boundary_path, path);
+    }
+
+    #[test]
+    fn rrt_targets_are_collision_filtered_without_cartesian_cost_limit() {
+        let (robot, recording) = collision_test_robot(GraphTestKinematics::new());
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.max_transition_cost = 0.0;
+        let collisions = PlanningCollisionCache::new(&robot);
+
+        let failure = planner
+            .plan_cartesian_graph(
+                &joints(4.0),
+                &annotated_pose(PathFlags::LAND),
+                &[annotated_pose_at(1.0, PathFlags::TRACE)],
+                &AtomicBool::new(false),
+                usize::MAX,
+                usize::MAX,
+                &collisions,
+            )
+            .expect_err("no Cartesian edge meets the cost limit");
+
+        assert_eq!(failure.candidates.len(), 1);
+        assert_eq!(
+            failure.candidates[0].transition.solutions,
+            vec![joints(3.0)]
+        );
+        assert_eq!(
+            *recording.checks.lock().unwrap(),
+            vec![joints(1.0), joints(2.0), joints(3.0)],
+        );
+    }
+
+    #[test]
+    fn landing_candidates_are_collision_filtered_without_cartesian_cost_limit() {
+        let (robot, recording) = collision_test_robot(GraphTestKinematics::new());
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.max_transition_cost = 0.0;
+        let collisions = PlanningCollisionCache::new(&robot);
+        let (strategies, _) = planner
+            .prepare_plan_inputs(
+                &joints(4.0),
+                &pose_at(1.0),
+                Vec::new(),
+                &pose_at(1.0),
+                &collisions,
+            )
+            .expect("landing is reached by joint motion, not a Cartesian edge");
+
+        assert_eq!(strategies, vec![joints(3.0)]);
+        assert_eq!(
+            *recording.checks.lock().unwrap(),
+            vec![joints(4.0), joints(1.0), joints(2.0), joints(3.0)],
+        );
+    }
+
+    #[test]
+    fn collision_cache_reuses_clear_and_colliding_results_with_exact_keys() {
+        let (robot, recording) = collision_test_robot(LinearKinematics::new());
+        let collisions = PlanningCollisionCache::new(&robot);
+        for _ in 0..3 {
+            assert!(!collisions.collides(&joints(0.0)));
+            assert!(collisions.collides(&joints(2.0)));
+        }
+        assert_eq!(recording.checks.lock().unwrap().len(), 2);
+
+        for index in 0..6 {
+            let mut nearby = joints(0.0);
+            nearby[index] = 1e-10;
+            assert!(super::same_joints(&nearby, &joints(0.0)));
+            assert!(!collisions.collides(&nearby));
+            assert!(!collisions.collides(&nearby));
+        }
+        // Even signed zero is kept distinct; no normalization changes the key.
+        let mut negative_zero = joints(0.0);
+        negative_zero[5] = -0.0;
+        assert!(!collisions.collides(&negative_zero));
+        assert_eq!(recording.checks.lock().unwrap().len(), 9);
+    }
+
+    #[test]
+    fn full_collision_cache_still_checks_uncached_states() {
+        let (robot, recording) = collision_test_robot(LinearKinematics::new());
+        let mut collisions = PlanningCollisionCache::new(&robot);
+        collisions.max_entries = 1;
+        assert!(!collisions.collides(&joints(0.0)));
+        for _ in 0..3 {
+            assert!(collisions.collides(&joints(2.0)));
+            assert!(!collisions.collides(&joints(0.0)));
+        }
+        assert_eq!(collisions.results.lock().unwrap().len(), 1);
+        assert_eq!(recording.checks.lock().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn collision_cache_is_shared_by_parallel_strategies() {
+        use rayon::prelude::*;
+
+        let (robot, recording) = collision_test_robot(LinearKinematics::new());
+        let collisions = PlanningCollisionCache::new(&robot);
+        assert!(!collisions.collides(&joints(0.0)));
+        assert!(collisions.collides(&joints(2.0)));
+
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap()
+            .install(|| {
+                (0..32).into_par_iter().for_each(|_| {
+                    assert!(!collisions.collides(&joints(0.0)));
+                    assert!(collisions.collides(&joints(2.0)));
+                });
+            });
+        assert_eq!(recording.checks.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn collision_cache_survives_exhaustive_graph_retry() {
+        let (mut robot, recording) = collision_test_robot(GraphTestKinematics::new());
+        robot.body.collision_environment.clear();
+        let mut planner = test_planner(&robot, 2);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        let path = planner
+            .plan(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0)],
+                &pose_at(2.0),
+            )
+            .expect("the exhaustive retry must retain the feasible third branch");
+
+        assert_eq!(
+            path.iter().map(|step| step.joints).collect::<Vec<_>>(),
+            vec![joints(0.0), joints(3.0), joints(4.0)]
+        );
+        assert_eq!(
+            *recording.checks.lock().unwrap(),
+            vec![
+                joints(0.0),
+                joints(1.0),
+                joints(2.0),
+                joints(3.0),
+                joints(4.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn collision_cache_survives_adaptive_refinement() {
+        let (mut robot, recording) = collision_test_robot(RefinementTestKinematics);
+        robot.body.collision_environment.clear();
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        planner.max_transition_cost = 0.25;
+        planner.linear_recursion_depth = 1;
+        let path = planner
+            .plan(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0)],
+                &pose_at(2.0),
+            )
+            .expect("refinement must keep alternative prefixes while reusing checks");
+
+        assert_eq!(
+            path.iter().map(|step| step.joints[0]).collect::<Vec<_>>(),
+            vec![0.0, 0.2, 0.4, 0.6]
+        );
+        let mut checked = recording
+            .checks
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|joints| joints[0])
+            .collect::<Vec<_>>();
+        checked.sort_by(f64::total_cmp);
+        assert_eq!(checked, vec![0.0, 0.1, 0.2, 0.4, 0.6]);
+    }
+
+    #[test]
+    fn planning_calls_do_not_reuse_collision_results_after_scene_or_safety_changes() {
+        for approximate in [false, true] {
+            for change_safety in [false, true] {
+                let (mut robot, recording) = collision_test_robot(LinearKinematics::new());
+                let run = |robot: &KinematicsWithShape| {
+                    let mut planner = test_planner(robot, usize::MAX);
+                    planner.check_step_m = 10.0;
+                    planner.check_step_rad = 10.0;
+                    if approximate {
+                        planner.plan_fast_approximate(
+                            &joints(0.0),
+                            &pose_at(0.0),
+                            Vec::new(),
+                            &pose_at(0.0),
+                        )
+                    } else {
+                        planner.plan(&joints(0.0), &pose_at(0.0), Vec::new(), &pose_at(0.0))
+                    }
+                };
+                run(&robot).expect("the original scene should be clear");
+                assert_eq!(*recording.checks.lock().unwrap(), vec![joints(0.0)]);
+
+                if change_safety {
+                    // The obstacle is 0.5 units away, inside the new safety distance.
+                    robot.body.safety.to_environment = 0.6;
+                } else {
+                    robot.body.collision_environment[0].pose = pose_at(0.5).to_f32();
+                }
+                let err = run(&robot).expect_err("a new call must recheck the changed scene");
+                assert!(err.contains("Onboarding point collides"));
+                assert_eq!(
+                    *recording.checks.lock().unwrap(),
+                    vec![joints(0.0), joints(0.0)]
+                );
+            }
+        }
     }
 
     #[test]
@@ -2065,6 +2650,73 @@ mod tests {
         assert!(path[0].flags.contains(PathFlags::LAND));
         assert!(path[1].flags.contains(PathFlags::TRACE));
         assert!(path[2].flags.contains(PathFlags::PARK));
+    }
+
+    #[test]
+    fn adaptive_refinement_preserves_alternative_prefixes() {
+        let mut robot = test_robot();
+        robot.kinematics = Arc::new(RefinementTestKinematics);
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.check_step_m = 10.0;
+        planner.check_step_rad = 10.0;
+        planner.max_transition_cost = 0.25;
+        planner.linear_recursion_depth = 1;
+        planner.max_reconfiguration_prefix_candidates = usize::MAX;
+        planner.rrt.max_try = 0;
+
+        let explicit_midpoint = planner
+            .plan(
+                &joints(0.0),
+                &pose_at(0.0),
+                vec![pose_at(1.0), pose_at(1.5)],
+                &pose_at(2.0),
+            )
+            .expect("the more expensive prefix reaches the midpoint and park");
+        assert_eq!(
+            explicit_midpoint
+                .iter()
+                .map(|step| step.joints[0])
+                .collect::<Vec<_>>(),
+            vec![0.0, 0.2, 0.4, 0.6],
+        );
+
+        for include_interpolation in [true, false] {
+            planner.include_linear_interpolation = include_interpolation;
+            let adaptive = planner
+                .plan(
+                    &joints(0.0),
+                    &pose_at(0.0),
+                    vec![pose_at(1.0)],
+                    &pose_at(2.0),
+                )
+                .expect("inserting the same midpoint must retain the feasible prefix");
+            let expected_joints = if include_interpolation {
+                vec![0.0, 0.2, 0.4, 0.6]
+            } else {
+                vec![0.0, 0.2, 0.6]
+            };
+            assert_eq!(
+                adaptive
+                    .iter()
+                    .map(|step| step.joints[0])
+                    .collect::<Vec<_>>(),
+                expected_joints,
+            );
+            assert!(adaptive[0].flags.contains(PathFlags::LAND));
+            assert!(adaptive[1].flags.contains(PathFlags::TRACE));
+            assert!(adaptive.last().unwrap().flags.contains(PathFlags::PARK));
+            assert!(adaptive[1..].iter().all(|step| {
+                step.move_into == MoveKind::Cartesian
+                    && !step.flags.contains(PathFlags::RECONFIGURING)
+            }));
+            if include_interpolation {
+                assert!(
+                    adaptive[2]
+                        .flags
+                        .contains(PathFlags::LIN_INTERP | PathFlags::PARKING)
+                );
+            }
+        }
     }
 
     #[test]
@@ -2250,12 +2902,50 @@ mod tests {
             &self.constraints
         }
 
-        /// Reports no singularity because singularity handling is outside these graph tests.
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
+        /// Returns identity joint poses because collision checks are disabled in the test robot.
+        fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
+            [Pose::identity(); 6]
+        }
+    }
+
+    /// Mock IK where only the more expensive prefix can reach an inserted midpoint.
+    struct RefinementTestKinematics;
+
+    impl Kinematics for RefinementTestKinematics {
+        fn inverse(&self, pose: &Pose) -> Solutions {
+            let values: &[f64] = match pose.translation.x {
+                0.0 => &[0.0],
+                1.0 => &[0.1, 0.2],
+                1.5 => &[0.4],
+                2.0 => &[0.6],
+                _ => &[],
+            };
+            values
+                .iter()
+                .map(|&value| [value, 0.0, 0.0, 0.0, 0.0, 0.0])
+                .collect()
         }
 
-        /// Returns identity joint poses because collision checks are disabled in the test robot.
+        fn inverse_continuing(&self, pose: &Pose, _previous: &Joints) -> Solutions {
+            self.inverse(pose)
+        }
+
+        fn forward(&self, _joints: &Joints) -> Pose {
+            Pose::identity()
+        }
+
+        fn inverse_5dof(&self, pose: &Pose, _j6: f64) -> Solutions {
+            self.inverse(pose)
+        }
+
+        fn inverse_continuing_5dof(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            self.inverse_continuing(pose, previous)
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            &None
+        }
+
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
             [Pose::identity(); 6]
         }
@@ -2295,10 +2985,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &self.constraints
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
@@ -2344,10 +3030,6 @@ mod tests {
 
         fn constraints(&self) -> &Option<Constraints> {
             &self.constraints
-        }
-
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
         }
 
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
@@ -2422,10 +3104,6 @@ mod tests {
             &self.constraints
         }
 
-        fn kinematic_singularity(&self, _qs: &Joints) -> Option<Singularity> {
-            None
-        }
-
         fn forward_with_joint_poses(&self, _joints: &Joints) -> [Pose; 6] {
             [Pose::identity(); 6]
         }
@@ -2441,8 +3119,74 @@ mod tests {
         (joints[0] - value).abs() <= f64::EPSILON
     }
 
+    /// Records actual geometry evaluations while delegating IK to a deterministic fixture.
+    struct CollisionTestKinematics {
+        inner: Arc<dyn Kinematics>,
+        checks: Mutex<Vec<Joints>>,
+    }
+
+    impl Kinematics for CollisionTestKinematics {
+        fn inverse(&self, pose: &Pose) -> Solutions {
+            self.inner.inverse(pose)
+        }
+
+        fn inverse_continuing(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            self.inner.inverse_continuing(pose, previous)
+        }
+
+        fn forward(&self, joints: &Joints) -> Pose {
+            self.inner.forward(joints)
+        }
+
+        fn inverse_5dof(&self, pose: &Pose, j6: f64) -> Solutions {
+            self.inner.inverse_5dof(pose, j6)
+        }
+
+        fn inverse_continuing_5dof(&self, pose: &Pose, previous: &Joints) -> Solutions {
+            self.inner.inverse_continuing_5dof(pose, previous)
+        }
+
+        fn constraints(&self) -> &Option<Constraints> {
+            self.inner.constraints()
+        }
+
+        fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
+            self.checks.lock().unwrap().push(*joints);
+            std::array::from_fn(|index| pose_at(joints[0] + 10.0 * index as f64))
+        }
+    }
+
+    /// Active collision fixture: configurations 1 and 2 hit an obstacle, 0 and 3 are clear.
+    fn collision_test_robot(
+        inner: impl Kinematics + 'static,
+    ) -> (KinematicsWithShape, Arc<CollisionTestKinematics>) {
+        let recording = Arc::new(CollisionTestKinematics {
+            inner: Arc::new(inner),
+            checks: Mutex::new(Vec::new()),
+        });
+        let robot = KinematicsWithShape {
+            kinematics: recording.clone(),
+            body: RobotBody {
+                joint_meshes: std::array::from_fn(|_| test_trimesh()),
+                tool: None,
+                base: None,
+                collision_environment: vec![CollisionBody {
+                    mesh: test_trimesh(),
+                    pose: pose_at(1.5).to_f32(),
+                }],
+                safety: SafetyDistances {
+                    to_environment: 0.1,
+                    to_robot_default: NEVER_COLLIDES,
+                    special_distances: Default::default(),
+                    mode: CheckMode::FirstCollisionOnly,
+                },
+            },
+        };
+        (robot, recording)
+    }
+
     /// Builds a collision-free robot wrapper around the deterministic fake kinematics.
-    fn test_robot() -> KinematicsWithShape {
+    pub(super) fn test_robot() -> KinematicsWithShape {
         KinematicsWithShape {
             kinematics: Arc::new(GraphTestKinematics::new()),
             body: RobotBody {
@@ -2456,7 +3200,7 @@ mod tests {
     }
 
     /// Builds a collision-free robot wrapper around the linear fake kinematics.
-    fn linear_robot() -> KinematicsWithShape {
+    pub(super) fn linear_robot() -> KinematicsWithShape {
         KinematicsWithShape {
             kinematics: Arc::new(LinearKinematics::new()),
             body: RobotBody {
@@ -2470,7 +3214,7 @@ mod tests {
     }
 
     /// Builds a Cartesian planner with a configurable graph beam width for tests.
-    fn test_planner(
+    pub(super) fn test_planner(
         robot: &KinematicsWithShape,
         max_cartesian_layer_states: usize,
     ) -> Cartesian<'_> {
@@ -2526,7 +3270,7 @@ mod tests {
     }
 
     /// Creates a minimal valid mesh for the collision body fields that are disabled in tests.
-    fn test_trimesh() -> TriMesh {
+    pub(super) fn test_trimesh() -> TriMesh {
         TriMesh::new(
             vec![
                 Vector::new(0.0, 0.0, 0.0),
@@ -2554,7 +3298,7 @@ mod tests {
     }
 
     /// Creates an annotated pose at a chosen x coordinate for graph-planning tests.
-    fn annotated_pose_at(x: f64, flags: PathFlags) -> AnnotatedPose {
+    pub(super) fn annotated_pose_at(x: f64, flags: PathFlags) -> AnnotatedPose {
         AnnotatedPose {
             pose: Pose::from_translation(DVec3::new(x, 0.0, 0.0)),
             flags,
@@ -2568,17 +3312,17 @@ mod tests {
     }
 
     /// Creates a pose at a chosen x coordinate for full-planner tests.
-    fn pose_at(x: f64) -> Pose {
+    pub(super) fn pose_at(x: f64) -> Pose {
         Pose::from_translation(DVec3::new(x, 0.0, 0.0))
     }
 
     /// Creates a joint state where every joint has the same value.
-    fn joints(value: f64) -> Joints {
+    pub(super) fn joints(value: f64) -> Joints {
         [value; 6]
     }
 
     /// Creates an output waypoint with repeated joint values for ranking tests.
-    fn joint_step(value: f64, flags: PathFlags, move_into: MoveKind) -> AnnotatedJoints {
+    pub(super) fn joint_step(value: f64, flags: PathFlags, move_into: MoveKind) -> AnnotatedJoints {
         AnnotatedJoints {
             joints: [value; 6],
             flags,

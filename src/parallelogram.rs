@@ -2,7 +2,7 @@
 //! both wraps arround some instance of Kinematics and implements Kinematics itself.
 
 use crate::constraints::Constraints;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use std::sync::Arc;
 
 /// Parallelogram Mechanism:
@@ -126,11 +126,19 @@ impl Kinematics for Parallelogram {
         self.robot.forward_with_joint_poses(&joints)
     }
 
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.robot.kinematic_singularity(qs)
-    }
-
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
+    }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        let mut joints = *joints;
+        joints[self.coupled] -= self.scaling * joints[self.driven];
+        self.robot.to_constraint_joints(&joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        let mut joints = self.robot.from_constraint_joints(joints);
+        joints[self.coupled] += self.scaling * joints[self.driven];
+        joints
     }
 }

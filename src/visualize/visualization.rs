@@ -826,3 +826,87 @@ fn control_panel(mut egui_contexts: EguiContexts, mut controls: ResMut<RobotCont
     });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headless_visualization() -> (App, VisualizationHandle) {
+        let (sender, receiver) = mpsc::channel();
+        let mut app = App::new();
+        app.insert_resource(RobotControls {
+            joint_angles: [0.0; 6],
+            tcp: [0.0; 6],
+            tcp_box: [-2.0..=2.0, -2.0..=2.0, 0.0..=2.0],
+            initial_joint_angles: [0.0; 6],
+            previous_joint_angles: [0.0; 6],
+            previous_tcp: [0.0; 6],
+            safety_distance: 0.05,
+            previous_safety_distance: 0.0,
+            joint_angles_changed: false,
+            tcp_changed: false,
+            safety_distance_changed: false,
+        })
+        .insert_resource(VisualizationCommands {
+            receiver: Mutex::new(receiver),
+        })
+        .add_systems(Update, process_visualization_commands);
+
+        let handle = VisualizationHandle {
+            sender,
+            join_handle: Arc::new(Mutex::new(None)),
+        };
+        (app, handle)
+    }
+
+    #[test]
+    fn joint_commands_apply_latest_angles_and_request_robot_update() {
+        let (mut app, handle) = headless_visualization();
+        let angles = [90.0, -45.0, 30.0, 180.0, 15.0, -60.0];
+        handle.set_joint_angles([10.0; 6]).unwrap();
+        handle.set_joint_angles(angles).unwrap();
+
+        app.update();
+
+        let controls = app.world().resource::<RobotControls>();
+        assert_eq!(controls.joint_angles, angles);
+        assert!(controls.joint_angles_changed);
+
+        app.world_mut()
+            .resource_mut::<RobotControls>()
+            .joint_angles_changed = false;
+        app.update();
+
+        let controls = app.world().resource::<RobotControls>();
+        assert_eq!(controls.joint_angles, angles);
+        assert!(!controls.joint_angles_changed);
+    }
+
+    #[test]
+    fn closing_handle_requests_successful_app_exit() {
+        let (mut app, handle) = headless_visualization();
+        handle.close().unwrap();
+
+        app.update();
+
+        let exits = app.world().resource::<Messages<AppExit>>();
+        assert_eq!(
+            exits.get_cursor().read(exits).collect::<Vec<_>>(),
+            [&AppExit::Success]
+        );
+    }
+
+    #[test]
+    fn dropping_handle_requests_successful_app_exit() {
+        let (mut app, handle) = headless_visualization();
+        drop(handle);
+
+        app.update();
+
+        let exits = app.world().resource::<Messages<AppExit>>();
+        assert_eq!(
+            exits.get_cursor().read(exits).collect::<Vec<_>>(),
+            [&AppExit::Success]
+        );
+    }
+}

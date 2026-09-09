@@ -12,7 +12,7 @@
 //! this package also implements the Kinematics trait if such would be required.
 
 use crate::constraints::Constraints;
-use crate::kinematic_traits::{Joints, Kinematics, Pose, Singularity, Solutions};
+use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use glam::{DMat3, DQuat, DVec3};
 use std::error::Error;
 use std::fmt;
@@ -297,12 +297,16 @@ impl Kinematics for Frame {
         poses
     }
 
-    fn kinematic_singularity(&self, qs: &Joints) -> Option<Singularity> {
-        self.robot.kinematic_singularity(qs)
-    }
-
     fn constraints(&self) -> &Option<Constraints> {
         self.robot.constraints()
+    }
+
+    fn to_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.to_constraint_joints(joints)
+    }
+
+    fn from_constraint_joints(&self, joints: &Joints) -> Joints {
+        self.robot.from_constraint_joints(joints)
     }
 }
 

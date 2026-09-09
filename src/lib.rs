@@ -24,6 +24,7 @@
 //! - The robot can be equipped with the tool and placed on the base, planning for the desired location and orientation
 //!   of the tool center point (TCP) rather than any part of the robot.
 //! - Experimental support for parameter extraction from URDF.
+//! - Optional robot visualization, enabled with the `visualization` Cargo feature.
 //!  
 //! # Parameters
 //!
@@ -62,6 +63,7 @@ pub mod parameters_from_file;
 pub mod kinematic_traits;
 pub mod kinematics_impl;
 pub mod pose;
+mod singularity;
 #[path = "utils/utils.rs"]
 pub mod utils;
 
@@ -94,10 +96,6 @@ pub mod cartesian;
 #[cfg(feature = "collisions")]
 pub mod kinematics_with_shape;
 
-#[cfg(feature = "allow_filesystem")]
-#[path = "utils/read_trimesh.rs"]
-pub mod read_trimesh;
-
 #[path = "visualize/visualization.rs"]
 #[cfg(feature = "visualization")]
 pub mod visualization;
@@ -115,5 +113,4 @@ pub mod rrt;
 mod rrt_to;
 
 #[cfg(test)]
-#[cfg(feature = "allow_filesystem")]
 mod tests;
