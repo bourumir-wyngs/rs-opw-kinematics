@@ -61,7 +61,7 @@ pub fn create_rx160_robot() -> Result<KinematicsWithShape, String> {
                 -225.0..=225.0,
                 -225.0..=225.0,
                 -225.0..=225.0,
-                -225.0..=225.0,
+                -360.0..=360.0, // J6 reaches about +319.4° during this stroke.
             ],
             BY_PREV,
         ),
@@ -209,7 +209,7 @@ fn main() -> Result<()> {
             play_planned_path(k, &path)?;
         }
         Err(message) => {
-            println!("Failed: {}", message);
+            return Err(anyhow!("Planning failed: {}", message));
         }
     }
     Ok(())

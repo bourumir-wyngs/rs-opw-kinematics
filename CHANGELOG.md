@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.2] - 2026-11-27
+
+### Fixed
+
+- Give the `cartesian_stroke` example ±360° of J6 travel, matching the other
+  RX160 examples. Its stroke reaches about +319.4° and failed with the ±225°
+  absolute limits introduced in 3.0.1.
+- Return an error from the Cartesian and RRT planning examples when planning
+  fails, so command-line runs no longer report a successful exit status.
+
+### Performance
+
+- Reuse the Cartesian planner's collision cache during onboarding and
+  reconfiguration RRT, including tree expansion, smoothing, and resampling.
+  Repeated checks of identical joint configurations share geometry results
+  within one planning call; joint limits remain checked for every sample.
+
+### Changed
+
+- Ordered joint ranges wider than 360° now define inclusive absolute travel
+  limits. Exactly 360°, equal endpoints, and narrower periodic ranges retain
+  their previous behavior. Configurations using wider ranges for unlimited
+  rotation should use `-180°..=180°` instead.
+- For absolute joint limits, inverse kinematics selects equivalent turns
+  nearest the interval midpoint; continuation selects legal turns nearest
+  the previous joints. Explicitly fixed J6 values in five-axis IK must satisfy
+  their configured limits.
+- Updated optional `serde-saphyr` support to version 2 and refreshed locked
+  dependencies.
+
+### Fixed
+
+- Preserve absolute joint turns through wrist and arm singularity recovery,
+  including coupled wrist limits and constraint-center priorities.
+- Avoid full-turn jumps caused by inverse-kinematics roundoff at travel stops.
+- Enforce absolute travel limits throughout RRT planning and reject Cartesian
+  onboarding states outside their joint limits.
+- Convert parallelogram continuation references into the wrapped robot's
+  joint coordinates, including nested couplings.
+- Avoid overflow when computing centers and sampling extremely large finite
+  joint ranges, and classify exactly 360° degree ranges correctly despite
+  degree-to-radian conversion roundoff.
+
+## [3.0.1] - 2026-11-27
+
+Retracted. The following changes are also included in 3.0.2.
+
 ## [3.0.0] - 2026-09-6
 
 - This release contains substantial rewrite of the singularity recovering algorithm.
