@@ -167,10 +167,15 @@ produce the same flange pose. With J6 previously at `535°`, inverse continuatio
 selects the turn nearest the interval midpoint. An explicitly fixed J6 in five-axis IK
 must itself be within the configured limits.
 
-With `Constraints::new`, exactly 360° permits any turn. The [URDF chain reader](#reading-urdf)
-preserves absolute stops on a revolute joint explicitly bounded to 360°.
-Narrower ranges repeat every turn, so `350°..=370°`
-admits both `5°` and `365°`. Equal endpoints leave the joint unrestricted.
+Enter a stop at zero as `0.0`. For example, `0°..=720°` sets an absolute lower stop
+at exactly zero. With `Constraints::new`, a range of exactly one turn (`0.0..=TAU`
+in radians) permits any turn. Setting the upper endpoint to `TAU.next_up()`
+selects absolute travel and allows one representable value beyond `TAU`.
+The [URDF chain reader](#reading-urdf) preserves both exact stops for a revolute
+joint explicitly bounded from zero to one full turn.
+
+Narrower ranges repeat every turn, so `350°..=370°` admits both `5°` and `365°`.
+Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted in `Constraints::new`.
 If an older configuration uses a wider range to mean unlimited rotation, set it to
 `-180°..=180°` to keep that behavior.
 

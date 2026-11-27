@@ -17,6 +17,22 @@ use std::ops::RangeInclusive;
 /// one-revolution interval as absolute travel.
 /// Reversed endpoints describe a periodic arc through zero.
 ///
+/// Supply `0.0` directly for a stop at zero. For example, an ordered range
+/// from zero to two full turns has an absolute lower stop of exactly zero.
+/// With [`Constraints::new`], raising the upper endpoint of `[0.0, TAU]`
+/// to `TAU.next_up()` selects absolute travel and allows one representable
+/// value beyond a full turn.
+///
+/// ```
+/// use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
+/// use std::f64::consts::TAU;
+///
+/// let limits = Constraints::new([0.0; 6], [TAU.next_up(); 6], BY_PREV);
+/// assert!(limits.compliant(&[0.0; 6]));
+/// assert!(!limits.compliant(&[-0.01; 6]));
+/// assert!(limits.compliant(&[TAU.next_up(); 6]));
+/// ```
+///
 /// Exact boundary values cannot be checked reliably after floating-point
 /// calculations: degree/radian conversions or forward/inverse kinematics can
 /// round an angle just outside its limit, causing an otherwise compliant pose
