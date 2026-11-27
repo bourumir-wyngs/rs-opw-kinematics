@@ -779,9 +779,10 @@ The project contains built-in definitions in [`Parameters`](src/parameters_robot
 | Manufacturer | Models |
 | --- | --- |
 | ABB | IRB 120-3/0.58, IRB 1200-5/0.90, IRB 1200-7/0.70, IRB 1600-6/1.20, IRB 1600-10/1.45 (`abb_1600`), IRB 2400/10, IRB 2600-12/1.65, IRB 4600-40/2.55, IRB 4600-60/2.05 |
-| FANUC | LR Mate 200iB, M-6iB, M-10iA, M-16iB/20, M-20iA, M-20iB/25, R-2000iB/200R |
+| FANUC | LR Mate 200iB, LR Mate 200iC, M-6iB, M-10iA, M-16iB/20, M-20iA, M-20iB/25, R-2000iB/200R, R-2000iC/165F |
 | KUKA | KR 6 R700 sixx, KR 6 R900-2, KR 10 R1420, KR 150 R3100-2 |
-| Stäubli | RX160, TX40, TX2-140, TX2-160, TX2-160L |
+| Stäubli | RX160, TX40, TX2-60, TX2-140, TX2-160, TX2-160L |
+| Yaskawa | Motoman GP7, GP180, GP180-120 |
 | Igus | Rebel |
 
 For example, use `Parameters::fanuc_m10ia()` or `Parameters::irb120_3_58()`.
@@ -790,7 +791,8 @@ to reference definitions; ROS-Industrial presets use the linked model's joint co
 and transform from `base_link` to `tool0`. These definitions provide nominal kinematics;
 joint limits and controller-specific joint coupling must be configured separately when applicable.
 
-The six FANUC presets from LR Mate 200iB through M-20iB/25 use the serial-chain input
+The FANUC LR Mate 200iB, LR Mate 200iC, M-series models listed above, and R-2000iC/165F
+use the serial-chain input
 `joints[2] = controller_j3 + controller_j2` (all angles in radians), following the
 [ROS-Industrial linkage conversion](https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_driver/src/fanuc_utils.cpp).
 

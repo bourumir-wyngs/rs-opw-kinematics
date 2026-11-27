@@ -257,7 +257,7 @@ const IRB120_URDF: &str = include_str!("data/abb/irb120_3_58.urdf");
 
 // Name each fixture separately so a failed geometry or pose check identifies the model.
 macro_rules! imported_arm_test {
-    ($test:ident, $file:literal, $base:literal, $tip:literal $(, $reference:literal)?) => {
+    ($test:ident, $file:literal, $base:literal, $tip:literal $(, $preset:ident, $reference:literal)?) => {
         #[test]
         fn $test() {
             let xml = include_str!(concat!("data/", $file));
@@ -265,11 +265,11 @@ macro_rules! imported_arm_test {
             let robot = model.to_robot(BY_PREV).unwrap();
             assert_kinematics_match_urdf(&robot, xml, $base, $tip);
             $(
-                // Reference parameters may assign a fixed transform to another frame.
-                // Compare the resulting poses in the published base and tool frames.
-                let parameters = Parameters::from_yaml_file(concat!(
+                let parameters = Parameters::$preset();
+                let expected = Parameters::from_yaml_file(concat!(
                     env!("CARGO_MANIFEST_DIR"), "/src/tests/data/", $reference
-                )).unwrap();
+                )).expect("valid OPW YAML fixture");
+                assert_parameters_match(parameters, expected);
                 assert_kinematics_match_urdf(&OPWKinematics::new(parameters), xml, $base, $tip);
             )?
         }
@@ -295,6 +295,7 @@ imported_arm_test!(
     "fanuc/lrmate200ic.urdf",
     "base_link",
     "tool0",
+    fanuc_lrmate200ic,
     "fanuc/opw_parameters_lrmate200ic.yaml"
 );
 imported_arm_test!(
@@ -308,6 +309,7 @@ imported_arm_test!(
     "fanuc/r2000ic165f.urdf",
     "base_link",
     "tool0",
+    fanuc_r2000ic_165f,
     "fanuc/opw_parameters_r2000ic165f.yaml"
 );
 imported_arm_test!(
@@ -351,6 +353,7 @@ imported_arm_test!(
     "staubli/tx2_60.urdf",
     "base_link",
     "tool0",
+    staubli_tx2_60,
     "staubli/opw_parameters_tx2_60.yaml"
 );
 imported_arm_test!(
@@ -358,6 +361,7 @@ imported_arm_test!(
     "yaskawa/gp7.urdf",
     "base_link",
     "tool0",
+    yaskawa_gp7,
     "yaskawa/opw_parameters_gp7.yaml"
 );
 imported_arm_test!(
@@ -371,6 +375,7 @@ imported_arm_test!(
     "yaskawa/gp180.urdf",
     "base_link",
     "tool0",
+    yaskawa_gp180,
     "yaskawa/opw_parameters_gp180.yaml"
 );
 imported_arm_test!(
@@ -378,6 +383,7 @@ imported_arm_test!(
     "yaskawa/gp180_120.urdf",
     "base_link",
     "tool0",
+    yaskawa_gp180_120,
     "yaskawa/opw_parameters_gp180_120.yaml"
 );
 imported_arm_test!(

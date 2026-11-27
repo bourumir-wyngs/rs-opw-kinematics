@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   for bounded URDF joints spanning one full turn or more.
 - Added licensed industrial robot fixtures, source records by manufacturer,
   and comparisons of imported kinematics with the original URDF joint chains.
+- Added built-in OPW parameters for the FANUC LR Mate 200iC and R-2000iC/165F,
+  Stäubli TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 from their
+  published ROS-Industrial configurations.
 
 ## [3.0.2] - 2026-11-27
 
