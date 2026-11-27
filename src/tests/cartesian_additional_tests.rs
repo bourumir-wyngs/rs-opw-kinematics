@@ -390,6 +390,7 @@ fn plan_rank_comparison_honors_every_tie_breaker() {
 fn onboarding_keeps_the_best_fallback_while_searching_for_an_uninterrupted_path() {
     let robot = linear_robot();
     let mut planner = test_planner(&robot, usize::MAX);
+    let collisions = PlanningCollisionCache::new(&robot);
     planner.debug = true;
     let fallback = |values: &[f64]| {
         SuffixPlanningOutcome::new(
@@ -416,7 +417,13 @@ fn onboarding_keeps_the_best_fallback_while_searching_for_an_uninterrupted_path(
     ];
     assert!(
         planner
-            .try_onboarding_candidates(&joints(0.0), &candidates, &mut best, &mut attempts)
+            .try_onboarding_candidates(
+                &joints(0.0),
+                &candidates,
+                &mut best,
+                &mut attempts,
+                &collisions
+            )
             .is_none()
     );
     assert_eq!(attempts, 3);
@@ -428,7 +435,7 @@ fn onboarding_keeps_the_best_fallback_while_searching_for_an_uninterrupted_path(
         &[1.0; 6],
     );
     let result = planner
-        .try_onboarding_candidates(&joints(0.0), &[good], &mut best, &mut attempts)
+        .try_onboarding_candidates(&joints(0.0), &[good], &mut best, &mut attempts, &collisions)
         .unwrap();
     assert!(result.is_good_enough());
     assert_eq!(attempts, 4);
@@ -489,6 +496,7 @@ fn onboarding_marks_only_its_endpoint_as_land() {
             &joints(1.0),
             &AtomicBool::new(false),
             &mut path,
+            &PlanningCollisionCache::new(&robot),
         )
         .unwrap();
     assert!(path.len() >= 2);
@@ -545,7 +553,8 @@ fn failed_prefix_is_rolled_back_before_a_later_reconfiguration_succeeds() {
                 trace: &mut path,
                 previous_joints: &mut previous,
                 step: &mut step,
-            }
+            },
+            &PlanningCollisionCache::new(&robot),
         ));
         assert_eq!(
             path.iter().map(|step| step.joints[0]).collect::<Vec<_>>(),

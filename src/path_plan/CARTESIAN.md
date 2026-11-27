@@ -135,12 +135,12 @@ Once a Cartesian suffix is feasible, the planner tries to connect the original `
 landing joint state.
 
 If `from` and the landing joint state are already equal within the joint deduplication tolerance, onboarding emits a
-single `LAND` state. Otherwise it calls `RRTPlanner::plan_rrt()`.
+single `LAND` state. Otherwise RRT connects the two configurations.
 
 RRT uses:
 
 - `constraints()` from the robot model to sample valid random joint states,
-- `kinematics.collides()` to reject colliding states,
+- the planning call's collision cache to check geometry,
 - `step_size_joint_space` to control joint-space expansion resolution,
 - `max_try` to limit search effort,
 - `smooth` to spend a bounded number of shortcut checks simplifying a successful raw RRT path. A value of `0`
@@ -181,12 +181,14 @@ retained candidate still has to be collision-free; this does not change sampling
 ### Per-Call Collision Cache
 
 Each `plan()` or `plan_fast_approximate()` call caches both clear and colliding outcomes, keyed by the exact bit patterns
-of all six joint values. Parallel suffix strategies, adaptive refinements, and capped/exhaustive retries share this
-cache. IK itself is not cached: continuing IK can depend on the previous joint state.
+of all six joint values. Parallel suffix strategies, adaptive refinements, retries, and both onboarding and
+reconfiguration RRT share this cache. RRT checks joint limits for each sample. Tree expansion, smoothing,
+and resampling reuse the geometry result when they revisit an exact configuration. The planner computes
+continuing IK for each reference joint state.
 
 The cache holds at most 65,536 entries. After it fills, additional uncached states are checked normally without being
 stored. Geometry checks run outside the cache lock, so concurrent misses may duplicate a check without serializing
-strategy work. RRT's own motion checks are unchanged.
+strategy work.
 
 All entries are discarded when the planning call returns. The robot model, scene, and safety distances must stay fixed
 during a call, including state behind custom kinematics implementations. Changes between calls are checked afresh.
