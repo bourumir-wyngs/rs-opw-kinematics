@@ -1,0 +1,124 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="denso_vs060">
+  <!--
+  SPDX-License-Identifier: MIT
+  Source: https://github.com/DENSORobot/denso_robot_ros/blob/0bd656cde5ec2701872fb05d5870e682e27ff069/denso_robot_descriptions/vs060_description/vs060.urdf
+  Package authors: DENSO WAVE INCORPORATED.
+  Modified for analysis: link contents and physical dynamics removed, joint data retained.
+  License and upstream notices accompany this file in LICENSE.
+-->
+  <link name="world" />
+  <joint name="joint_w" type="fixed">
+    <parent link="world" />
+    <child link="base_link" />
+  </joint>
+  <link name="base_link" />
+  <link name="J1" />
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link" />
+    <child link="J1" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="0.000000 0.000000 0.181500" />
+    <axis xyz="-0.000000 -0.000000 1.000000" />
+    <limit effort="1" lower="-2.96706" upper="2.96706" velocity="3.92699081698724" />
+  </joint>
+  <transmission name="trans_1">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_1">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_1">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="J2" />
+  <joint name="joint_2" type="revolute">
+    <parent link="J1" />
+    <child link="J2" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="0.000000 0.000000 0.163500" />
+    <axis xyz="-0.000000 1.000000 -0.000000" />
+    <limit effort="1" lower="-2.094395" upper="2.094395" velocity="2.61799387799149" />
+  </joint>
+  <transmission name="trans_2">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_2">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_2">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="J3" />
+  <joint name="joint_3" type="revolute">
+    <parent link="J2" />
+    <child link="J3" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="0.000000 0.000000 0.305000" />
+    <axis xyz="-0.000000 1.000000 -0.000000" />
+    <limit effort="1" lower="-2.181662" upper="2.70526" velocity="2.85832571599111" />
+  </joint>
+  <transmission name="trans_3">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_3">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_3">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="J4" />
+  <joint name="joint_4" type="revolute">
+    <parent link="J3" />
+    <child link="J4" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="-0.010000 0.000000 0.164500" />
+    <axis xyz="-0.000000 -0.000000 1.000000" />
+    <limit effort="1" lower="-4.712389" upper="4.712389" velocity="3.92699081698724" />
+  </joint>
+  <transmission name="trans_4">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_4">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_4">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="J5" />
+  <joint name="joint_5" type="revolute">
+    <parent link="J4" />
+    <child link="J5" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="0.000000 0.000000 0.135500" />
+    <axis xyz="-0.000000 1.000000 -0.000000" />
+    <limit effort="1" lower="-2.094395" upper="2.094395" velocity="3.02168853397778" />
+  </joint>
+  <transmission name="trans_5">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_5">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_5">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="J6" />
+  <joint name="joint_6" type="revolute">
+    <parent link="J5" />
+    <child link="J6" />
+    <origin rpy="0.000000 0.000000 0.000000" xyz="0.000000 0.000000 0.070000" />
+    <axis xyz="-0.000000 -0.000000 1.000000" />
+    <limit effort="1" lower="-6.283185" upper="6.283185" velocity="6.28318530717959" />
+  </joint>
+  <transmission name="trans_6">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_6">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_6">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+</robot>

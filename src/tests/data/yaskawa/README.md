@@ -1,0 +1,15 @@
+# Yaskawa Motoman fixtures
+
+These ROS-Industrial robot descriptions use `base_link` as the base and `tool0` as the tip. The numeric URDFs were expanded with an empty prefix. They retain the physical joints, transforms, axes, limits, fixed adapters and link names. Visual, inertial and collision geometry and joint dynamics were removed.
+
+| Fixture | Upstream description | Package authors | Upstream OPW parameters |
+|---|---|---|---|
+| [GP7](gp7.urdf) | [Xacro](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp7_support/urdf/gp7_macro.xacro) | Eric Marcil | [opw_parameters_gp7.yaml](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp7_support/config/opw_parameters_gp7.yaml) |
+| [GP12](gp12.urdf) | [Xacro](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp12_support/urdf/gp12_macro.xacro) | Eric Marcil | — |
+| [GP180](gp180.urdf) | [Xacro](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/urdf/gp180_macro.xacro) | Jakub Marsik, Alec Tiefenthal | [opw_parameters_gp180.yaml](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/config/opw_parameters_gp180.yaml) |
+| [GP180-120](gp180_120.urdf) | [Xacro](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/urdf/gp180_120_macro.xacro) | Jakub Marsik, Alec Tiefenthal | [opw_parameters_gp180_120.yaml](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/config/opw_parameters_gp180_120.yaml) |
+| [MotoMini](motomini.urdf) | [Xacro](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_motomini_support/urdf/motomini_macro.xacro) | Eric Marcil | — |
+
+The reference YAML files are unmodified copies from the same upstream revision. The GP180 and GP180-120 provide forearm lengths of 1.225 m and 1.590 m, respectively. The GP7 places an 80 mm translation in its fixed flange joint. The GP12 places 100 mm in its fixed tool joint. The MotoMini has a bent wrist at joint zero.
+
+Each upstream package manifest declares BSD-3-Clause. The pinned source files and manifests provide the authors above and carry no separate copyright notice. The redistribution conditions and disclaimer are reproduced in [LICENSE.txt](LICENSE.txt). Package manifests: [motoman_gp7_support](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp7_support/package.xml), [motoman_gp12_support](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp12_support/package.xml), [motoman_gp180_support](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/package.xml), [motoman_motomini_support](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_motomini_support/package.xml).

@@ -823,10 +823,10 @@ function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/
 that takes URDF string rather than the file, provides error handling and much more control over how the solver
 is constructed from the extracted values.
 
-For an arm with the home-axis layout of the ABB IRB120 or IRB1600, use
-`from_urdf_chain` to select the base and tip in an expanded URDF 1.0 document.
-It follows the links in order, includes fixed mounts and tool adapters, and
-derives the OPW geometry, signs and joint offsets from the six rotary axes.
+Use `from_urdf_chain` to select the base and tip of a six-axis OPW arm in an
+expanded URDF 1.0 document. It follows the links in order, includes fixed
+mounts and tool adapters, and derives geometry, joint directions and zero
+offsets from the six rotary axes.
 
 ```rust
 use rs_opw_kinematics::constraints::BY_PREV;
@@ -837,14 +837,20 @@ let chain = from_urdf_chain(xml, "base_link", "tool0")?;
 let robot = chain.to_robot(BY_PREV)?;
 ```
 
-At joint zero the shoulder-to-elbow separation is along the base axis, and the
-two wrist roll axes coincide. The reader checks the axis directions and wrist
-intersection and reports unsupported geometry. `chain.limits` retains the
-original joint limits, including the distinction between continuous joints and
-revolute joints with missing limits. The solver uses the crate's periodic
-semantics for intervals shorter than one turn and absolute stops for wider
-intervals. Conversion reports bounded intervals of zero or exactly one turn
-because the solver would otherwise allow unrestricted rotation.
+The shoulder and elbow axes must be parallel. The reader checks their
+relationship to the base and forearm axes and verifies that the three wrist
+axes intersect. The upper arm and wrist may be inclined at joint zero. An
+on-path mimic joint, such as the ABB IRB5400's coupled wrist joint, is
+reported by name. Mimic joints on side branches do not affect the tool pose.
+
+`chain.limits` retains the original joint limits, including the distinction
+between continuous joints and revolute joints with missing limits. The solver uses the crate's periodic
+semantics for intervals shorter than one turn. Bounded revolute joints with
+one full turn or more retain both absolute travel stops. Solver conversion
+reports a bounded joint with equal endpoints.
+
+The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
+folder with imported URDF fixtures documents their upstream sources and licenses.
 
 YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
 not accounted for). The URDF reader treats a model containing exactly five joint definitions but no joint 6 as 5DOF

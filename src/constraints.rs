@@ -12,7 +12,9 @@ use std::ops::RangeInclusive;
 /// An ordered interval wider than one full revolution defines absolute travel
 /// in the robot's joint coordinates. An angle must lie between the two supplied
 /// endpoints, including its whole turns. Shorter intervals repeat every turn.
-/// Exactly one full revolution, or two equal endpoints, permits every turn.
+/// With [`Constraints::new`], exactly one full revolution or two equal endpoints
+/// permit every turn. The URDF chain reader preserves an explicitly bounded
+/// one-revolution interval as absolute travel.
 /// Reversed endpoints describe a periodic arc through zero.
 ///
 /// Exact boundary values cannot be checked reliably after floating-point
@@ -67,6 +69,21 @@ impl Constraints {
             tolerances,
             sorting_weight,
         }
+    }
+
+    /// Treat an explicitly bounded one-turn interval as physical travel stops.
+    /// Equal endpoints still denote unrestricted rotation for unbounded joints.
+    #[cfg(feature = "allow_filesystem")]
+    pub(crate) fn with_bounded_full_turns(mut self) -> Self {
+        for half_width in &mut self.tolerances {
+            if *half_width == PI {
+                // The public Constraints layout uses a cached half-width > π to
+                // select absolute travel. Only mark the cache: all absolute
+                // comparisons and IK turn selection use the exact from/to.
+                *half_width = PI.next_up();
+            }
+        }
+        self
     }
 
     /// Initializes `Constraints` from an array of 6 ranges (`RangeInclusive<f64>`),
@@ -158,7 +175,7 @@ impl Constraints {
         difference <= tolerance
     }
 
-    /// Whether this joint's range is wider than one turn and has two finite travel stops.
+    /// Whether this joint has two absolute travel stops, including explicitly bounded full turns.
     pub(crate) fn is_absolute(&self, joint: usize) -> bool {
         let half_width = self.tolerances[joint];
         half_width.is_finite() && half_width > PI
@@ -199,7 +216,7 @@ impl Constraints {
             return Some(angle);
         }
         // Find the nearest turn to the bounded reference. If it crosses a stop,
-        // the adjacent turn fits because the interval is wider than a full turn.
+        // the adjacent turn fits because the interval spans at least a full turn.
         let phase = angle % TWO_PI;
         // At a half-turn tie, prefer the lower angle, as normalize_near does.
         let turns = (((target - phase) / TWO_PI) - 0.5).ceil();

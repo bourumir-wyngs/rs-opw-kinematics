@@ -6,9 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `urdf::from_urdf_chain` imports a six-axis arm from expanded URDF 1.0 by
-  base and tip link. It supports the home-axis layout of the ABB IRB120 and
-  IRB1600, including their shoulder offsets, joint signs, fixed mounts and tools.
+- `urdf::from_urdf_chain` imports six-axis OPW arms from expanded URDF 1.0 by
+  base and tip link. It derives joint signs and zero offsets from the arm and
+  wrist axes, includes fixed mounts and tools, and preserves absolute stops
+  for bounded URDF joints spanning one full turn or more.
+- Added licensed industrial robot fixtures, source records by manufacturer,
+  and comparisons of imported kinematics with the original URDF joint chains.
 
 ## [3.0.2] - 2026-11-27
 

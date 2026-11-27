@@ -395,16 +395,42 @@ fn chain_import_preserves_joint_limits() {
     assert!(limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.0]));
     assert!(!limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.1]));
 
-    for upper in ["0", "6.283185307179586"] {
-        let xml = xml.replace(r#"upper="0.5""#, &format!(r#"upper="{upper}""#));
-        let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
-        assert!(
-            chain
-                .to_robot(BY_PREV)
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("J2")
-        );
-    }
+    let locked = xml.replace(r#"upper="0.5""#, r#"upper="0""#);
+    let chain = urdf::from_urdf_chain(&locked, "base_link", "tool0").unwrap();
+    assert!(
+        chain
+            .to_robot(BY_PREV)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("J2")
+    );
+}
+
+#[test]
+fn chain_preserves_both_stops_on_a_bounded_full_turn() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::TAU;
+
+    let xml = ABB_CHAIN.replace(
+        r#"name="joint_2" type="revolute">"#,
+        &format!(r#"name="joint_2" type="revolute"><limit lower="0" upper="{TAU}"/>"#),
+    );
+    let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    let robot = chain.to_robot(BY_PREV).unwrap();
+    let limits = robot.constraints().as_ref().unwrap();
+    let joints = |j2| [0.2, j2, 0.3, 0.5, -0.4, 0.3];
+    assert_eq!((limits.from[1], limits.to[1]), (0.0, TAU));
+    assert!(limits.compliant(&joints(0.0)));
+    assert!(limits.compliant(&joints(TAU)));
+    assert!(!limits.compliant(&joints(0.0_f64.next_down())));
+    assert!(!limits.compliant(&joints(TAU.next_up())));
+
+    // A seed on the next turn must still return solutions inside [0, 2π].
+    let target = robot.forward(&joints(5.5));
+    let solutions = robot.inverse_continuing(&target, &joints(5.5 + TAU));
+    assert!(!solutions.is_empty());
+    assert!(solutions.iter().all(|q| (0.0..=TAU).contains(&q[1])));
+    assert!(solutions.iter().any(|q| (q[1] - 5.5).abs() < 1e-10));
 }

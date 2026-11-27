@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="kr360_r2830">
+  <!--
+  SPDX-License-Identifier: Apache-2.0
+  Source: https://github.com/kuka-ros/kuka_robot_descriptions/blob/5ddbc41ce8726fd680bcc19562d78bcabfbdf96d/kuka_fortec_support/urdf/kr360_r2830_macro.xacro
+  Package authors: Eugenio Bernardi.
+  Modified for analysis: link contents and physical dynamics removed, joint data retained. Macro prefix set to empty and retained numeric expressions expanded.
+  License and upstream notices accompany this file in LICENSE-kuka-ros.txt.
+-->
+  <link name="base" />
+  <link name="base_link" />
+  <link name="flange" />
+  <link name="link_1" />
+  <link name="link_2" />
+  <link name="link_3" />
+  <link name="link_4" />
+  <link name="link_5" />
+  <link name="link_6" />
+  <link name="tool0" />
+  <joint name="base_link-base" type="fixed">
+    <child link="base" />
+    <parent link="base_link" />
+  </joint>
+  <joint name="joint_1" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_1" />
+    <limit effort="1.44E4" lower="-3.2288591125E0" upper="3.2288591125E0" velocity="1.7456E0" />
+    <origin rpy="3.141592653589793 -0.0 0.0" xyz="0.0 0.0 0.4" />
+    <parent link="base_link" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_2" />
+    <limit effort="1.44E4" lower="-2.268928025E0" upper="3.4906585E-1" velocity="1.5713E0" />
+    <origin rpy="1.5707963267948966 -0.0 0.0" xyz="0.5 0.0 -0.645" />
+    <parent link="link_1" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_3" />
+    <limit effort="1.28372101E4" lower="-1.74532925E0" upper="2.51327412E0" velocity="1.5711E0" />
+    <origin rpy="0.0 -0.0 0.0" xyz="1.3 0.0 0.0" />
+    <parent link="link_2" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_4" />
+    <limit effort="3.8954624E3" lower="-6.108652375E0" upper="6.108652375E0" velocity="2.0947E0" />
+    <origin rpy="1.5707963267948966 -0.0 -1.5707963267948966" xyz="0.5640000000000001 0.055 0.0" />
+    <parent link="link_3" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_5" />
+    <limit effort="3.8954624E3" lower="-2.0943951E0" upper="2.0943951E0" velocity="2.0938E0" />
+    <origin rpy="0.0 1.5707963267948966 1.5707963267948966" xyz="0.0 0.0 -0.461" />
+    <parent link="link_4" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <axis xyz="0.0 0.0 1.0" />
+    <child link="link_6" />
+    <limit effort="2.152788E3" lower="-6.108652375E0" upper="6.108652375E0" velocity="2.7844E0" />
+    <origin rpy="1.5707963267948966 -0.0 -1.5707963267948966" xyz="0.29 0.0 0.0" />
+    <parent link="link_5" />
+  </joint>
+  <joint name="link6-flange" type="fixed">
+    <child link="flange" />
+    <origin rpy="0.0 1.5707963267948966 0.0" xyz="0.0 0.0 0.0" />
+    <parent link="link_6" />
+  </joint>
+  <joint name="link6-tool0" type="fixed">
+    <child link="tool0" />
+    <origin rpy="3.141592653589793 1.2246467991473532E-16 3.141592653589793" xyz="0.0 0.0 0.0" />
+    <parent link="link_6" />
+  </joint>
+</robot>

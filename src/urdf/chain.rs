@@ -5,7 +5,6 @@ use crate::kinematics_impl::OPWKinematics;
 use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::tool::{Base, Tool};
-use std::f64::consts::PI;
 use std::sync::Arc;
 
 /// Position limits in URDF joint coordinates, in radians.
@@ -39,10 +38,10 @@ pub struct UrdfChain {
 /// with the base an ancestor of the tip. Fixed joints may appear anywhere on
 /// that path. The result uses the six rotary joints in path order.
 ///
-/// At zero the separation of the shoulder and elbow axes is along the base
-/// axis. The six axis directions in the arm's mount frame are Z, Y, Y, X,
-/// Y, X (either sign), with coincident wrist roll axes and an intersecting
-/// wrist pitch axis. Mount and tool transforms can have arbitrary orientations.
+/// J2 and J3 must be parallel, with J1 perpendicular to J2 and J4
+/// perpendicular to J3. The three wrist axes must have a common center,
+/// with J5 perpendicular to both J4 and J6. The arm and wrist may be bent at
+/// joint zero. Mount and tool transforms can have arbitrary orientations.
 ///
 /// # Errors
 ///
@@ -82,13 +81,13 @@ impl UrdfChain {
     ///
     /// `sorting_weight` has the meaning used by [`Constraints::new`]. Unspecified
     /// and continuous joints are unrestricted. Bounded ranges shorter than one
-    /// turn repeat every revolution in the solver. Wider ranges retain absolute
+    /// turn repeat every revolution in the solver. A full turn or more retains absolute
     /// travel stops. The original URDF bounds are available in [`Self::limits`].
     ///
     /// # Errors
     ///
-    /// Equal endpoints and exactly one full turn both mean unrestricted rotation
-    /// in [`Constraints`]. A bounded joint with either range returns an error.
+    /// Equal endpoints denote unrestricted rotation in [`Constraints`].
+    /// A bounded joint with equal endpoints returns an error.
     ///
     /// # Panics
     ///
@@ -105,7 +104,7 @@ impl UrdfChain {
                         index + 1
                     )));
                 }
-                if lower == upper || upper.midpoint(-lower) == PI {
+                if lower == upper {
                     return Err(ParameterError::KinematicsConfigurationError(format!(
                         "J{} is bounded to [{lower}, {upper}], which Constraints treats as unrestricted",
                         index + 1
@@ -117,7 +116,7 @@ impl UrdfChain {
         }
         let robot = OPWKinematics::new_with_constraints(
             self.parameters,
-            Constraints::new(from, to, sorting_weight),
+            Constraints::new(from, to, sorting_weight).with_bounded_full_turns(),
         );
         let mounted = Base {
             robot: Arc::new(robot),

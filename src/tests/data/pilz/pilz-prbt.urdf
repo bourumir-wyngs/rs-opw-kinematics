@@ -1,0 +1,113 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="prbt">
+  <!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2018 Pilz GmbH & Co. KG
+  Source: https://github.com/PilzDE/pilz_robots/blob/ff607dbdf949a548dd14d43fac9ca36d6c886fbf/prbt_support/urdf/prbt_macro.xacro
+  Modified for kinematics tests: Xacro expanded; link meshes and inertias, joint dynamics,
+  and simulator extensions removed. See README.md for the inputs and LICENSE for the terms.
+-->
+  <link name="prbt_base_link" />
+  <joint name="prbt_joint_1" type="revolute">
+    <origin rpy="0 0 -3.141592653589793" xyz="0 0 0.2604" />
+    <parent link="prbt_base_link" />
+    <child link="prbt_link_1" />
+    <axis xyz="0 0 1" />
+    <limit effort="370" lower="-2.96706" upper="2.96706" velocity="1.57" />
+  </joint>
+  <link name="prbt_link_1" />
+  <joint name="prbt_joint_2" type="revolute">
+    <origin rpy="1.5707963267948966 0 0" xyz="0 0 0" />
+    <parent link="prbt_link_1" />
+    <child link="prbt_link_2" />
+    <axis xyz="0 0 1" />
+    <limit effort="370" lower="-2.53073" upper="2.53073" velocity="1.57" />
+  </joint>
+  <link name="prbt_link_2" />
+  <joint name="prbt_joint_3" type="revolute">
+    <origin rpy="0 3.141592653589793 0" xyz="0 0.35 0" />
+    <parent link="prbt_link_2" />
+    <child link="prbt_link_3" />
+    <axis xyz="0 0 1" />
+    <limit effort="176" lower="-2.35620" upper="2.35620" velocity="1.57" />
+  </joint>
+  <link name="prbt_link_3" />
+  <joint name="prbt_joint_4" type="revolute">
+    <origin rpy="-1.5707963267948966 3.141592653589793 0" xyz="0 0 0" />
+    <parent link="prbt_link_3" />
+    <child link="prbt_link_4" />
+    <axis xyz="0 0 1" />
+    <limit effort="176" lower="-2.96706" upper="2.96706" velocity="1.57" />
+  </joint>
+  <link name="prbt_link_4" />
+  <joint name="prbt_joint_5" type="revolute">
+    <origin rpy="1.5707963267948966 0 3.141592653589793" xyz="0 0 0.307" />
+    <parent link="prbt_link_4" />
+    <child link="prbt_link_5" />
+    <axis xyz="0 0 1" />
+    <limit effort="41.6" lower="-2.96706" upper="2.96706" velocity="1.57" />
+  </joint>
+  <link name="prbt_link_5" />
+  <joint name="prbt_joint_6" type="revolute">
+    <origin rpy="-1.5707963267948966 0 0" xyz="0 0.084 0" />
+    <parent link="prbt_link_5" />
+    <child link="prbt_flange" />
+    <axis xyz="0 0 1" />
+    <limit effort="20.1" lower="-3.12414" upper="3.12414" velocity="1.57" />
+  </joint>
+  <link name="prbt_flange" />
+  <link name="prbt_base" />
+  <joint name="prbt_base_link-base" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0" />
+    <parent link="prbt_base_link" />
+    <child link="prbt_base" />
+  </joint>
+  <link name="prbt_tool0" />
+  <joint name="prbt_flange-tool0" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0" />
+    <parent link="prbt_flange" />
+    <child link="prbt_tool0" />
+  </joint>
+  <transmission name="prbt_joint_1_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_1">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_1_motor" />
+  </transmission>
+  <transmission name="prbt_joint_2_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_2">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_2_motor" />
+  </transmission>
+  <transmission name="prbt_joint_3_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_3">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_3_motor" />
+  </transmission>
+  <transmission name="prbt_joint_4_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_4">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_4_motor" />
+  </transmission>
+  <transmission name="prbt_joint_5_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_5">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_5_motor" />
+  </transmission>
+  <transmission name="prbt_joint_6_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="prbt_joint_6">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="prbt_joint_6_motor" />
+  </transmission>
+</robot>

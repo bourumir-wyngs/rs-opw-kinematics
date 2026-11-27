@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="staubli_tx2_60">
+  <!--
+  SPDX-License-Identifier: Apache-2.0
+  Source: https://github.com/ros-industrial/staubli_experimental/blob/256a71acea2161b64e12af1a6b925a7f26695007/staubli_tx2_60_support/urdf/tx2_60_macro.xacro
+  Package authors: Romana Rust (ETH Zurich).
+  Modified for analysis: link contents and physical dynamics removed, joint data retained. Macro prefix set to empty and retained numeric expressions expanded.
+  See LICENSE for the Apache-2.0 license and README.md for upstream provenance.
+-->
+  <link name="base_link" />
+  <link name="link_1" />
+  <link name="link_2" />
+  <link name="link_3" />
+  <link name="link_4" />
+  <link name="link_5" />
+  <link name="link_6" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.375" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.141592653589793" upper="3.141592653589793" effort="126.0" velocity="7.592182246175334" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.2252947962927703" upper="2.2252947962927703" effort="47.0" velocity="6.719517620178169" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0 0.02 0.29" rpy="0 0 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.6616271092913526" upper="2.6616271092913526" effort="32.0" velocity="8.726646259971648" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="0 0 1" />
+    <limit lower="-4.71238898038469" upper="4.71238898038469" effort="7.0" velocity="17.36602605734358" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="0 0 0.31" rpy="0 0 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.111848394913139" upper="2.3125612588924866" effort="8.0" velocity="18.58775653373961" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0 0 0.07" rpy="0 0 0" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="0 0 1" />
+    <limit lower="-4.71238898038469" upper="4.71238898038469" effort="2.0" velocity="25.220007691318063" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base" type="fixed">
+    <origin xyz="0 0 0.375" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+  <link name="flange" />
+  <joint name="joint_6-flange" type="fixed">
+    <origin xyz="0 0 0" rpy="0 -1.5707963267948966 0" />
+    <parent link="link_6" />
+    <child link="flange" />
+  </joint>
+  <link name="tool0" />
+  <joint name="flange-tool0" type="fixed">
+    <origin xyz="0 0 0" rpy="0 1.5707963267948966 0" />
+    <parent link="flange" />
+    <child link="tool0" />
+  </joint>
+</robot>
