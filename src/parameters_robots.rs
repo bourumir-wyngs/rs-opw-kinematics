@@ -144,6 +144,22 @@ pub mod opw_kinematics {
             }
         }
 
+        /// Stäubli TX2-60, using ROS-Industrial joint coordinates and the `tool0` frame.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/staubli_experimental/blob/256a71acea2161b64e12af1a6b925a7f26695007/staubli_tx2_60_support/config/opw_parameters_tx2_60.yaml).
+        pub fn staubli_tx2_60() -> Self {
+            Parameters {
+                a1: 0.000,
+                a2: 0.000,
+                b: 0.020,
+                c1: 0.375,
+                c2: 0.290,
+                c3: 0.310,
+                c4: 0.070,
+                ..Self::new()
+            }
+        }
+
         pub fn staubli_rx160() -> Self {
             Parameters {
                 a1: 0.15,
@@ -294,6 +310,25 @@ pub mod opw_kinematics {
             }
         }
 
+        /// FANUC LR Mate 200iC, using ROS-Industrial joint coordinates and the `tool0` frame.
+        /// The input angle `joints[2]` is `controller_j3 + controller_j2`, in radians.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_lrmate200ic_support/config/opw_parameters_lrmate200ic.yaml).
+        pub fn fanuc_lrmate200ic() -> Self {
+            Parameters {
+                a1: 0.075,
+                a2: -0.075,
+                b: 0.000,
+                c1: 0.330,
+                c2: 0.300,
+                c3: 0.320,
+                c4: 0.080,
+                offsets: [0.0, 0.0, -PI / 2.0, 0.0, 0.0, PI],
+                sign_corrections: [1, 1, -1, -1, -1, -1],
+                ..Self::new()
+            }
+        }
+
         /// FANUC M-6iB, using ROS-Industrial joint coordinates and the `tool0` frame.
         /// The input angle `joints[2]` is `controller_j3 + controller_j2`, in radians.
         ///
@@ -389,6 +424,25 @@ pub mod opw_kinematics {
             }
         }
 
+        /// FANUC R-2000iC/165F, using ROS-Industrial joint coordinates and the `tool0` frame.
+        /// The input angle `joints[2]` is `controller_j3 + controller_j2`, in radians.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_r2000ic_support/config/opw_parameters_r2000ic165f.yaml).
+        pub fn fanuc_r2000ic_165f() -> Self {
+            Parameters {
+                a1: 0.312,
+                a2: -0.225,
+                b: 0.000,
+                c1: 0.670,
+                c2: 1.075,
+                c3: 1.280,
+                c4: 0.215,
+                offsets: [0.0, 0.0, -PI / 2.0, 0.0, 0.0, PI],
+                sign_corrections: [1, 1, -1, -1, -1, -1],
+                ..Self::new()
+            }
+        }
+
         /// KUKA KR 6 R900-2, using ROS-Industrial joint coordinates and the `tool0` frame.
         ///
         /// Source: the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/kuka_experimental/blob/8d9292b04a22628b1b78d989e2ddd3abb913bf92/kuka_kr6_support/config/opw_parameters_kr6r900_2.yaml).
@@ -440,6 +494,53 @@ pub mod opw_kinematics {
                 offsets: [0.0, -PI / 2.0, 0.0, 0.0, 0.0, 0.0],
                 sign_corrections: [-1, 1, 1, -1, 1, -1],
                 ..Self::new()
+            }
+        }
+
+        /// Yaskawa Motoman GP7, using ROS-Industrial joint coordinates and the `tool0` frame.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp7_support/config/opw_parameters_gp7.yaml).
+        pub fn yaskawa_gp7() -> Self {
+            Parameters {
+                a1: 0.040,
+                a2: -0.040,
+                b: 0.000,
+                c1: 0.330,
+                c2: 0.445,
+                c3: 0.440,
+                c4: 0.080,
+                offsets: [0.0, 0.0, -PI / 2.0, 0.0, 0.0, PI],
+                sign_corrections: [1, 1, -1, -1, -1, -1],
+                ..Self::new()
+            }
+        }
+
+        /// Yaskawa Motoman GP180, using ROS-Industrial joint coordinates and the `tool0` frame.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/config/opw_parameters_gp180.yaml).
+        pub fn yaskawa_gp180() -> Self {
+            Parameters {
+                a1: 0.325,
+                a2: -0.300,
+                b: 0.000,
+                c1: 0.650,
+                c2: 1.150,
+                c3: 1.225,
+                c4: 0.225,
+                offsets: [0.0, 0.0, -PI / 2.0, 0.0, 0.0, PI],
+                sign_corrections: [1, 1, -1, -1, -1, -1],
+                ..Self::new()
+            }
+        }
+
+        /// Yaskawa Motoman GP180-120, using ROS-Industrial joint coordinates and the `tool0` frame.
+        /// Its forearm parameter `c3` is 1.590 m, compared with 1.225 m on the GP180.
+        ///
+        /// From the [ROS-Industrial OPW parameters](https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/config/opw_parameters_gp180_120.yaml).
+        pub fn yaskawa_gp180_120() -> Self {
+            Parameters {
+                c3: 1.590,
+                ..Self::yaskawa_gp180()
             }
         }
 

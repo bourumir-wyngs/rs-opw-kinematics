@@ -1,6 +1,6 @@
 [package]
 name = "rs-opw-kinematics"
-version = "3.0.2"
+version = "3.1.0"
 autoexamples = true
 edition = "2024"
 authors = ["Bourumir Wyngs <bourumir.wyngs [at] gmail.com>"]

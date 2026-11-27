@@ -315,3 +315,277 @@ fn test_extraction_m20ia() {
 
     assert_parameter_extraction(yaml, urdf, "m20ia");
 }
+
+const ABB_CHAIN: &str = include_str!("data/abb/irb120_3_58.urdf");
+
+#[test]
+fn chain_selects_physical_joints_by_link() {
+    let xml = ABB_CHAIN.replace("joint_2", "shoulder_pitch").replace(
+        "</robot>",
+        r#"<transmission name="drive"><joint name="shoulder_pitch"/></transmission>
+           <ros2_control name="control"><joint name="shoulder_pitch"/></ros2_control>
+           <joint name="gripper" type="prismatic">
+             <parent link="tool0"/><child link="finger"/><origin xyz="unused"/>
+           </joint></robot>"#,
+    );
+    let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    assert_eq!(chain.parameters.c1, 0.29);
+    assert!(urdf::from_urdf_chain(&xml, "base_link", "finger").is_err());
+    assert!(urdf::from_urdf_chain(&xml, "base_link", "unknown").is_err());
+}
+
+#[test]
+fn chain_rejects_multiple_parents_and_cycles_through_mount() {
+    for (extra, expected) in [
+        (
+            r#"<joint><parent link="base_link"/><child link="link_3"/></joint>"#,
+            "multiple parent",
+        ),
+        (
+            r#"<joint><parent link="tool0"/><child link="mount"/></joint>
+            <joint><parent link="mount"/><child link="base_link"/></joint>"#,
+            "cycle",
+        ),
+    ] {
+        let xml = ABB_CHAIN.replace("</robot>", &format!("{extra}</robot>"));
+        let error = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn rotary_joints_without_position_bounds_allow_free_rotation_in_both_readers() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::TAU;
+    use urdf::UrdfJointLimit::{Continuous, Unspecified};
+
+    for (kind, expected) in [("revolute", Unspecified), ("continuous", Continuous)] {
+        for limit in ["", r#"<limit effort="20" velocity="3"/>"#] {
+            let xml = ABB_CHAIN.replace(
+                r#"name="joint_2" type="revolute">"#,
+                &format!(r#"name="joint_2" type="{kind}">{limit}"#),
+            );
+            let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+            assert_eq!(chain.limits[1], expected, "{kind} {limit}");
+            let chain_robot = chain.to_robot(BY_PREV).unwrap();
+            let named_robot = urdf::from_urdf(xml, &None)
+                .unwrap()
+                .to_robot(BY_PREV, &[0.0; 6]);
+            for constraints in [chain_robot.constraints(), named_robot.constraints()] {
+                let constraints = constraints.as_ref().unwrap();
+                for angle in [-4.0 * TAU - 0.3, 5.0 * TAU + 0.7] {
+                    assert!(
+                        constraints.compliant(&[0.0, angle, 0.0, 0.0, 0.0, 0.0]),
+                        "{kind} {limit}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn chain_import_preserves_joint_limits() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use urdf::UrdfJointLimit::{Bounded, Continuous, Unspecified};
+
+    let xml = ABB_CHAIN
+        .replace(
+            r#"name="joint_1" type="revolute">"#,
+            r#"name="joint_1" type="continuous"><limit effort="20" velocity="3"/>"#,
+        )
+        .replace(
+            r#"name="joint_2" type="revolute">"#,
+            r#"name="joint_2" type="revolute"><limit upper="0.5"/>"#,
+        )
+        .replace(
+            r#"name="joint_6" type="revolute">"#,
+            r#"name="joint_6" type="revolute"><limit lower="-9" upper="8"/>"#,
+        );
+    let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    assert_eq!(
+        chain.limits,
+        [
+            Continuous,
+            Bounded {
+                lower: 0.0,
+                upper: 0.5
+            },
+            Unspecified,
+            Unspecified,
+            Unspecified,
+            Bounded {
+                lower: -9.0,
+                upper: 8.0
+            },
+        ]
+    );
+    let robot = chain.to_robot(BY_PREV).unwrap();
+    let limits = robot.constraints().as_ref().unwrap();
+    assert!(limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.0]));
+    assert!(!limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.1]));
+
+    let locked = xml.replace(r#"upper="0.5""#, r#"upper="0""#);
+    let chain = urdf::from_urdf_chain(&locked, "base_link", "tool0").unwrap();
+    assert!(
+        chain
+            .to_robot(BY_PREV)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("J2")
+    );
+}
+
+fn chain_with_j2_limit(kind: &str, bounds: Option<(f64, f64)>) -> urdf::UrdfChain {
+    let limit = bounds.map_or_else(String::new, |(lower, upper)| {
+        format!(r#"<limit lower="{lower}" upper="{upper}" effort="20" velocity="3"/>"#)
+    });
+    let xml = ABB_CHAIN.replace(
+        r#"name="joint_2" type="revolute">"#,
+        &format!(r#"name="joint_2" type="{kind}">{limit}"#),
+    );
+    urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap()
+}
+
+fn robot_with_j2_limit(kind: &str, bounds: Option<(f64, f64)>) -> crate::tool::Tool {
+    chain_with_j2_limit(kind, bounds)
+        .to_robot(crate::constraints::BY_PREV)
+        .unwrap()
+}
+
+#[test]
+fn chain_subturn_limits_repeat_for_both_joint_types() {
+    use crate::kinematic_traits::Kinematics;
+
+    let bounds = (360.0_f64.to_radians(), 370.0_f64.to_radians());
+    let joints = |degrees: f64| [0.2, degrees.to_radians(), 0.3, 0.5, -0.4, 0.3];
+    for kind in ["continuous", "revolute"] {
+        let robot = robot_with_j2_limit(kind, Some(bounds));
+        let limits = robot.constraints().as_ref().unwrap();
+        assert_eq!((limits.from[1], limits.to[1]), bounds);
+        for degrees in [5.0, 365.0, 725.0] {
+            assert!(limits.compliant(&joints(degrees)), "{kind} at {degrees}°");
+        }
+        assert!(!limits.compliant(&joints(15.0)), "{kind} at 15°");
+
+        let target = robot.forward(&joints(5.0));
+        assert!(
+            robot
+                .inverse(&target)
+                .iter()
+                .any(|q| (q[1] - joints(5.0)[1]).abs() < 1e-10)
+        );
+        let previous = joints(725.0);
+        let solutions = robot.inverse_continuing(&target, &previous);
+        assert!((solutions.first().unwrap()[1] - previous[1]).abs() < 1e-10);
+    }
+}
+
+#[test]
+fn chain_continuous_joints_allow_all_turns_for_absent_zero_or_full_turn_spans() {
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::{PI, TAU};
+
+    let previous = [0.2, 3.0 * TAU + 0.45, 0.3, 0.5, -0.4, 0.3];
+    for bounds in [None, Some((1.0, 1.0)), Some((0.0, TAU)), Some((-PI, PI))] {
+        let robot = robot_with_j2_limit("continuous", bounds);
+        let limits = robot.constraints().as_ref().unwrap();
+        assert_eq!((limits.from[1], limits.to[1]), (0.0, 0.0));
+        assert!(limits.compliant(&previous), "{bounds:?}");
+        let solutions = robot.inverse_continuing(&robot.forward(&previous), &previous);
+        assert!((solutions.first().unwrap()[1] - previous[1]).abs() < 1e-10);
+    }
+}
+
+#[test]
+fn chain_revolute_full_turn_preserves_input_bounds_and_enforces_stops() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::{PI, TAU};
+
+    let joints = |j2| [0.2, j2, 0.3, 0.5, -0.4, 0.3];
+    for (lower, upper) in [(0.0, TAU), (-PI, PI), (-TAU, 0.0)] {
+        let chain = chain_with_j2_limit("revolute", Some((lower, upper)));
+        assert_eq!(
+            chain.limits[1],
+            urdf::UrdfJointLimit::Bounded { lower, upper }
+        );
+        let robot = chain.to_robot(BY_PREV).unwrap();
+        let limits = robot.constraints().as_ref().unwrap();
+        assert!(limits.compliant(&joints(lower)));
+        assert!(limits.compliant(&joints(upper)));
+        assert!(!limits.compliant(&joints(lower - TAU)));
+        assert!(!limits.compliant(&joints(upper + TAU)));
+        assert!(limits.from[1] >= lower.next_down().next_down());
+        assert!(limits.to[1] <= upper.next_up().next_up());
+        if lower == 0.0 {
+            assert_eq!((limits.from[1], limits.to[1]), (0.0, TAU.next_up()));
+        } else if upper == 0.0 {
+            assert_eq!((limits.from[1], limits.to[1]), ((-TAU).next_down(), 0.0));
+        }
+    }
+
+    let upper = TAU.next_down();
+    let robot = robot_with_j2_limit("revolute", Some((0.0, upper)));
+    let limits = robot.constraints().as_ref().unwrap();
+    assert_eq!((limits.from[1], limits.to[1]), (0.0, upper));
+    assert!(limits.compliant(&joints(0.5 + TAU)));
+}
+
+#[test]
+fn continuous_limits_either_side_of_a_rounded_full_turn() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::{PI, TAU};
+
+    for (upper, periodic) in [(PI.next_down(), true), (PI.next_up(), false)] {
+        let lower = -PI;
+        assert_eq!(upper - lower, TAU);
+        let chain = chain_with_j2_limit("continuous", Some((lower, upper)));
+        assert_eq!(
+            chain.limits[1],
+            urdf::UrdfJointLimit::Bounded { lower, upper }
+        );
+        let robot = chain.to_robot(BY_PREV).unwrap();
+        let limits = robot.constraints().as_ref().unwrap();
+        assert_eq!(limits.compliant(&[0.2, TAU, 0.3, 0.5, -0.4, 0.3]), periodic);
+    }
+}
+
+#[test]
+fn chain_explicit_multiturn_ranges_have_absolute_stops_for_both_joint_types() {
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::TAU;
+
+    let joints = |j2| [0.2, j2, 0.3, 0.5, -0.4, 0.3];
+    for kind in ["continuous", "revolute"] {
+        for (lower, upper, angle) in [(0.0, TAU.next_up(), 0.6), (TAU, 2.0 * TAU + 0.2, TAU + 0.6)]
+        {
+            let robot = robot_with_j2_limit(kind, Some((lower, upper)));
+            let limits = robot.constraints().as_ref().unwrap();
+            assert_eq!((limits.from[1], limits.to[1]), (lower, upper));
+            assert!(limits.compliant(&joints(lower)));
+            assert!(limits.compliant(&joints(upper)));
+            assert!(!limits.compliant(&joints(lower.next_down())));
+            assert!(!limits.compliant(&joints(upper.next_up())));
+
+            let target = robot.forward(&joints(angle));
+            for solutions in [
+                robot.inverse(&target),
+                robot.inverse_continuing(&target, &joints(angle + TAU)),
+            ] {
+                assert!(
+                    solutions.iter().any(|q| (q[1] - angle).abs() < 1e-10),
+                    "{kind}"
+                );
+                assert!(
+                    solutions.iter().all(|q| (lower..=upper).contains(&q[1])),
+                    "{kind}"
+                );
+            }
+        }
+    }
+}

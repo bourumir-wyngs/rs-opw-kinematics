@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="motomini">
+  <!--
+  SPDX-License-Identifier: BSD-3-Clause
+  Source: https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_motomini_support/urdf/motomini_macro.xacro
+  Upstream package authors: Eric Marcil.
+  Modified for kinematics tests: expanded Xacro with an empty prefix, removed meshes, materials and dynamics.
+  Redistribution terms and attribution accompany this file in LICENSE.txt and README.md.
+-->
+  <link name="base_link" />
+  <link name="link_1_s" />
+  <link name="link_2_l" />
+  <link name="link_3_u" />
+  <link name="link_4_r" />
+  <link name="link_5_b" />
+  <link name="link_6_t" />
+  <link name="tool0" />
+  <joint name="joint_1_s" type="revolute">
+    <parent link="base_link" />
+    <child link="link_1_s" />
+    <origin rpy="0 0 0" xyz="0 0 0.103" />
+    <axis xyz="0 0 1" />
+    <limit effort="0.12" lower="-2.9670" upper="2.9670" velocity="5.4977" />
+  </joint>
+  <joint name="joint_2_l" type="revolute">
+    <parent link="link_1_s" />
+    <child link="link_2_l" />
+    <origin rpy="0 0 0" xyz="0.020 0 0" />
+    <axis xyz="0 1 0" />
+    <limit effort="0.12" lower="-1.4835" upper="1.5707" velocity="5.4977" />
+  </joint>
+  <joint name="joint_3_u" type="revolute">
+    <parent link="link_2_l" />
+    <child link="link_3_u" />
+    <origin rpy="0 0 0" xyz="0 0 0.165" />
+    <axis xyz="0 -1 0" />
+    <limit effort="0.12" lower="-0.8726" upper="1.5707" velocity="7.3304" />
+  </joint>
+  <joint name="joint_4_r" type="revolute">
+    <parent link="link_3_u" />
+    <child link="link_4_r" />
+    <origin rpy="0 0 0" xyz="0.165 0 0" />
+    <axis xyz="-1 0 0" />
+    <limit effort="0.07" lower="-2.4434" upper="2.4434" velocity="10.4719" />
+  </joint>
+  <joint name="joint_5_b" type="revolute">
+    <parent link="link_4_r" />
+    <child link="link_5_b" />
+    <origin rpy="0 0 0" xyz="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit effort="0.07" lower="-0.5235" upper="3.6651" velocity="10.4719" />
+  </joint>
+  <joint name="joint_6_t" type="revolute">
+    <parent link="link_5_b" />
+    <child link="link_6_t" />
+    <origin rpy="0 0 0" xyz="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit effort="0.07" lower="-6.2831" upper="6.2831" velocity="10.4719" />
+  </joint>
+  <joint name="joint_6_t-tool0" type="fixed">
+    <origin rpy="3.141592653589793 0 0" xyz="0 0 -0.040 " />
+    <parent link="link_6_t" />
+    <child link="tool0" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0.103" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+</robot>

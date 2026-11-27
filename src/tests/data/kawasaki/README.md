@@ -1,0 +1,5 @@
+# Kawasaki Robotics fixtures
+
+[RS030N](rs030n.urdf) is a kinematic extract of the [manufacturer's expanded ROS URDF](https://github.com/Kawasaki-Robotics/khi_robot/blob/678dd3fbc4f75fd76c1fd5277116d0edc6528f13/khi_rs030n_moveit_config/config/gazebo_khi_rs030n.urdf). Use `base_link` to `link6`. It retains the six rotary joints, their original limits, six transmission records and the fixed world frame. J1 is bounded to exactly one revolution. Geometry, inertias, joint dynamics and Gazebo settings were removed.
+
+The [MoveIt package manifest](https://github.com/Kawasaki-Robotics/khi_robot/blob/678dd3fbc4f75fd76c1fd5277116d0edc6528f13/khi_rs030n_moveit_config/package.xml) declares BSD. The repository's [BSD-3-Clause license](https://github.com/Kawasaki-Robotics/khi_robot/blob/678dd3fbc4f75fd76c1fd5277116d0edc6528f13/LICENSE) is reproduced in [LICENSE.txt](LICENSE.txt). The [robot description package](https://github.com/Kawasaki-Robotics/khi_robot/blob/678dd3fbc4f75fd76c1fd5277116d0edc6528f13/khi_rs_description/package.xml) lists separate terms for its CAD meshes. This fixture contains only XML with empty links.

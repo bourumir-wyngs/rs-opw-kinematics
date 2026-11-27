@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="gp180_120">
+  <!--
+  SPDX-License-Identifier: BSD-3-Clause
+  Source: https://github.com/ros-industrial/motoman/blob/846fbbc57c60223f12bf4795ea6404982d57709e/motoman_gp180_support/urdf/gp180_120_macro.xacro
+  Upstream package authors: Jakub Marsik, Alec Tiefenthal.
+  Modified for kinematics tests: expanded Xacro with an empty prefix, removed meshes, materials and dynamics.
+  Redistribution terms and attribution accompany this file in LICENSE.txt and README.md.
+-->
+  <link name="base_link" />
+  <link name="link_1_s" />
+  <link name="link_2_l" />
+  <link name="link_3_u" />
+  <link name="link_4_r" />
+  <link name="link_5_b" />
+  <link name="link_6_t" />
+  <link name="tool0" />
+  <joint name="joint_1_s" type="revolute">
+    <parent link="base_link" />
+    <child link="link_1_s" />
+    <origin rpy="0 0 0" xyz="0 0 0.650" />
+    <axis xyz="0 0 1" />
+    <limit effort="9414.38" lower="-3.141592653589793" upper="3.141592653589793" velocity="2.181661564992912" />
+  </joint>
+  <joint name="joint_2_l" type="revolute">
+    <parent link="link_1_s" />
+    <child link="link_2_l" />
+    <origin rpy="0 0 0" xyz="0.325 0 0" />
+    <axis xyz="0 1 0" />
+    <limit effort="11645.4" lower="-1.0471975511965976" upper="1.3264502315156905" velocity="2.007128639793479" />
+  </joint>
+  <joint name="joint_3_u" type="revolute">
+    <parent link="link_2_l" />
+    <child link="link_3_u" />
+    <origin rpy="0 0 0" xyz="0 0 1.150" />
+    <axis xyz="0 -1 0" />
+    <limit effort="7060.79" lower="-1.5009831567151235" upper="1.5707963267948966" velocity="2.181661564992912" />
+  </joint>
+  <joint name="joint_4_r" type="revolute">
+    <parent link="link_3_u" />
+    <child link="link_4_r" />
+    <origin rpy="0 0 0" xyz="0 0 0.300" />
+    <axis xyz="-1 0 0" />
+    <limit effort="1392.54" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.1764992386296798" />
+  </joint>
+  <joint name="joint_5_b" type="revolute">
+    <parent link="link_4_r" />
+    <child link="link_5_b" />
+    <origin rpy="0 0 0" xyz="1.590 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit effort="1863.26" lower="-2.2689280275926285" upper="2.2689280275926285" velocity="3.0543261909900767" />
+  </joint>
+  <joint name="joint_6_t" type="revolute">
+    <parent link="link_5_b" />
+    <child link="link_6_t" />
+    <origin rpy="0 0 0" xyz="0.225 0 0" />
+    <axis xyz="-1 0 0" />
+    <limit effort="926.73" lower="-6.283185307179586" upper="6.283185307179586" velocity="4.625122517784973" />
+  </joint>
+  <joint name="joint_6_t-tool0" type="fixed">
+    <origin rpy="3.141592653589793 -1.5707963267948966 0" xyz="0 0 0" />
+    <parent link="link_6_t" />
+    <child link="tool0" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0.650" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+</robot>

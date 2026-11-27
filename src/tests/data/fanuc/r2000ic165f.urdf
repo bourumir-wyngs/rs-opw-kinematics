@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="fanuc_r2000ic165f">
+  <!--
+  SPDX-License-Identifier: BSD-3-Clause
+  Source: https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_r2000ic_support/urdf/r2000ic165f_macro.xacro
+  Package authors: G.A. vd. Hoorn (TU Delft Robotics Institute).
+  Modified for analysis: link contents and physical dynamics removed, joint data retained. Macro prefix set to empty and retained numeric expressions expanded.
+  License and upstream notices accompany this file in LICENSE.txt.
+-->
+  <link name="base_link" />
+  <link name="link_1" />
+  <link name="link_2" />
+  <link name="link_3" />
+  <link name="link_4" />
+  <link name="link_5" />
+  <link name="link_6" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.670" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.2288591161895095" upper="3.2288591161895095" effort="0" velocity="2.2689280275926285" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.312 0 0" rpy="0 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.0471975511965976" upper="1.3264502315156905" effort="0" velocity="2.007128639793479" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0 0 1.075" rpy="0 0 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-2.303834612632515" upper="3.141592653589793" effort="0" velocity="2.181661564992912" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0 0 0.225" rpy="0 0 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-6.283185307179586" upper="6.283185307179586" effort="0" velocity="3.141592653589793" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="1.280 0 0" rpy="0 0 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-2.181661564992912" upper="2.181661564992912" effort="0" velocity="3.141592653589793" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0.215 0 0" rpy="0 0 0" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-6.283185307179586" upper="6.283185307179586" effort="0" velocity="4.537856055185257" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base" type="fixed">
+    <origin xyz="0 0 0.670" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+  <link name="flange" />
+  <joint name="joint_6-flange" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link_6" />
+    <child link="flange" />
+  </joint>
+  <link name="tool0" />
+  <joint name="link_6-tool0" type="fixed">
+    <origin xyz="0 0 0" rpy="3.141592653589793 -1.5707963267948966 0" />
+    <parent link="link_6" />
+    <child link="tool0" />
+  </joint>
+</robot>

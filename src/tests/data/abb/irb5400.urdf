@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="abb_irb5400">
+  <!--
+  SPDX-License-Identifier: Apache-2.0
+  Source: https://github.com/ros-industrial/abb/blob/45f4769d826cf3ac62a65495f2db67b78b0c81df/abb_irb5400_support/urdf/irb5400_macro.xacro
+  Package authors: Dan Solomon (SwRI), Levi Armstrong (SwRI).
+  Modified for analysis: link contents and physical dynamics removed, joint data retained. Macro prefix set to empty and retained numeric expressions expanded.
+  License and upstream notices accompany this file in LICENSE.
+-->
+  <link name="base_link" />
+  <link name="link_1" />
+  <link name="link_2" />
+  <link name="link_3" />
+  <link name="link_4" />
+  <link name="link_5" />
+  <link name="link_5b" />
+  <link name="link_6" />
+  <link name="tool0" />
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link" />
+    <child link="link_1" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.617" upper="2.617" effort="100" velocity="2.3911" />
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <parent link="link_1" />
+    <child link="link_2" />
+    <origin xyz="0.300 0 0.660" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.396" upper="1.396" effort="100" velocity="2.3911" />
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <parent link="link_2" />
+    <child link="link_3" />
+    <origin xyz="0 0 1.200" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.308" upper="1.308" effort="100" velocity="2.3911" />
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <parent link="link_3" />
+    <child link="link_4" />
+    <origin xyz="1.339 0 0.186" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-6.0" upper="6.0" effort="100" velocity="8.1157" />
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <parent link="link_4" />
+    <child link="link_5" />
+    <origin xyz="0.0693 0 0" rpy="0 0.6109 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-6.0" upper="6.0" effort="100" velocity="6.1086" />
+  </joint>
+  <joint name="joint_5b" type="revolute">
+    <parent link="link_5" />
+    <child link="link_5b" />
+    <origin xyz=".106246 0 0.074394" rpy="0 -1.2217 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-6.0" upper="6.0" effort="100" velocity="6.1086" />
+    <mimic joint="joint_5" multiplier="-1.0" offset="0" />
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <parent link="link_5b" />
+    <child link="link_6" />
+    <origin xyz="0.0672 0 -0.0470" rpy="0 0.6109 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-6.0" upper="6.0" effort="100" velocity="9.3375" />
+  </joint>
+  <joint name="joint_6-tool0" type="fixed">
+    <parent link="link_6" />
+    <child link="tool0" />
+    <origin xyz="0 0 0" rpy="0 1.57079632679 0" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+</robot>

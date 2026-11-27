@@ -167,8 +167,13 @@ produce the same flange pose. With J6 previously at `535°`, inverse continuatio
 selects the turn nearest the interval midpoint. An explicitly fixed J6 in five-axis IK
 must itself be within the configured limits.
 
-Exactly 360° still permits any turn. Narrower ranges repeat every turn, so `350°..=370°`
-admits both `5°` and `365°`. Equal endpoints leave the joint unrestricted.
+Enter a stop at zero as `0.0`. For example, `0°..=720°` sets an absolute lower stop
+at exactly zero. With `Constraints::new`, a range of exactly one turn (`0.0..=TAU`
+in radians) permits any turn. Setting the upper endpoint to `TAU.next_up()`
+selects absolute travel and allows one representable value beyond `TAU`.
+Narrower ranges repeat every turn, so `360°..=370°` admits both `5°` and
+`365°`. Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted
+in `Constraints::new`.
 If an older configuration uses a wider range to mean unlimited rotation, set it to
 `-180°..=180°` to keep that behavior.
 
@@ -779,9 +784,10 @@ The project contains built-in definitions in [`Parameters`](src/parameters_robot
 | Manufacturer | Models |
 | --- | --- |
 | ABB | IRB 120-3/0.58, IRB 1200-5/0.90, IRB 1200-7/0.70, IRB 1600-6/1.20, IRB 1600-10/1.45 (`abb_1600`), IRB 2400/10, IRB 2600-12/1.65, IRB 4600-40/2.55, IRB 4600-60/2.05 |
-| FANUC | LR Mate 200iB, M-6iB, M-10iA, M-16iB/20, M-20iA, M-20iB/25, R-2000iB/200R |
+| FANUC | LR Mate 200iB, LR Mate 200iC, M-6iB, M-10iA, M-16iB/20, M-20iA, M-20iB/25, R-2000iB/200R, R-2000iC/165F |
 | KUKA | KR 6 R700 sixx, KR 6 R900-2, KR 10 R1420, KR 150 R3100-2 |
-| Stäubli | RX160, TX40, TX2-140, TX2-160, TX2-160L |
+| Stäubli | RX160, TX40, TX2-60, TX2-140, TX2-160, TX2-160L |
+| Yaskawa | Motoman GP7, GP180, GP180-120 |
 | Igus | Rebel |
 
 For example, use `Parameters::fanuc_m10ia()` or `Parameters::irb120_3_58()`.
@@ -790,7 +796,8 @@ to reference definitions; ROS-Industrial presets use the linked model's joint co
 and transform from `base_link` to `tool0`. These definitions provide nominal kinematics;
 joint limits and controller-specific joint coupling must be configured separately when applicable.
 
-The six FANUC presets from LR Mate 200iB through M-20iB/25 use the serial-chain input
+The FANUC LR Mate 200iB, LR Mate 200iC, M-series models listed above, and R-2000iC/165F
+use the serial-chain input
 `joints[2] = controller_j3 + controller_j2` (all angles in radians), following the
 [ROS-Industrial linkage conversion](https://github.com/ros-industrial/fanuc/blob/d8f42bd73584b255df87098395512538882caea1/fanuc_driver/src/fanuc_utils.cpp).
 
@@ -810,27 +817,71 @@ This project contains the code for reading such configurations directly, includi
   let robot = OPWKinematics::new(parameters);
 ```
 
-Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
+For a five-axis model, set `dof: 5` in the YAML file. The default is six.
+
+## Reading URDF
+
+Version 3.1.0 significantly improves URDF reading for six-axis OPW arms.
+Pass the base and tip link names to `from_urdf_chain` with an expanded URDF 1.0
+document. The reader follows the links between them and composes the translation
+and rotation of every fixed joint, including mounts before J1, adapters between
+moving joints, and tools after J6. From the six rotary axes it derives the OPW
+dimensions, joint directions, and zero offsets.
 
 ```rust
-  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
-      .expect("Failed to load URDF");
-  // If you want to inspect parameters, see the `urdf` module helpers.
+use rs_opw_kinematics::constraints::BY_PREV;
+use rs_opw_kinematics::urdf::from_urdf_chain;
+
+let xml = include_str!("robot.urdf");
+let chain = from_urdf_chain(xml, "base_link", "tool0")?;
+let robot = chain.to_robot(BY_PREV)?;
 ```
 
-There is also more advanced
-function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/urdf/fn.from_urdf.html)
-that takes URDF string rather than the file, provides error handling and much more control over how the solver
-is constructed from the extracted values.
+The reader checks that J2 and J3 are parallel, J1 is perpendicular to J2,
+and J3 is perpendicular to J4. The three wrist axes must intersect at one
+point, with J5 perpendicular to both J4 and J6. The upper arm and wrist may
+be inclined at joint zero.
+The reader ignores side branches, such as a gripper finger driven by a mimic
+joint. A rotary mimic joint on the selected path, such as the ABB IRB5400's
+coupled wrist joint, produces an error that names the joint.
 
-YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
-not accounted for). The URDF reader treats a model containing exactly five joint definitions but no joint 6 as 5DOF
-and assumes `c4` is zero. Extraction of a nonzero TCP offset for this case is not currently supported.
+`chain.limits` retains the declared revolute bounds. When a `revolute` or
+`continuous` joint has explicit position limits, a positive range shorter
+than 360° repeats every turn. For example, 360° to 370° admits both 5° and
+365°. A range wider than 360° sets absolute limits, so -540° to 540° allows
+365° and rejects 725°.
 
-**Important:** The URDF reader assumes a robot with a parallel base and spherical wrist and not an arbitrary robot.
-You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
-compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
-values. Use visualization as explained before feeding the output to the physical robot.
+At exactly 360°, a `continuous` joint permits any turn. For a `revolute`
+joint, both readers move one solver endpoint outward just far enough to
+activate [absolute travel limits](#constraints). For `[0, TAU]`, the upper
+endpoint becomes `TAU.next_up()`. For `[-TAU, 0]`, the lower endpoint
+becomes `(-TAU).next_down()`. In both cases the stop at zero stays exactly zero.
+
+Both `revolute` and `continuous` joints rotate freely when the URDF omits
+both position bounds. This covers a missing `<limit>` element and a limit
+such as `<limit effort="20" velocity="3"/>`. The chain reader records a
+`revolute` joint with no position bounds as `UrdfJointLimit::Unspecified`.
+A `continuous` joint also rotates freely if only one endpoint is supplied or
+both are equal. For a `revolute` joint with explicitly equal endpoints,
+`to_robot` reports an error.
+
+The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
+folder with imported URDF fixtures documents their upstream sources and licenses.
+
+Name-based URDF loading has been available since 1.2.0. `from_urdf_file` reads
+a file and builds the solver. [`from_urdf`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/urdf/fn.from_urdf.html)
+takes XML as a string and accepts an optional list of joint names. These readers treat
+a model with exactly five joint definitions and no matching J6 as five-axis
+and assume `c4 = 0`.
+
+```rust
+let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
+    .expect("Failed to load URDF");
+```
+
+If an OPW-compatible arm imports incorrectly, please include the URDF and the
+expected parameters or tool pose in the bug report. Check the imported model
+in the [visualization](#visualization) before using it with a physical robot.
 
 # Disabling filesystem
 
