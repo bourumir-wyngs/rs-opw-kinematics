@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1120 665" width="1120" height="665" style="max-width:100%;height:auto" role="img" aria-labelledby="opw-title opw-desc">
-  <title id="opw-title">Eight IK branches for one flange pose</title>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 32 1120 633" width="1120" height="633" style="max-width:100%;height:auto" role="img" aria-labelledby="opw-title opw-desc">
+  <title id="opw-title">Eight IK branches</title>
   <desc id="opw-desc">Six-axis OPW robot viewed along the flange axis. The columns show First shoulder with Positive and Negative elbows, then Second shoulder with Positive and Negative elbows. The top row shows Principal wrist, indices 0–3. The bottom row shows Flipped wrist, indices 4–7. The orange arrow starts at the wrist and shows the positive J5 axis. Every arrow is parallel to the page and reverses within each column.</desc>
   <!-- OPW model seed (J1 through J6, degrees): 30, -25, 100, 65, 55, -35. Orthographic projection along the common flange axis. -->
   <defs>
@@ -73,8 +73,7 @@
   </defs>
   <rect width="1120" height="665" fill="#fff" />
   <g font-family="DejaVu Sans, Arial, sans-serif" fill="#203747">
-    <text x="36" y="45" font-size="33" font-weight="bold">Eight IK branches for one flange pose</text>
-    <text x="37" y="76" font-size="15" fill="#49616c">One nonsingular target   ·   Before joint limits and collision checks</text>
+    <text x="36" y="77" font-size="33" font-weight="bold">Eight IK branches</text>
     <text x="384.5" y="121" font-size="20" font-weight="bold" text-anchor="middle">First shoulder</text>
     <path d="M163.5 131 h442" stroke="#c4d2d6" />
     <text x="854.5" y="121" font-size="20" font-weight="bold" text-anchor="middle">Second shoulder</text>

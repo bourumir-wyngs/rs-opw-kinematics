@@ -110,7 +110,7 @@ See example [complete_visible_robot.rs](examples/complete_visible_robot.rs).
 
 ## Branch-indexed inverse kinematics results
 
-`IKResults` describes all eight analytical branches of a six-axis OPW robot for one target pose.
+`IKResults` describes all eight analytical branches of a six-axis OPW robot.
 It is a fixed array, `[IKResult; 8]`, with one slot per branch. A slot keeps its place when the
 target moves, when a joint limit excludes its solution, or when two branches meet at a singularity.
 This lets you follow one posture across waypoints and inspect what happened to it at a particular pose.
@@ -127,7 +127,7 @@ coordinates, before joint offsets, axis sign corrections, and whole-turn adjustm
 - **Wrist** selects the principal J5 bend in `[0, π]` or its negative (`Wrist::Principal`
   or `Wrist::Flipped`). Away from a wrist pole, flipping the wrist shifts J4 and J6 by a half-turn.
 
-![Eight branches of a six-axis OPW robot reaching the same flange pose. The columns show shoulder and elbow choices. The rows show principal and flipped wrists.](documentation/opw-branches.svg)
+![Eight IK branches. Columns show shoulder and elbow choices. Rows show principal and flipped wrists.](documentation/opw-branches.svg)
 
 Use **`results[branch.index()]`** to index the array. The figure reads in array order from left
 to right, with slots 0–3 on the top row and 4–7 below. For example, slots 2 and 6 share the
