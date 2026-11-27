@@ -28,7 +28,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
 - rs-opw-kinematics is written entirely in Rust (not a C++ binding) and deployable via Cargo.
 - Inverse solutions are cross-checked with forward kinematics: the full pose for 6 DOF,
   and the tool position for 5 DOF. Continuation normalizes joint angles near the previous values.
-- Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
+- `inverse` and `inverse_continuing` filter their solution lists by the configured joint constraints.
 - Collision detection (with [Parry](https://parry.rs/)) allows excluding solutions where the robot would collide with
   itself or environment objects. It is possible to configure minimum clearances between surfaces rather than
   just checking if they touch.
@@ -107,6 +107,106 @@ The project rs-opw-kinematics has now evolved beyond being just a set of "useful
 enables the creation of a complete robot setup, which includes mounting the robot on a base, equipping it with a tool,
 integrating collision checking and both joint-based and Cartesian path planning with collision avoidance.
 See example [complete_visible_robot.rs](examples/complete_visible_robot.rs).
+
+## Branch-indexed inverse kinematics results
+
+`IKResults` describes all eight analytical branches of a six-axis OPW robot for one target pose.
+It is a fixed array, `[IKResult; 8]`, with one slot per branch. A slot keeps its place when the
+target moves, when a joint limit excludes its solution, or when two branches meet at a singularity.
+This lets you follow one posture across waypoints and inspect what happened to it at a particular pose.
+The public types live in `rs_opw_kinematics::ik_result`.
+
+### Selecting a branch
+
+A `Branch` identifies three choices in the OPW equations. These choices are expressed in model
+coordinates, before joint offsets, axis sign corrections, and whole-turn adjustments.
+
+- **Shoulder** selects the first or second radial root (`Shoulder::First` or `Shoulder::Second`).
+- **Elbow** selects the sign of the arccosine term in the J3 equation (`Elbow::Positive` or
+  `Elbow::Negative`). The same root can put the elbow at different heights as the shoulder changes.
+- **Wrist** selects the principal J5 bend in `[0, π]` or its negative (`Wrist::Principal`
+  or `Wrist::Flipped`). Away from a wrist pole, flipping the wrist shifts J4 and J6 by a half-turn.
+
+![Eight branches of a six-axis OPW robot reaching the same flange pose. The columns show shoulder and elbow choices. The rows show principal and flipped wrists.](documentation/opw-branches.svg)
+
+Use **`results[branch.index()]`** to index the array. The figure reads in array order from left
+to right, with slots 0–3 on the top row and 4–7 below. For example, slots 2 and 6 share the
+second shoulder and positive elbow. Their orange arrows point in opposite directions along the
+positive J5 axes. The view looks along the flange axis, so every arrow lies in the plane of the page.
+
+```rust
+use rs_opw_kinematics::ik_result::{Branch, Elbow, GeometryStatus, IKResults, Shoulder, Wrist};
+use rs_opw_kinematics::kinematic_traits::Joints;
+
+/// Return the joints for this branch if the pose verifies and all checked limits pass.
+fn joints_for(results: &IKResults, branch: Branch) -> Option<&Joints> {
+    let slot = &results[branch.index()];
+    (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits.violated().is_empty())
+        .then_some(&slot.joints)
+}
+
+let branch = Branch::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
+assert_eq!(branch.index(), 6);
+```
+
+### Reading a result
+
+Each `IKResult` occupies 64 bytes. It stores six joint angles in radians (`joints`), the
+minimum signed joint-limit margin (`limit_margin_rad`), and eight bytes of typed diagnostics
+(`meta: IKMetadata`). Read `meta.geometry` first to interpret the joint values.
+
+| `GeometryStatus` | Meaning | `joints` |
+| --- | --- | --- |
+| `Verified` | Forward kinematics reproduces the target within the position and orientation tolerances. | Six finite angles in robot joint coordinates. A joint limit can still be violated. |
+| `NoRealRoot` | This branch has no real root for the target pose. | All six angles are `NaN`. |
+| `FailedPoseCheck` | The equations produced a candidate, but its forward pose failed verification. | The six finite candidate angles are retained for diagnosis. |
+| `NoRepresentativeFound` | The solver identified a singular family and found no representative under the supplied conditions. Other members may exist. | All six angles are `NaN`. |
+
+### Singularities, recovery, and shared branches
+
+`meta.singularities` records which geometric conditions occur. `meta.recovery` records how the
+stored angles were chosen. Both are sets because an arm and a wrist singularity can occur at the
+same pose. For example, `Singularity::FreeJ1` identifies a free base angle, and
+`Recovery::FreeJ1Search` records that a search selected J1. The corresponding pair for a free
+shoulder angle is `FreeJ2` and `FreeJ2Search`. See [Supported singularities](#supported-singularities)
+for the arm boundaries and wrist poles.
+
+At model J5 = 0, the target fixes the sum J4 + J6. At J5 = ±π, it fixes the difference J4 - J6.
+`Recovery::WristPhase` means the solver used that relation to select the stored J4/J6 pair.
+The principal and flipped slots can then belong to the same family, even when their stored
+joint angles differ. An ordinary solution's `meta.family` contains only its own branch.
+An empty family means no family was identified.
+
+```rust
+use rs_opw_kinematics::ik_result::{Branch, IKMetadata, Recovery, Singularity};
+
+/// Report the slots that share a wrist family recovered at J5 = 0.
+fn report_wrist_family(meta: &IKMetadata) {
+    if meta.singularities.contains(Singularity::WristZero)
+        && meta.recovery.contains(Recovery::WristPhase)
+    {
+        let slots: Vec<_> = meta.family.iter().map(Branch::index).collect();
+        println!("Wrist at J5 = 0, shared by slots {slots:?}");
+    }
+}
+```
+
+### Joint limits and clearance
+
+`meta.limits.status(Joint::J4)` returns `Unchecked`, `WithinLimits` (including the boundary),
+or `Violated`. Use `meta.limits.checked().iter()` to see which joints were evaluated and
+`meta.limits.violated().iter()` to list the violations in J1–J6 order. An empty violation set
+means every checked limit passed. The checked set can also be empty.
+
+`limit_margin_rad` is the smallest signed angular distance to an evaluated limit boundary,
+accounting for wraparound. A positive value gives the least remaining clearance. Zero places a
+joint on its boundary, and a negative value gives the worst violation. For example, a margin
+of `-0.1` with `meta.limiting_joint == Some(Joint::J3)` means J3 is 0.1 radians outside its
+allowed range. Its stored angle is `slot.joints[Joint::J3.index()]`.
+
+An evaluated configuration with no effective limits has margin `f64::INFINITY`. An unevaluated
+margin is `NaN`. In both cases `limiting_joint` is `None`. Equal finite margins select the
+lowest-numbered joint.
 
 ## Parameters
 
