@@ -23,6 +23,9 @@
 //! assert_eq!(branch.index(), 6);
 //! assert_eq!(branch.wrist(), Wrist::Flipped);
 //! ```
+//!
+//! See the [`IKMetadata`] example for reading the singularities, recovery
+//! methods, branch family and joint-limit diagnostics of the selected slot.
 
 use crate::kinematic_traits::Joints;
 

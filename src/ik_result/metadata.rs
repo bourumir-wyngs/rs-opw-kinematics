@@ -233,13 +233,51 @@ impl JointLimitChecks {
 
 /// Branch identity, singularities, recovery and joint-limit diagnostics for one slot.
 ///
-/// ```
-/// use rs_opw_kinematics::ik_result::{IKMetadata, Joint, JointLimitStatus, Singularity};
+/// # Examples
 ///
-/// fn wrist_pole_with_j4_violation(meta: &IKMetadata) -> bool {
-///     meta.singularities.contains(Singularity::WristZero)
-///         && meta.limits.status(Joint::J4) == JointLimitStatus::Violated
-/// }
+/// Given an [`IKResults`](super::IKResults) array, read a branch's diagnostics
+/// with `let meta = &results[branch.index()].meta;`.
+///
+/// In this example, the two wrist branches meet at J5 = 0. Wrist-phase recovery
+/// provided a representative whose forward pose verifies. J4 is within its limit,
+/// while J3 is outside its allowed range.
+///
+/// ```
+/// use rs_opw_kinematics::ik_result::{
+///     Branch, Elbow, GeometryStatus, IKMetadata, Joint, JointLimitChecks, JointLimitStatus,
+///     Recovery, Shoulder, Singularity, Wrist,
+/// };
+///
+/// let principal = Branch::new(Shoulder::Second, Elbow::Positive, Wrist::Principal);
+/// let flipped = Branch::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
+/// let mut limits = JointLimitChecks::default();
+/// limits.set(Joint::J3, JointLimitStatus::Violated);
+/// limits.set(Joint::J4, JointLimitStatus::WithinLimits);
+///
+/// let meta = IKMetadata {
+///     branch: principal,
+///     geometry: GeometryStatus::Verified,
+///     singularities: [Singularity::WristZero].into_iter().collect(),
+///     recovery: [Recovery::WristPhase].into_iter().collect(),
+///     family: [principal, flipped].into_iter().collect(),
+///     limits,
+///     limiting_joint: Some(Joint::J3),
+/// };
+///
+/// // Identify the singularity and how the joint angles were recovered.
+/// assert!(meta.singularities.contains(Singularity::WristZero));
+/// assert!(meta.recovery.contains(Recovery::WristPhase));
+///
+/// // Iterate the branches in the same family, in IKResults array order.
+/// let slots: Vec<_> = meta.family.iter().map(Branch::index).collect();
+/// assert_eq!(slots, [2, 6]);
+///
+/// // Inspect one joint, list all violations, or read the joint with the smallest margin.
+/// assert_eq!(meta.limits.status(Joint::J4), JointLimitStatus::WithinLimits);
+/// assert_eq!(meta.limits.status(Joint::J6), JointLimitStatus::Unchecked);
+/// assert_eq!(meta.limits.status(Joint::J3), JointLimitStatus::Violated);
+/// assert_eq!(meta.limits.violated().iter().collect::<Vec<_>>(), [Joint::J3]);
+/// assert_eq!(meta.limiting_joint, Some(Joint::J3)); // None when no margin is finite.
 /// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
