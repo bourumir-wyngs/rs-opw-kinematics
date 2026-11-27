@@ -9,48 +9,99 @@
 //! the joints for one branch if its pose was verified and it passes all checked limits.
 //!
 //! ```
-//! use rs_opw_kinematics::ik_result::{BranchId, GeometryStatus, IKResults};
+//! use rs_opw_kinematics::ik_result::{BranchId, Elbow, GeometryStatus, IKResults, Shoulder, Wrist};
 //! use rs_opw_kinematics::kinematic_traits::Joints;
 //!
 //! fn joints_for(results: &IKResults, branch: BranchId) -> Option<&Joints> {
-//!     let slot = &results[branch as usize];
+//!     let slot = &results[branch.index()];
 //!     (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits_violated == 0)
 //!         .then_some(&slot.joints)
 //! }
 //!
-//! assert_eq!(BranchId::SecondPositiveFlipped as usize, 6);
+//! let branch = BranchId::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
+//! assert_eq!(branch.index(), 6);
+//! assert_eq!(branch.wrist(), Wrist::Flipped);
 //! ```
 
 use crate::kinematic_traits::Joints;
 
-/// The eight analytical branch slots, in the same order as
-/// [CEAD's reach kernel](https://github.com/CEAD-group/py-opw-kinematics/blob/7e16424d9a8c359c098faa74403af6325ad61c2c/src/reach.rs#L50-L56).
-///
-/// The index is `4 * wrist_flip + 2 * shoulder + elbow`. In OPW model
-/// coordinates, the first/second shoulder uses the positive/negative radial
-/// root, and the positive/negative elbow uses the corresponding sign of the
-/// arccosine term in J3. The principal wrist has a J5 bend in `[0, π]`; the
-/// flipped wrist takes its negative. These choices precede joint offsets, axis
-/// sign corrections and whole-turn adjustments.
+/// Radial root of the OPW shoulder equations in model coordinates.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BranchId {
-    /// First shoulder, positive elbow root, principal wrist.
-    FirstPositivePrincipal = 0,
-    /// First shoulder, negative elbow root, principal wrist.
-    FirstNegativePrincipal = 1,
-    /// Second shoulder, positive elbow root, principal wrist.
-    SecondPositivePrincipal = 2,
-    /// Second shoulder, negative elbow root, principal wrist.
-    SecondNegativePrincipal = 3,
-    /// First shoulder, positive elbow root, flipped wrist.
-    FirstPositiveFlipped = 4,
-    /// First shoulder, negative elbow root, flipped wrist.
-    FirstNegativeFlipped = 5,
-    /// Second shoulder, positive elbow root, flipped wrist.
-    SecondPositiveFlipped = 6,
-    /// Second shoulder, negative elbow root, flipped wrist.
-    SecondNegativeFlipped = 7,
+pub enum Shoulder {
+    /// Positive radial root.
+    First = 0,
+    /// Negative radial root.
+    Second = 1,
+}
+
+/// Sign of the arccosine term in the OPW equation for J3.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Elbow {
+    /// Add the arccosine term.
+    Positive = 0,
+    /// Subtract the arccosine term.
+    Negative = 1,
+}
+
+/// Wrist solution in OPW model coordinates.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Wrist {
+    /// Principal J5 bend in `[0, π]`.
+    Principal = 0,
+    /// Negated principal J5 bend, with the corresponding half-turn shifts in J4 and J6.
+    Flipped = 1,
+}
+
+/// One of the eight analytical branches, identified by its shoulder, elbow and
+/// wrist choices before joint offsets, axis sign corrections and whole-turn adjustments.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BranchId(u8);
+
+impl BranchId {
+    /// Constructs the branch for the given shoulder root, elbow root and wrist solution.
+    pub const fn new(shoulder: Shoulder, elbow: Elbow, wrist: Wrist) -> Self {
+        Self(((wrist as u8) << 2) | ((shoulder as u8) << 1) | elbow as u8)
+    }
+
+    /// Returns this branch's shoulder root.
+    pub const fn shoulder(self) -> Shoulder {
+        if self.0 & 0b010 == 0 {
+            Shoulder::First
+        } else {
+            Shoulder::Second
+        }
+    }
+
+    /// Returns this branch's elbow root.
+    pub const fn elbow(self) -> Elbow {
+        if self.0 & 0b001 == 0 {
+            Elbow::Positive
+        } else {
+            Elbow::Negative
+        }
+    }
+
+    /// Returns this branch's wrist solution, including at a pole where the two wrist branches meet.
+    pub const fn wrist(self) -> Wrist {
+        if self.0 & 0b100 == 0 {
+            Wrist::Principal
+        } else {
+            Wrist::Flipped
+        }
+    }
+
+    /// Returns the slot in [`IKResults`], in the range `0..8`.
+    ///
+    /// The index is `4 * wrist + 2 * shoulder + elbow` using the components'
+    /// zero-or-one discriminants. This is the order used by
+    /// [CEAD's reach kernel](https://github.com/CEAD-group/py-opw-kinematics/blob/7e16424d9a8c359c098faa74403af6325ad61c2c/src/reach.rs#L50-L56).
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
 }
 
 /// Outcome of solving the pose equations for one branch, independent of whether
@@ -134,8 +185,40 @@ pub struct IKResult {
 }
 
 /// All eight branch slots in [`BranchId`] order, including missing roots and
-/// failed candidates. Store each entry at `entry.meta.branch as usize`.
+/// failed candidates. Store each entry at `entry.meta.branch.index()`.
 pub type IKResults = [IKResult; 8];
 
+const _: () = assert!(size_of::<BranchId>() == 1);
 const _: () = assert!(size_of::<IKMetadata>() == 8);
 const _: () = assert!(size_of::<IKResult>() == 64);
+
+#[cfg(test)]
+mod tests {
+    use super::{BranchId, Elbow, Shoulder, Wrist};
+
+    #[test]
+    fn branch_components_match_all_eight_slots() {
+        use Elbow::{Negative, Positive};
+        use Shoulder::{First, Second};
+        use Wrist::{Flipped, Principal};
+
+        let slots = [
+            (First, Positive, Principal),
+            (First, Negative, Principal),
+            (Second, Positive, Principal),
+            (Second, Negative, Principal),
+            (First, Positive, Flipped),
+            (First, Negative, Flipped),
+            (Second, Positive, Flipped),
+            (Second, Negative, Flipped),
+        ];
+        for (index, (shoulder, elbow, wrist)) in slots.into_iter().enumerate() {
+            let branch = BranchId::new(shoulder, elbow, wrist);
+            assert_eq!(branch.index(), index);
+            assert_eq!(
+                (branch.shoulder(), branch.elbow(), branch.wrist()),
+                (shoulder, elbow, wrist)
+            );
+        }
+    }
+}
