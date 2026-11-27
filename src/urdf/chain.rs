@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// Position limits in URDF joint coordinates, in radians.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UrdfJointLimit {
-    /// A revolute joint with no limit element in the input.
+    /// A revolute joint with neither a lower nor an upper position bound.
     Unspecified,
     /// A continuous joint with a missing endpoint, equal endpoints, or a one-turn span.
     Continuous,

@@ -354,6 +354,38 @@ fn chain_rejects_multiple_parents_and_cycles_through_mount() {
 }
 
 #[test]
+fn rotary_joints_without_position_bounds_allow_free_rotation_in_both_readers() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use std::f64::consts::TAU;
+    use urdf::UrdfJointLimit::{Continuous, Unspecified};
+
+    for (kind, expected) in [("revolute", Unspecified), ("continuous", Continuous)] {
+        for limit in ["", r#"<limit effort="20" velocity="3"/>"#] {
+            let xml = ABB_CHAIN.replace(
+                r#"name="joint_2" type="revolute">"#,
+                &format!(r#"name="joint_2" type="{kind}">{limit}"#),
+            );
+            let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+            assert_eq!(chain.limits[1], expected, "{kind} {limit}");
+            let chain_robot = chain.to_robot(BY_PREV).unwrap();
+            let named_robot = urdf::from_urdf(xml, &None)
+                .unwrap()
+                .to_robot(BY_PREV, &[0.0; 6]);
+            for constraints in [chain_robot.constraints(), named_robot.constraints()] {
+                let constraints = constraints.as_ref().unwrap();
+                for angle in [-4.0 * TAU - 0.3, 5.0 * TAU + 0.7] {
+                    assert!(
+                        constraints.compliant(&[0.0, angle, 0.0, 0.0, 0.0, 0.0]),
+                        "{kind} {limit}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn chain_import_preserves_joint_limits() {
     use crate::constraints::BY_PREV;
     use crate::kinematic_traits::Kinematics;

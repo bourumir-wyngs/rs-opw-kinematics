@@ -1,4 +1,7 @@
-use super::{UrdfAngle, UrdfJointLimit, continuous_position_limits, parse_finite_xml_number};
+use super::{
+    UrdfAngle, UrdfJointLimit, continuous_position_limits, has_position_bounds,
+    parse_finite_xml_number,
+};
 use crate::kinematic_traits::Pose;
 use crate::parameter_error::ParameterError::{self, XmlProcessingError};
 use glam::{DQuat, DVec3, EulerRot};
@@ -201,10 +204,10 @@ fn position_limits(kind: &str, limit: Option<Element<'_>>) -> Result<UrdfJointLi
             None => UrdfJointLimit::Continuous,
         });
     }
-    let Some(limit) = limit else {
+    let Some(limit) = limit.filter(has_position_bounds) else {
         return Ok(UrdfJointLimit::Unspecified);
     };
-    // In URDF 1.0 each omitted endpoint of a present limit element defaults to zero.
+    // If only one position bound is supplied, the other defaults to zero in URDF 1.0.
     let lower = parse_bound("lower", limit.attribute_value("lower").unwrap_or("0"))?;
     let upper = parse_bound("upper", limit.attribute_value("upper").unwrap_or("0"))?;
     if lower > upper {

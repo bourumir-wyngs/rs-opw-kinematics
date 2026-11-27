@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
   enough to select absolute travel. `UrdfChain::limits` retains the declared
   revolute bounds. A `continuous` joint with either endpoint missing or both
   equal is unrestricted.
+- Allow free rotation for both rotary joint types when the URDF omits both
+  position bounds, including when `<limit>` specifies only effort and velocity.
 - Add built-in presets for the FANUC LR Mate 200iC and R-2000iC/165F, Stäubli
   TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 using their published
   ROS-Industrial OPW parameters.

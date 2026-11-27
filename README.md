@@ -857,11 +857,13 @@ activate [absolute travel limits](#constraints). For `[0, TAU]`, the upper
 endpoint becomes `TAU.next_up()`. For `[-TAU, 0]`, the lower endpoint
 becomes `(-TAU).next_down()`. In both cases the stop at zero stays exactly zero.
 
-A `continuous` joint is unrestricted if either position limit is missing or
-both limits are equal. Effort and velocity limits alone also leave rotation
-unrestricted. For a `revolute` joint, a missing limit element is recorded as
-unspecified and leaves rotation unrestricted. `to_robot` reports an error
-for a bounded revolute joint with equal endpoints.
+Both `revolute` and `continuous` joints rotate freely when the URDF omits
+both position bounds. This covers a missing `<limit>` element and a limit
+such as `<limit effort="20" velocity="3"/>`. The chain reader records a
+`revolute` joint with no position bounds as `UrdfJointLimit::Unspecified`.
+A `continuous` joint also rotates freely if only one endpoint is supplied or
+both are equal. For a `revolute` joint with explicitly equal endpoints,
+`to_robot` reports an error.
 
 The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
 folder with imported URDF fixtures documents their upstream sources and licenses.

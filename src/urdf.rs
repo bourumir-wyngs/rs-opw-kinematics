@@ -436,7 +436,14 @@ fn continuous_position_limits(
     }
 }
 
+fn has_position_bounds(limit: &dom::Element<'_>) -> bool {
+    limit.attribute_value("lower").is_some() || limit.attribute_value("upper").is_some()
+}
+
 fn get_limits(element: dom::Element, kind: Option<&str>) -> Result<(f64, f64), ParameterError> {
+    if kind == Some("revolute") && !has_position_bounds(&element) {
+        return Ok((0.0, 0.0));
+    }
     if kind == Some("continuous") {
         let limits = continuous_position_limits(Some(element), |name, value| {
             parse_angle(value).map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
