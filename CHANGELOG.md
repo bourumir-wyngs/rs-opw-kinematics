@@ -2,19 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [3.0.3] - Unreleased
 
 ### Added
 
-- `urdf::from_urdf_chain` imports six-axis OPW arms from expanded URDF 1.0 by
-  base and tip link. It derives joint signs and zero offsets from the arm and
-  wrist axes, includes fixed mounts and tools, and preserves absolute stops
-  for bounded URDF joints spanning one full turn or more.
-- Added licensed industrial robot fixtures, source records by manufacturer,
-  and comparisons of imported kinematics with the original URDF joint chains.
-- Added built-in OPW parameters for the FANUC LR Mate 200iC and R-2000iC/165F,
-  Stäubli TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 from their
-  published ROS-Industrial configurations.
+- Import six-axis OPW arms from expanded URDF 1.0 with `urdf::from_urdf_chain`.
+  Select the base and tip by link name. The reader composes fixed joints
+  anywhere along that path, including adapters between moving joints, and
+  ignores side branches and joint references inside transmissions.
+- Derive OPW dimensions, joint directions, and zero offsets from the physical
+  axes, including arms and wrists inclined at joint zero. The reader reports
+  ambiguous or cyclic paths, mimic joints on the selected path, and incompatible
+  geometry such as wrist axes that miss their common center.
+- Inspect the imported parameters, base and tool transforms, and per-joint
+  limits through `UrdfChain`. Its `to_robot` method preserves absolute travel
+  stops on bounded revolute joints spanning one full turn or more. Continuous
+  joints and revolute joints without limits remain distinguishable in the import.
+- Add built-in presets for the FANUC LR Mate 200iC and R-2000iC/165F, Stäubli
+  TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 using their published
+  ROS-Industrial OPW parameters.
+- Add 21 licensed URDF fixtures from nine manufacturers, with sources and
+  license notices in each manufacturer folder. Tests compare forward and
+  inverse kinematics with direct URDF transforms for 18 models, check the six
+  presets against published OPW YAML, and verify rejection of three
+  incompatible models.
+
+### Fixed
+
+- Preserve the previous J1 angle during inverse continuation at the imported
+  Pilz PRBT's straight-up pose. Frame rotation roundoff could turn a zero
+  lateral offset into a tiny nonzero value and cause an unnecessary base rotation.
 
 ## [3.0.2] - 2026-11-27
 

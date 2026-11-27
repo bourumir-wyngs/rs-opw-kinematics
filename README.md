@@ -167,7 +167,9 @@ produce the same flange pose. With J6 previously at `535°`, inverse continuatio
 selects the turn nearest the interval midpoint. An explicitly fixed J6 in five-axis IK
 must itself be within the configured limits.
 
-Exactly 360° still permits any turn. Narrower ranges repeat every turn, so `350°..=370°`
+With `Constraints::new`, exactly 360° permits any turn. The [URDF chain reader](#reading-urdf)
+preserves absolute stops on a revolute joint explicitly bounded to 360°.
+Narrower ranges repeat every turn, so `350°..=370°`
 admits both `5°` and `365°`. Equal endpoints leave the joint unrestricted.
 If an older configuration uses a wider range to mean unlimited rotation, set it to
 `-180°..=180°` to keep that behavior.
@@ -812,23 +814,16 @@ This project contains the code for reading such configurations directly, includi
   let robot = OPWKinematics::new(parameters);
 ```
 
-Since version 1.2.0, parameters and constraints can also be directly extracted from URDF file:
+For a five-axis model, set `dof: 5` in the YAML file. The default is six.
 
-```rust
-  let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
-      .expect("Failed to load URDF");
-  // If you want to inspect parameters, see the `urdf` module helpers.
-```
+## Reading URDF
 
-There is also more advanced
-function [rs_opw_kinematics::urdf::from_urdf](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/urdf/fn.from_urdf.html)
-that takes URDF string rather than the file, provides error handling and much more control over how the solver
-is constructed from the extracted values.
-
-Use `from_urdf_chain` to select the base and tip of a six-axis OPW arm in an
-expanded URDF 1.0 document. It follows the links in order, includes fixed
-mounts and tool adapters, and derives geometry, joint directions and zero
-offsets from the six rotary axes.
+Version 3.0.3 significantly improves URDF reading for six-axis OPW arms.
+Pass the base and tip link names to `from_urdf_chain` with an expanded URDF 1.0
+document. The reader follows the links between them and composes the translation
+and rotation of every fixed joint, including mounts before J1, adapters between
+moving joints, and tools after J6. From the six rotary axes it derives the OPW
+dimensions, joint directions, and zero offsets.
 
 ```rust
 use rs_opw_kinematics::constraints::BY_PREV;
@@ -839,29 +834,37 @@ let chain = from_urdf_chain(xml, "base_link", "tool0")?;
 let robot = chain.to_robot(BY_PREV)?;
 ```
 
-The shoulder and elbow axes must be parallel. The reader checks their
-relationship to the base and forearm axes and verifies that the three wrist
-axes intersect. The upper arm and wrist may be inclined at joint zero. An
-on-path mimic joint, such as the ABB IRB5400's coupled wrist joint, is
-reported by name. Mimic joints on side branches do not affect the tool pose.
+The reader checks that J2 and J3 are parallel, J1 is perpendicular to J2,
+and J3 is perpendicular to J4. The three wrist axes must intersect at one
+point, with J5 perpendicular to both J4 and J6. The upper arm and wrist may
+be inclined at joint zero.
+The reader ignores side branches, such as a gripper finger driven by a mimic
+joint. A rotary mimic joint on the selected path, such as the ABB IRB5400's
+coupled wrist joint, produces an error that names the joint.
 
 `chain.limits` retains the original joint limits, including the distinction
-between continuous joints and revolute joints with missing limits. The solver uses the crate's periodic
-semantics for intervals shorter than one turn. Bounded revolute joints with
-one full turn or more retain both absolute travel stops. Solver conversion
-reports a bounded joint with equal endpoints.
+between continuous joints and revolute joints with missing limits. The solver
+treats both as unrestricted. Bounded ranges shorter than one turn repeat
+every turn. A bounded range of one full turn or more retains both absolute
+travel stops. `to_robot` returns an error for a bounded joint with equal endpoints.
 
 The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
 folder with imported URDF fixtures documents their upstream sources and licenses.
 
-YAML reader supports additional 'dof' field that can be set to 6 (default) or 5 (5DOF robot, tool rotation
-not accounted for). The URDF reader treats a model containing exactly five joint definitions but no joint 6 as 5DOF
-and assumes `c4` is zero. Extraction of a nonzero TCP offset for this case is not currently supported.
+Name-based URDF loading has been available since 1.2.0. `from_urdf_file` reads
+a file and builds the solver. [`from_urdf`](https://docs.rs/rs-opw-kinematics/latest/rs_opw_kinematics/urdf/fn.from_urdf.html)
+takes XML as a string and accepts an optional list of joint names. These readers treat
+a model with exactly five joint definitions and no matching J6 as five-axis
+and assume `c4 = 0`.
 
-**Important:** The URDF reader assumes a robot with a parallel base and spherical wrist and not an arbitrary robot.
-You can easily check this in the robot documentation or simply looking into the drawing. If the robot appears OPW
-compliant yet parameters are not extracted correctly, please submit a bug report, providing URDF file and expected
-values. Use visualization as explained before feeding the output to the physical robot.
+```rust
+let robot = rs_opw_kinematics::urdf::from_urdf_file("/path/to/robot.urdf")
+    .expect("Failed to load URDF");
+```
+
+If an OPW-compatible arm imports incorrectly, please include the URDF and the
+expected parameters or tool pose in the bug report. Check the imported model
+in the [visualization](#visualization) before using it with a physical robot.
 
 # Disabling filesystem
 
