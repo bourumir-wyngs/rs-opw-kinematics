@@ -675,7 +675,7 @@ impl OPWKinematics {
                     if self.preserve_turn(i, fixed_j6) {
                         continue;
                     }
-                    let tolerance = constraints.angular_half_width(i);
+                    let tolerance = constraints.tolerances[i];
                     let delta = wrapped_angle(*joint - constraints.centers[i]);
                     let excess = delta.abs() - tolerance;
                     if excess > 0.0 && excess <= POLE_PHASE_ROUNDOFF_THR {
@@ -931,8 +931,8 @@ impl OPWKinematics {
     }
 }
 
-/// Recover the legal turn of an analytically computed joint angle. An IK root
-/// a few ulps past a stop can lose a solution or jump a turn even for FK of that stop.
+/// Recover the legal turn of an analytically computed joint angle. An IK root a
+/// few ulps past a stop can otherwise jump a full turn even for FK of that stop.
 /// Only the exact stop is substituted, and the caller verifies the resulting FK.
 fn absolute_ik_angle(
     limits: &Constraints,
@@ -940,27 +940,21 @@ fn absolute_ik_angle(
     angle: f64,
     reference: f64,
 ) -> Option<f64> {
+    let mut selected = limits.nearest_valid_turn(joint, angle, reference)?;
     let stops = [limits.from[joint], limits.to[joint]];
-    if !(stops[0] <= stops[1] && reference.is_finite()) {
-        return None;
-    }
-    let nearest = limits.nearest_valid_turn(joint, angle, reference);
-    let mut selected = nearest;
     let target = reference.clamp(stops[0], stops[1]);
     for stop in stops {
-        if nearest.is_none_or(|turn| (stop - turn).abs() > PI)
-            && selected.is_none_or(|turn| (stop - target).abs() < (turn - target).abs())
-        {
+        if (stop - selected).abs() > PI && (stop - target).abs() < (selected - target).abs() {
             // Compare orientations without subtracting many revolutions from
-            // the stop. With short travel there may be no other legal turn.
+            // the stop. A real overshoot must take the other legal turn.
             let (sin, cos) = angle.sin_cos();
             let (stop_sin, stop_cos) = stop.sin_cos();
             if (sin - stop_sin).hypot(cos - stop_cos) <= POLE_PHASE_ROUNDOFF_THR {
-                selected = Some(stop);
+                selected = stop;
             }
         }
     }
-    selected
+    Some(selected)
 }
 
 pub(crate) fn wrapped_angle(angle: f64) -> f64 {

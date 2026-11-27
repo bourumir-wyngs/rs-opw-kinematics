@@ -164,7 +164,7 @@ pub(super) fn sample_angles(
         if let Some(constraints) = robot.constraints() {
             let center = model_angle(joint, constraints.centers[joint]);
             angles.push(center);
-            let tolerance = constraints.angular_half_width(joint);
+            let tolerance = constraints.tolerances[joint];
             if tolerance.is_finite() && (0.0..PI).contains(&tolerance) {
                 limits[joint - 3] = vec![center - tolerance, center + tolerance];
                 angles.extend_from_slice(&limits[joint - 3]);
@@ -215,7 +215,7 @@ pub(super) fn sample_angles(
     let (center, tolerance) = robot.constraints().map_or((0.0, PI), |constraints| {
         (
             model_angle(free_joint, constraints.centers[free_joint]),
-            constraints.angular_half_width(free_joint),
+            constraints.tolerances[free_joint],
         )
     });
     roots.push(center);

@@ -171,14 +171,9 @@ Enter a stop at zero as `0.0`. For example, `0°..=720°` sets an absolute lower
 at exactly zero. With `Constraints::new`, a range of exactly one turn (`0.0..=TAU`
 in radians) permits any turn. Setting the upper endpoint to `TAU.next_up()`
 selects absolute travel and allows one representable value beyond `TAU`.
-The [URDF chain reader](#reading-urdf) follows the joint declaration. A `revolute`
-joint bounded from 0° to 360° can reach 360° and reverse direction. Moving on
-to 361° would exceed its declared limit. A `continuous` joint can keep turning
-past 360°. Whether the hardware has a mechanical stop at that orientation is a
-separate question.
-
-With `Constraints::new`, narrower ranges repeat every turn, so `350°..=370°` admits
-both `5°` and `365°`. Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted.
+Narrower ranges repeat every turn, so `360°..=370°` admits both `5°` and
+`365°`. Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted
+in `Constraints::new`.
 If an older configuration uses a wider range to mean unlimited rotation, set it to
 `-180°..=180°` to keep that behavior.
 
@@ -850,14 +845,17 @@ The reader ignores side branches, such as a gripper finger driven by a mimic
 joint. A rotary mimic joint on the selected path, such as the ABB IRB5400's
 coupled wrist joint, produces an error that names the joint.
 
-`chain.limits` retains the original joint limits, including the distinction
-between continuous joints and revolute joints with missing limits. The solver
-treats both as unrestricted. For a bounded revolute joint, the solver enforces
-the declared lower and upper limits, including whole turns. For example, with
-limits of 350° to 370°, 365° is legal and 5° is outside the range. `to_robot`
-returns an error for a bounded joint with equal endpoints.
-A `continuous` joint may specify effort and velocity limits. The reader reports
-an error if it also declares a lower or upper position bound.
+A `continuous` joint permits any number of turns unless the file supplies both
+position limits and their range exceeds 360°. For example, explicit limits of
+-540° to 540° allow 365° and reject 725°, even for a `continuous` joint.
+Effort and velocity limits alone leave rotation unrestricted.
+
+For a `revolute` joint with position limits, the solver uses the usual
+[constraint rules](#constraints). Ranges wider than 360° bound absolute travel,
+exactly 360° permits any turn, and shorter ranges repeat every turn. A range
+of 360° to 370° therefore admits 5° and 365°. A missing limit element is
+recorded as unspecified and leaves rotation unrestricted. `to_robot` reports
+an error for a bounded revolute joint with equal endpoints.
 
 The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
 folder with imported URDF fixtures documents their upstream sources and licenses.

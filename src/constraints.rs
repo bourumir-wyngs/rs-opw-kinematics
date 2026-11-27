@@ -9,31 +9,11 @@ use std::ops::RangeInclusive;
 
 /// Joint limits with inclusive comparisons and no floating-point tolerance.
 ///
-/// With [`Constraints::new`], an ordered interval wider than one full revolution
-/// defines absolute travel in joint coordinates, including whole turns. Shorter
-/// intervals repeat every turn. Exactly one full revolution or two equal endpoints
-/// permit every turn. Reversed endpoints describe a periodic arc through zero.
-///
-/// The URDF chain reader enforces a `revolute` joint's declared position range
-/// for any positive span and permits any turn for a `continuous` joint. The
-/// bounds describe the motion allowed by the model. Determining whether an
-/// endpoint corresponds to a mechanical stop requires hardware information.
-///
-/// Supply `0.0` directly for a stop at zero. For example, an ordered range
-/// from zero to two full turns has an absolute lower stop of exactly zero.
-/// With [`Constraints::new`], raising the upper endpoint of `[0.0, TAU]`
-/// to `TAU.next_up()` selects absolute travel and allows one representable
-/// value beyond a full turn.
-///
-/// ```
-/// use rs_opw_kinematics::constraints::{Constraints, BY_PREV};
-/// use std::f64::consts::TAU;
-///
-/// let limits = Constraints::new([0.0; 6], [TAU.next_up(); 6], BY_PREV);
-/// assert!(limits.compliant(&[0.0; 6]));
-/// assert!(!limits.compliant(&[-0.01; 6]));
-/// assert!(limits.compliant(&[TAU.next_up(); 6]));
-/// ```
+/// An ordered interval wider than one full revolution defines absolute travel
+/// in the robot's joint coordinates. An angle must lie between the two supplied
+/// endpoints, including its whole turns. Shorter intervals repeat every turn.
+/// Exactly one full revolution, or two equal endpoints, permits every turn.
+/// Reversed endpoints describe a periodic arc through zero.
 ///
 /// Exact boundary values cannot be checked reliably after floating-point
 /// calculations: degree/radian conversions or forward/inverse kinematics can
@@ -50,7 +30,7 @@ pub struct Constraints {
     // Constraint centers. Used in distance from constraints based sorting.
     pub centers: [f64; 6],
 
-    /// Cached half-widths or limit modes. Use [`Self::angular_half_width`] for the widths in radians.
+    // How far from the center the value could be
     pub tolerances: [f64; 6],
 
     /// Used when sorting the solutions by both middle values of the constraints and the previous
@@ -67,9 +47,6 @@ pub const BY_CONSTRAINS: f64 = 1.0;
 pub const BY_PREV: f64 = 0.0;
 
 const TWO_PI: f64 = 2.0 * PI;
-// Computed half-widths are nonnegative. A distinct cache value preserves the
-// declared URDF limit mode in the existing public Constraints layout.
-const EXPLICIT_POSITION_BOUNDS: f64 = f64::NEG_INFINITY;
 
 impl Constraints {
     /// Creates joint limits from `from` and `to` angles in radians.
@@ -90,19 +67,6 @@ impl Constraints {
             tolerances,
             sorting_weight,
         }
-    }
-
-    /// Builds constraints from validated URDF bounds. Equal endpoints represent
-    /// continuous joints and joints for which no position limits were supplied.
-    #[cfg(feature = "allow_filesystem")]
-    pub(crate) fn from_urdf_bounds(from: Joints, to: Joints, sorting_weight: f64) -> Self {
-        let mut constraints = Self::new(from, to, sorting_weight);
-        for (joint, tolerance) in constraints.tolerances.iter_mut().enumerate() {
-            if from[joint] < to[joint] && tolerance.is_finite() {
-                *tolerance = EXPLICIT_POSITION_BOUNDS;
-            }
-        }
-        constraints
     }
 
     /// Initializes `Constraints` from an array of 6 ranges (`RangeInclusive<f64>`),
@@ -172,19 +136,8 @@ impl Constraints {
         (centers, tolerances)
     }
 
-    /// Updates the joint ranges in radians. An explicitly bounded URDF joint
-    /// retains absolute travel when both endpoints are finite and the lower
-    /// endpoint is strictly less than the upper endpoint.
     pub fn update_range(&mut self, from: Joints, to: Joints) {
-        let (centers, mut tolerances) = Self::compute_centers(from, to);
-        for (joint, tolerance) in tolerances.iter_mut().enumerate() {
-            if self.tolerances[joint] == EXPLICIT_POSITION_BOUNDS
-                && from[joint] < to[joint]
-                && tolerance.is_finite()
-            {
-                *tolerance = EXPLICIT_POSITION_BOUNDS;
-            }
-        }
+        let (centers, tolerances) = Self::compute_centers(from, to);
 
         self.from = from;
         self.to = to;
@@ -205,25 +158,10 @@ impl Constraints {
         difference <= tolerance
     }
 
-    /// Returns the angular distance from the center to an endpoint, in radians.
-    /// Unrestricted equal-endpoint ranges have infinite half-width.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `joint` is outside `0..6`.
-    pub fn angular_half_width(&self, joint: usize) -> f64 {
-        let tolerance = self.tolerances[joint];
-        if tolerance == EXPLICIT_POSITION_BOUNDS {
-            self.to[joint].midpoint(-self.from[joint])
-        } else {
-            tolerance
-        }
-    }
-
-    /// Whether this joint has two absolute travel stops.
+    /// Whether this joint's range is wider than one turn and has two finite travel stops.
     pub(crate) fn is_absolute(&self, joint: usize) -> bool {
-        let tolerance = self.tolerances[joint];
-        tolerance == EXPLICIT_POSITION_BOUNDS || (tolerance.is_finite() && tolerance > PI)
+        let half_width = self.tolerances[joint];
+        half_width.is_finite() && half_width > PI
     }
 
     /// Checks one joint in the robot's joint coordinates, including its whole turns.
@@ -260,8 +198,8 @@ impl Constraints {
         if (angle - target).abs() < PI && self.joint_compliant(joint, angle) {
             return Some(angle);
         }
-        // Try the nearest turn to the bounded reference, then its neighbor if
-        // it crosses a stop. A short interval may contain neither.
+        // Find the nearest turn to the bounded reference. If it crosses a stop,
+        // the adjacent turn fits because the interval is wider than a full turn.
         let phase = angle % TWO_PI;
         // At a half-turn tie, prefer the lower angle, as normalize_near does.
         let turns = (((target - phase) / TWO_PI) - 0.5).ceil();
@@ -512,24 +450,6 @@ mod tests {
         let limits = Constraints::from_degrees(ranges, BY_PREV);
         assert!(limits.is_absolute(0));
         assert!(!limits.compliant(&[0.0; 6]));
-    }
-
-    #[cfg(feature = "allow_filesystem")]
-    #[test]
-    fn updated_urdf_bounds_can_retain_or_clear_absolute_travel() {
-        let mut limits = Constraints::from_urdf_bounds([0.0; 6], [PI; 6], BY_PREV);
-        let mut to = [0.5; 6];
-        to[1] = 0.0; // Equal endpoints permit any turn.
-        to[2] = -0.5; // Reversed endpoints select a periodic arc.
-        limits.update_range([0.0; 6], to);
-
-        assert_eq!(limits.angular_half_width(0), 0.25);
-        assert!(limits.joint_compliant(0, 0.5));
-        assert!(!limits.joint_compliant(0, TWO_PI + 0.5));
-        assert!(limits.angular_half_width(1).is_infinite());
-        assert!(limits.joint_compliant(1, 100.0));
-        assert!(limits.joint_compliant(2, TWO_PI + 1.0));
-        assert!(!limits.joint_compliant(2, -0.25));
     }
 
     #[test]

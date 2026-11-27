@@ -60,7 +60,7 @@ fn joint_space_bounds(
     let mut from = [0.0; 6];
     let mut to = [0.0; 6];
     for joint in 0..6 {
-        let tolerance = constraints.angular_half_width(joint);
+        let tolerance = constraints.tolerances[joint];
         if constraints.is_absolute(joint) {
             from[joint] = constraints.from[joint];
             to[joint] = constraints.to[joint];
@@ -470,8 +470,8 @@ impl RRTPlanner {
     /// Requested joint values are preserved, including their turns. Each limited
     /// joint's goal must lie in the same continuous allowed interval as its start;
     /// for a wrapped move, supply continuous angles such as 175° to 185°.
-    /// For absolute travel limits, both endpoints and the path must lie within
-    /// the configured bounds.
+    /// For travel limits wider than one turn, both endpoints and the path must
+    /// lie between the configured physical stops.
     /// For coupled joints, limits and connected intervals are checked in the
     /// underlying constraint coordinates. Paths and step sizes use public joints.
     /// Returns `Err("Cancelled")` when cancellation is observed during planning,

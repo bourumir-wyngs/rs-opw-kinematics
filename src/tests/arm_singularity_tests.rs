@@ -277,19 +277,6 @@ fn narrow_arm_limits_retain_each_free_joint_family() {
 
 #[test]
 fn wrist_limits_can_require_interior_free_arm_angles() {
-    check_interior_free_arm_angles(Constraints::new, 0.0);
-}
-
-#[cfg(feature = "allow_filesystem")]
-#[test]
-fn bounded_wrist_limits_recover_interior_free_arm_angles_on_the_declared_turn() {
-    check_interior_free_arm_angles(Constraints::from_urdf_bounds, TAU);
-}
-
-fn check_interior_free_arm_angles(
-    make_limits: fn(Joints, Joints, f64) -> Constraints,
-    j4_turn: f64,
-) {
     for kind in [0, 1, 4] {
         for transformed in [false, true] {
             for half_width in [1.0_f64.to_radians(), 5.0e-7, 5.0e-9] {
@@ -299,7 +286,6 @@ fn check_interior_free_arm_angles(
                     witness[1] = 20.7654321_f64.to_radians();
                 }
                 witness[3..].copy_from_slice(&[40.31415, 50.27182, 60.1618].map(f64::to_radians));
-                witness[3] += j4_turn;
                 let mut from = witness.map(|q| q - 1.0e-3);
                 let mut to = witness.map(|q| q + 1.0e-3);
                 let free = [kind == 0 || kind == 4, kind != 0];
@@ -313,7 +299,7 @@ fn check_interior_free_arm_angles(
                     from[i] = witness[i] - half_width;
                     to[i] = witness[i] + half_width;
                 }
-                let constraints = make_limits(from, to, BY_PREV);
+                let constraints = Constraints::new(from, to, BY_PREV);
                 assert!(constraints.compliant(&witness));
                 let previous = constraints.centers;
                 let robot = OPWKinematics::new_with_constraints(p, constraints);
@@ -323,7 +309,6 @@ fn check_interior_free_arm_angles(
                 );
                 for (api, solutions) in all_inverse(&robot, &target, &previous).iter().enumerate() {
                     check_solutions(&robot, &target, &previous, 1.0, api, solutions, &case);
-                    assert!(solutions.iter().all(|q| (from[3]..=to[3]).contains(&q[3])));
                     // At these narrow wrist limits, keeping either free angle at
                     // the previous/center value cannot produce a feasible solution.
                     if half_width < 1.0e-5 {

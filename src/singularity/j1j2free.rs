@@ -115,10 +115,7 @@ fn limits(robot: &OPWKinematics, joint: usize, reference: &Joints) -> Option<[f6
     let sign = robot.parameters.sign_corrections[joint] as f64;
     let offset = robot.parameters.offsets[joint];
     let (center, tolerance) = if let Some(constraints) = robot.constraints() {
-        (
-            constraints.centers[joint],
-            constraints.angular_half_width(joint),
-        )
+        (constraints.centers[joint], constraints.tolerances[joint])
     } else {
         (reference[joint], PI)
     };
@@ -190,7 +187,7 @@ fn boundaries(
         let Some(constraints) = robot.constraints() else {
             continue;
         };
-        if constraints.angular_half_width(joint) >= PI {
+        if constraints.tolerances[joint] >= PI {
             continue;
         }
         let Some(range) = limits(robot, joint, reference) else {
@@ -224,8 +221,8 @@ fn boundaries(
     // of its feasible phase range. Add q4 +/- q6 corner phases explicitly.
     if fixed_j6.is_none()
         && let Some(constraints) = robot.constraints()
-        && constraints.angular_half_width(3) < PI
-        && constraints.angular_half_width(5) < PI
+        && constraints.tolerances[3] < PI
+        && constraints.tolerances[5] < PI
         && let (Some(range4), Some(range6)) =
             (limits(robot, 3, reference), limits(robot, 5, reference))
     {
@@ -422,7 +419,7 @@ fn bend_slices(
     let Some(constraints) = robot.constraints() else {
         return Vec::new();
     };
-    if constraints.angular_half_width(4) >= PI {
+    if constraints.tolerances[4] >= PI {
         return Vec::new();
     }
     let Some(range5) = limits(robot, 4, reference) else {
@@ -437,7 +434,7 @@ fn bend_slices(
     for angle5 in range5 {
         let (s5, c5) = angle5.sin_cos();
         let mut transverse = vec![-norm * s5, norm * s5];
-        if constraints.angular_half_width(3) < PI
+        if constraints.tolerances[3] < PI
             && let Some(range4) = limits(robot, 3, reference)
         {
             transverse.extend(range4.map(|q4| norm * s5 * q4.sin()));
@@ -452,7 +449,7 @@ fn bend_slices(
             }
         }
         if fixed_j6.is_none()
-            && constraints.angular_half_width(5) < PI
+            && constraints.tolerances[5] < PI
             && let Some(range6) = limits(robot, 5, reference)
         {
             for angle6 in range6 {
@@ -539,7 +536,8 @@ pub(crate) fn search(
     if let Some(constraints) = robot.constraints()
         && constraints.is_absolute(0)
     {
-        // Either endpoint of the physical interval can minimize J1 travel.
+        // Include the actual travel endpoints even though all model angles can
+        // be lifted into this interval. Either endpoint can minimize J1 travel.
         for angle in [constraints.from[0], constraints.to[0]] {
             slices.push(wrapped_angle(
                 wrapped_angle(angle) * robot.parameters.sign_corrections[0] as f64

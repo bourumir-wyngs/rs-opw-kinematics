@@ -450,19 +450,22 @@ fn lateral_offset_roundoff_preserves_explicit_small_offset() {
 }
 
 #[test]
-fn imported_tx2_60_respects_full_turn_j1_stops() {
+fn imported_tx2_60_full_turn_j1_accepts_other_turns() {
     let xml = include_str!("data/staubli/tx2_60.urdf");
-    let robot = from_urdf_chain(xml, "base_link", "tool0")
-        .unwrap()
-        .to_robot(BY_PREV)
-        .unwrap();
+    let chain = from_urdf_chain(xml, "base_link", "tool0").unwrap();
+    assert_eq!(
+        chain.limits[0],
+        crate::urdf::UrdfJointLimit::Bounded {
+            lower: -PI,
+            upper: PI
+        }
+    );
+    let robot = chain.to_robot(BY_PREV).unwrap();
     let limits = robot.constraints().as_ref().unwrap();
-    for stop in [-PI, PI] {
+    for j1 in [-3.0 * PI, 0.0, 3.0 * PI] {
         let mut angles = [0.0; 6];
-        angles[0] = stop;
+        angles[0] = j1;
         assert!(limits.compliant(&angles));
-        angles[0] += stop.signum() * 1e-6;
-        assert!(!limits.compliant(&angles));
     }
 }
 

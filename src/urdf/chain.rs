@@ -12,9 +12,9 @@ use std::sync::Arc;
 pub enum UrdfJointLimit {
     /// A revolute joint with no limit element in the input.
     Unspecified,
-    /// A continuous joint with unlimited rotation.
+    /// A continuous joint without an explicit multi-turn travel range.
     Continuous,
-    /// A revolute joint with inclusive limits on the joint angle, including whole turns.
+    /// Position limits for a revolute joint or an explicitly bounded multi-turn continuous joint.
     Bounded { lower: f64, upper: f64 },
 }
 
@@ -80,9 +80,10 @@ impl UrdfChain {
     /// can have different local origins and orientations.
     ///
     /// `sorting_weight` has the meaning used by [`Constraints::new`]. Unspecified
-    /// and continuous joints are unrestricted. For a bounded revolute joint the solver
-    /// enforces the inclusive URDF limits in joint coordinates, including whole turns.
-    /// The original URDF bounds are available in [`Self::limits`].
+    /// and continuous joints without a multi-turn range are unrestricted. Bounded
+    /// ranges shorter than one turn repeat every turn. Exactly one turn permits
+    /// any turn. Wider ranges have absolute lower and upper limits.
+    /// The imported limits are available in [`Self::limits`].
     /// Equal endpoints denote unrestricted rotation in [`Constraints`].
     ///
     /// # Errors
@@ -116,7 +117,7 @@ impl UrdfChain {
         }
         let robot = OPWKinematics::new_with_constraints(
             self.parameters,
-            Constraints::from_urdf_bounds(from, to, sorting_weight),
+            Constraints::new(from, to, sorting_weight),
         );
         let mounted = Base {
             robot: Arc::new(robot),

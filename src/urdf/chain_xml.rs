@@ -1,4 +1,4 @@
-use super::{UrdfJointLimit, parse_finite_xml_number};
+use super::{UrdfJointLimit, continuous_position_limits, parse_finite_xml_number};
 use crate::kinematic_traits::Pose;
 use crate::parameter_error::ParameterError::{self, XmlProcessingError};
 use glam::{DQuat, DVec3, EulerRot};
@@ -185,25 +185,19 @@ fn vector(value: &str, field: &str) -> Result<DVec3, String> {
 }
 
 fn position_limits(kind: &str, limit: Option<Element<'_>>) -> Result<UrdfJointLimit, String> {
+    let parse_bound = |name: &str, value: &str| {
+        parse_finite_xml_number(value, name)
+            .map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
+    };
     if kind == "continuous" {
-        if limit.is_some_and(|e| {
-            e.attribute_value("lower").is_some() || e.attribute_value("upper").is_some()
-        }) {
-            return Err("continuous joint declares position bounds".into());
-        }
-        return Ok(UrdfJointLimit::Continuous);
+        return continuous_position_limits(limit, parse_bound);
     }
     let Some(limit) = limit else {
         return Ok(UrdfJointLimit::Unspecified);
     };
     // In URDF 1.0 each omitted endpoint of a present limit element defaults to zero.
-    let bound = |name: &str| {
-        let value = limit.attribute_value(name).unwrap_or("0");
-        parse_finite_xml_number(value, name)
-            .map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
-    };
-    let lower = bound("lower")?;
-    let upper = bound("upper")?;
+    let lower = parse_bound("lower", limit.attribute_value("lower").unwrap_or("0"))?;
+    let upper = parse_bound("upper", limit.attribute_value("upper").unwrap_or("0"))?;
     if lower > upper {
         return Err(format!(
             "lower position limit {lower} exceeds upper limit {upper}"

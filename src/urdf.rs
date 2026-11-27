@@ -236,12 +236,13 @@ fn collect_joints(
             };
 
             if let Some(limit_element) = limit_element {
-                let (from, to) = get_limits(limit_element).map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Invalid limits for joint {}: {error}", joint_data.name),
-                    )
-                })?;
+                let (from, to) =
+                    get_limits(limit_element, child.attribute_value("type")).map_err(|error| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Invalid limits for joint {}: {error}", joint_data.name),
+                        )
+                    })?;
                 joint_data.from = from;
                 joint_data.to = to;
             }
@@ -345,7 +346,45 @@ fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
     Ok(radians)
 }
 
-fn get_limits(element: dom::Element) -> Result<(f64, f64), ParameterError> {
+// The name-based reader accepts Xacro angles. The chain reader requires numbers in radians.
+// Both treat a continuous joint as unrestricted unless its explicit bounds span multiple turns.
+fn continuous_position_limits(
+    limit: Option<dom::Element<'_>>,
+    parse_bound: impl Fn(&str, &str) -> Result<f64, String>,
+) -> Result<UrdfJointLimit, String> {
+    let bound = |name: &str| {
+        limit
+            .and_then(|element| element.attribute_value(name))
+            .map(|value| parse_bound(name, value))
+            .transpose()
+    };
+    let (Some(lower), Some(upper)) = (bound("lower")?, bound("upper")?) else {
+        return Ok(UrdfJointLimit::Continuous);
+    };
+    if lower > upper {
+        return Err(format!(
+            "lower position limit {lower} exceeds upper limit {upper}"
+        ));
+    }
+    // Use the same overflow-safe half-width comparison as Constraints.
+    if upper.midpoint(-lower) > std::f64::consts::PI {
+        Ok(UrdfJointLimit::Bounded { lower, upper })
+    } else {
+        Ok(UrdfJointLimit::Continuous)
+    }
+}
+
+fn get_limits(element: dom::Element, kind: Option<&str>) -> Result<(f64, f64), ParameterError> {
+    if kind == Some("continuous") {
+        let limits = continuous_position_limits(Some(element), |name, value| {
+            parse_angle(value).map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
+        })
+        .map_err(ParameterError::XmlProcessingError)?;
+        return Ok(match limits {
+            UrdfJointLimit::Bounded { lower, upper } => (lower, upper),
+            _ => (0.0, 0.0),
+        });
+    }
     let lower_attr = element
         .attribute("lower")
         .ok_or_else(|| ParameterError::MissingField("lower limit not found".into()))?
@@ -610,6 +649,33 @@ fn populate_opw_parameters_explicit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_reader_uses_only_explicit_multiturn_limits_for_continuous_joints() {
+        let fixture = include_str!("tests/data/abb/irb120_3_58.urdf");
+        let joint = r#"name="joint_1" type="revolute">"#;
+        for (attributes, bounds) in [
+            (r#"effort="2" velocity="1""#, (0.0, 0.0)),
+            (r#"upper="${radians(540)}""#, (0.0, 0.0)),
+            (r#"lower="1" upper="2""#, (0.0, 0.0)),
+            (r#"lower="0" upper="${radians(360)}""#, (0.0, 0.0)),
+            (
+                r#"lower="${radians(-540)}" upper="${radians(540)}""#,
+                ((-540.0_f64).to_radians(), 540.0_f64.to_radians()),
+            ),
+        ] {
+            let xml = fixture.replace(
+                joint,
+                &format!(r#"name="joint_1" type="continuous"><limit {attributes}/>"#),
+            );
+            let parameters = from_urdf(xml, &None).unwrap();
+            assert_eq!(
+                (parameters.from[0], parameters.to[0]),
+                bounds,
+                "{attributes}"
+            );
+        }
+    }
 
     #[test]
     #[allow(clippy::approx_constant)]
