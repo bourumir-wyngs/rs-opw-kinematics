@@ -330,15 +330,14 @@ where
 }
 
 impl RRTPlanner {
-    /// Plans a path from `start` to `goal` joint configuration,
-    /// using `KinematicsWithShape` for collision checking.
-    /// start and goal are included into the returned path.
+    /// Plans a joint-space path including both endpoints.
     fn plan_path(
         &self,
         kinematics: &KinematicsWithShape,
         start: &Joints,
         goal: &Joints,
         stop: &AtomicBool,
+        collides: impl Fn(&Joints) -> bool,
     ) -> Result<Vec<Vec<f64>>, String> {
         check_cancelled(stop)?;
         let constraints = kinematics.constraints().as_ref();
@@ -366,7 +365,7 @@ impl RRTPlanner {
 
         let mut collision_free = |joint_angles: &[f64]| -> bool {
             let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
-            within_limits(joints) && !kinematics.collides(joints)
+            within_limits(joints) && !collides(joints)
         };
 
         // Sample the connected intervals in constraint coordinates, then apply
@@ -479,12 +478,26 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         stop: &AtomicBool,
     ) -> Result<Vec<Joints>, String> {
+        self.plan_rrt_with_collision_check(start, goal, kinematics, stop, |joints| {
+            kinematics.collides(joints)
+        })
+    }
+
+    /// Allows a Cartesian planning call to reuse its cached geometry checks.
+    pub(crate) fn plan_rrt_with_collision_check(
+        &self,
+        start: &Joints,
+        goal: &Joints,
+        kinematics: &KinematicsWithShape,
+        stop: &AtomicBool,
+        collides: impl Fn(&Joints) -> bool,
+    ) -> Result<Vec<Joints>, String> {
         check_cancelled(stop)?;
         if self.debug {
             debug!(?start, ?goal, "RRT started");
         }
         let started = self.debug.then(Instant::now);
-        let path = self.plan_path(kinematics, start, goal, stop);
+        let path = self.plan_path(kinematics, start, goal, stop, collides);
         let result = self.convert_result(path, stop);
 
         if self.debug {

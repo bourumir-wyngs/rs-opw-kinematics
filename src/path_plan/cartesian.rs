@@ -42,8 +42,8 @@ const MAX_COLLISION_CACHE_ENTRIES: usize = 65_536;
 ///
 /// Exact joint bits are required: the graph's approximate deduplication tolerance
 /// must not allow a nearby, potentially colliding configuration to reuse a result.
-/// This cache is shared by suffix strategies and retries, but never by separate
-/// planning calls. Kinematics and collision geometry must stay fixed during planning.
+/// Suffix strategies, retries, and RRT bridges share this cache for one planning
+/// call. Kinematics and collision geometry must stay fixed during planning.
 struct PlanningCollisionCache<'a> {
     robot: &'a KinematicsWithShape,
     results: Mutex<HashMap<[u64; 6], bool>>,
@@ -90,6 +90,17 @@ impl<'a> PlanningCollisionCache<'a> {
             .into_iter()
             .filter(|joints| !self.collides(joints))
             .collect()
+    }
+
+    /// Run onboarding or reconfiguration RRT against this plan's robot and collision cache.
+    fn plan_rrt(
+        &self,
+        planner: &RRTPlanner,
+        start: &Joints,
+        goal: &Joints,
+        stop: &AtomicBool,
+    ) -> Result<Vec<Joints>, String> {
+        planner.plan_rrt_with_collision_check(start, goal, self.robot, stop, |q| self.collides(q))
     }
 }
 
@@ -925,6 +936,7 @@ impl Cartesian<'_> {
                 &suffix_candidates[..onboarding_limit],
                 &mut best_fallback,
                 &mut onboarding_attempts,
+                collisions,
             ) {
                 return Ok(path);
             }
@@ -941,6 +953,7 @@ impl Cartesian<'_> {
                     &suffix_candidates[onboarding_limit..],
                     &mut best_fallback,
                     &mut onboarding_attempts,
+                    collisions,
                 ) {
                     return Ok(path);
                 }
@@ -976,6 +989,7 @@ impl Cartesian<'_> {
                     &suffix_candidates,
                     &mut best_fallback,
                     &mut onboarding_attempts,
+                    collisions,
                 ) {
                     return Ok(path);
                 }
@@ -1073,13 +1087,14 @@ impl Cartesian<'_> {
         suffix_candidates: &[SuffixPlanningOutcome],
         best_fallback: &mut Option<PlanningOutcome>,
         onboarding_attempts: &mut usize,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Option<PlanningOutcome> {
         let onboarding_stop = AtomicBool::new(false);
 
         for suffix_candidate in suffix_candidates.iter().cloned() {
             *onboarding_attempts += 1;
             let work_path_start = suffix_candidate.work_path_start;
-            match self.attach_onboarding(from, suffix_candidate, &onboarding_stop) {
+            match self.attach_onboarding(from, suffix_candidate, &onboarding_stop, collisions) {
                 Ok(path) => {
                     let outcome = PlanningOutcome::new(path, &self.transition_coefficients);
                     if self.debug {
@@ -1117,6 +1132,7 @@ impl Cartesian<'_> {
         onboarding_start: &Joints,
         suffix_candidate: SuffixPlanningOutcome,
         stop: &AtomicBool,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<Vec<AnnotatedJoints>, String> {
         let mut trace = Vec::with_capacity(100 + suffix_candidate.suffix.len());
         self.append_onboarding(
@@ -1124,6 +1140,7 @@ impl Cartesian<'_> {
             &suffix_candidate.work_path_start,
             stop,
             &mut trace,
+            collisions,
         )?;
         trace.extend(suffix_candidate.suffix);
         Ok(trace)
@@ -1198,7 +1215,7 @@ impl Cartesian<'_> {
                         if self.debug {
                             println!("Reconfiguration disabled at step {:?}", step);
                         }
-                        self.log_failed_transition(&failure, step);
+                        self.log_failed_transition(&failure, step, collisions);
                         return Err(format!("Failed to transition at step {}", step));
                     }
 
@@ -1214,11 +1231,12 @@ impl Cartesian<'_> {
                             &poses[pose_index..failed_pose_index],
                             failed_pose,
                             &mut append_state,
+                            collisions,
                         )
                     };
 
                     if !reconfigured {
-                        self.log_failed_transition(&failure, step);
+                        self.log_failed_transition(&failure, step, collisions);
                         return Err(format!("Failed to transition at step {}", step));
                     }
 
@@ -1300,6 +1318,7 @@ impl Cartesian<'_> {
         prefix_poses: &[AnnotatedPose],
         failed_pose: &AnnotatedPose,
         state: &mut ReconfigurationAppendState<'_>,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> bool {
         let base_trace_len = state.trace.len();
         let base_previous_joints = *state.previous_joints;
@@ -1356,6 +1375,7 @@ impl Cartesian<'_> {
                 &candidate.transition,
                 state.stop,
                 state.trace,
+                collisions,
             ) {
                 return true;
             }
@@ -1375,6 +1395,7 @@ impl Cartesian<'_> {
         transition: &Transition,
         stop: &AtomicBool,
         trace: &mut Vec<AnnotatedJoints>,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> bool {
         if self.debug {
             eprintln!("Closing step with RRT");
@@ -1392,7 +1413,7 @@ impl Cartesian<'_> {
                 return true;
             }
 
-            let path = self.rrt.plan_rrt(previous_joints, next, self.robot, stop);
+            let path = collisions.plan_rrt(&self.rrt, previous_joints, next, stop);
             if let Ok(path) = path {
                 if self.debug {
                     eprintln!("  ... closed with RRT {} steps", path.len());
@@ -1431,6 +1452,7 @@ impl Cartesian<'_> {
         land: &Joints,
         stop: &AtomicBool,
         trace: &mut Vec<AnnotatedJoints>,
+        collisions: &PlanningCollisionCache<'_>,
     ) -> Result<(), String> {
         if same_joints(start, land) {
             trace.push(AnnotatedJoints {
@@ -1441,7 +1463,7 @@ impl Cartesian<'_> {
             return Ok(());
         }
 
-        let onboarding_path = self.rrt.plan_rrt(start, land, self.robot, stop)?;
+        let onboarding_path = collisions.plan_rrt(&self.rrt, start, land, stop)?;
         let last_index = onboarding_path.len().saturating_sub(1);
         for (index, joints) in onboarding_path.into_iter().enumerate() {
             let flags = if index == last_index {
@@ -1570,7 +1592,12 @@ impl Cartesian<'_> {
     }
 
     /// Prints detailed diagnostics for failed Cartesian transitions when debug logging is enabled.
-    fn log_failed_transition(&self, failure: &CartesianGraphFailure, step: i32) {
+    fn log_failed_transition(
+        &self,
+        failure: &CartesianGraphFailure,
+        step: i32,
+        collisions: &PlanningCollisionCache<'_>,
+    ) {
         if !self.debug {
             return;
         }
@@ -1590,7 +1617,7 @@ impl Cartesian<'_> {
             println!(
                 "   from: {:?} collides {}",
                 transition.from,
-                self.robot.collides(&transition.previous)
+                collisions.collides(&transition.previous)
             );
             dump_joints(&transition.previous);
             println!("   to: {:?}", transition.to);
@@ -1600,7 +1627,7 @@ impl Cartesian<'_> {
                 println!(
                     "   transition weighted cost {:.6} collides: {}",
                     transition_costs(&transition.previous, s, &self.transition_coefficients),
-                    self.robot.collides(s)
+                    collisions.collides(s)
                 );
             }
         }
@@ -1835,6 +1862,7 @@ mod tests {
                         &transition,
                         &stop,
                         &mut path,
+                        &PlanningCollisionCache::new(&robot),
                     ));
                     if start_value == 0.0 {
                         assert!(path.len() > 2, "bridge must exercise transit waypoints");
@@ -1994,6 +2022,7 @@ mod tests {
                 previous_joints: &mut previous,
                 step: &mut step,
             },
+            &PlanningCollisionCache::new(&robot),
         ));
         assert_eq!(trace.len(), 1);
         assert_eq!(trace[0].joints, joints(0.0));
@@ -2499,6 +2528,48 @@ mod tests {
         }
         assert_eq!(collisions.results.lock().unwrap().len(), 1);
         assert_eq!(recording.checks.lock().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn cartesian_rrt_bridges_reuse_cached_endpoints_and_check_new_samples() {
+        // Both RRT bridges run in an obstacle-free part of the cell. Their
+        // maximum step spans the entire sampling box, so one attempt suffices.
+        let (robot, recording) = collision_test_robot(LinearKinematics {
+            constraints: Some(Constraints::new([-2.0; 6], [0.0; 6], 0.0)),
+        });
+        let mut planner = test_planner(&robot, usize::MAX);
+        planner.rrt.step_size_joint_space = 10.0;
+        planner.rrt.smooth = 2;
+        planner.check_step_m = 10.0;
+        planner.max_transition_cost = 0.0;
+        planner.allow_reconfigure = true;
+
+        let start = joints(0.0);
+        let path = planner
+            .plan_fast_approximate(&start, &pose_at(-0.5), Vec::new(), &pose_at(-1.5))
+            .expect("onboarding and reconfiguration should each connect in one attempt");
+        assert!(
+            path.iter()
+                .any(|step| step.flags.contains(PathFlags::ONBOARDING))
+        );
+        assert!(
+            path.iter()
+                .any(|step| step.flags.contains(PathFlags::RECONFIGURING))
+        );
+
+        let checks = recording.checks.lock().unwrap();
+        let checked: std::collections::HashSet<_> = checks
+            .iter()
+            .map(|joints| joints.map(f64::to_bits))
+            .collect();
+        assert_eq!(
+            checks.len(),
+            checked.len(),
+            "geometry repeated an exact check"
+        );
+        for step in path {
+            assert!(checked.contains(&step.joints.map(f64::to_bits)));
+        }
     }
 
     #[test]
