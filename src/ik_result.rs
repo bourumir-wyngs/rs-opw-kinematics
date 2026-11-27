@@ -15,7 +15,7 @@
 //!
 //! fn joints_for(results: &IKResults, branch: Branch) -> Option<&Joints> {
 //!     let slot = &results[branch.index()];
-//!     (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits_violated == 0)
+//!     (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits.violated().is_empty())
 //!         .then_some(&slot.joints)
 //! }
 //!
@@ -25,6 +25,12 @@
 //! ```
 
 use crate::kinematic_traits::Joints;
+
+mod metadata;
+pub use metadata::{
+    BranchSet, IKMetadata, Joint, JointLimitChecks, JointLimitStatus, JointSet, Recovery,
+    RecoverySet, Singularity, SingularitySet,
+};
 
 /// Radial root of the OPW shoulder equations in model coordinates.
 #[repr(u8)]
@@ -121,50 +127,6 @@ pub enum GeometryStatus {
     /// A singular family was identified, but the search found no representative
     /// under the supplied conditions. Other members of the family may exist.
     NoRepresentativeFound,
-}
-
-/// Branch identity, singularities and joint-limit diagnostics for one slot.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct IKMetadata {
-    /// Analytical branch assigned before filtering or ranking candidates.
-    pub branch: Branch,
-    /// Geometric outcome for this slot. A verified pose can still violate joint limits.
-    pub geometry: GeometryStatus,
-    /// Singularities of the branch in OPW model coordinates. Conditions can coincide.
-    ///
-    /// | Bit | Condition |
-    /// | --- | --- |
-    /// | 0 | Free base rotation (J1) |
-    /// | 1 | Free shoulder rotation (J2) |
-    /// | 2 | Fully extended elbow |
-    /// | 3 | Fully folded elbow |
-    /// | 4 | Shoulder-cylinder boundary |
-    /// | 5 | Wrist pole at J5 = 0 |
-    /// | 6 | Wrist pole at J5 = ±π |
-    /// | 7 | Reserved |
-    pub singularities: u8,
-    /// Recovery used to obtain the stored joint values. Bit 0 means J1 was
-    /// selected by a free-arm search, bit 1 means J2 was selected by such a search,
-    /// and bit 2 means J4/J6 were recovered from the coupled wrist phase.
-    /// Zero denotes no recovery. An attempted but unused recovery sets no bit.
-    /// Bits 3 through 7 are reserved.
-    pub recovery: u8,
-    /// Bit `i` identifies slot `i` as belonging to the same geometric family,
-    /// including this slot. A regular solution has only its own bit set. For
-    /// example, when only slots 2 and 6 meet at a wrist pole, they both carry
-    /// `0x44`, even if they hold different representatives. Zero means no family
-    /// was identified.
-    pub family_slots: u8,
-    /// Effective joint limits evaluated for the stored joints. Bits 0 through 5
-    /// correspond to J1 through J6; the upper two bits are reserved.
-    pub limits_checked: u8,
-    /// Subset of [`limits_checked`](Self::limits_checked) for which the stored
-    /// angle was outside the permitted range. An inclusive boundary passes.
-    pub limits_violated: u8,
-    /// Index (0 = J1) of the joint with the smallest signed margin. Ties select
-    /// the lowest index. `u8::MAX` means there is no finite margin.
-    pub limiting_joint: u8,
 }
 
 /// One fixed slot in a complete six-axis inverse-kinematics result.
