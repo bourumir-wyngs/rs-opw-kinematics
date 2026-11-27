@@ -1,6 +1,8 @@
+use crate::constraints::BY_PREV;
 use crate::kinematic_traits::{Joints, Kinematics, Pose};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
+use crate::urdf::from_urdf_chain;
 use glam::{DMat4, DQuat, DVec3};
 use std::f64::consts::{FRAC_PI_2, PI};
 use sxd_document::{dom::Element, parser};
@@ -42,9 +44,9 @@ fn vector(attribute: &str) -> DVec3 {
     DVec3::from_array(values.try_into().expect("expected three coordinates"))
 }
 
-// Independently multiply URDF origin and axis-angle matrices, without extracting
-// OPW geometry or borrowing the solver's joint-offset/sign conventions.
-fn urdf_forward(xml: &str, angles: &Joints) -> DMat4 {
+// Return the base-to-tip transform in the fixture XML at the given joint angles,
+// independently of OPW geometry and the solver's joint-offset/sign conventions.
+fn urdf_forward(xml: &str, base: &str, tip: &str, angles: &Joints) -> DMat4 {
     let xml = xml.replace("${prefix}", "");
     let package = parser::parse(&xml).expect("valid fixture XML");
     let robot = package
@@ -69,9 +71,9 @@ fn urdf_forward(xml: &str, angles: &Joints) -> DMat4 {
 
     // Follow the actual chain so the fixed flange/tool0 rotations are included
     // and the separate Fanuc base_link -> base (controller world) branch is not.
-    let mut link = "tool0";
+    let mut link = tip;
     let mut chain = Vec::new();
-    while link != "base_link" {
+    while link != base {
         assert!(chain.len() < joints.len(), "cycle in fixture joint chain");
         let joint = *joints
             .iter()
@@ -126,14 +128,14 @@ fn assert_pose_matches_urdf(actual: Pose, expected: DMat4, angles: &Joints) {
     }
 }
 
-fn assert_forward_matches_urdf(parameters: Parameters, xml: &str) {
-    let robot = OPWKinematics::new(parameters);
+// Check the robot's FK and IK against the selected base-to-tip path in the fixture XML.
+fn assert_kinematics_match_urdf(robot: &dyn Kinematics, xml: &str, base: &str, tip: &str) {
     for angles in [
         [0.0; 6],
         [0.3, -0.4, 0.5, -0.6, 0.7, -0.8],
         [-0.9, 0.2, -0.7, 1.1, -0.5, 0.4],
     ] {
-        let expected = urdf_forward(xml, &angles);
+        let expected = urdf_forward(xml, base, tip, &angles);
         assert_pose_matches_urdf(robot.forward(&angles), expected, &angles);
         if angles != [0.0; 6] {
             let target = Pose::from_parts(
@@ -160,7 +162,12 @@ macro_rules! preset_test {
                 )).expect("valid OPW YAML fixture");
                 assert_parameters_match(parameters, expected);
             )?
-            assert_forward_matches_urdf(parameters, include_str!(concat!("data/", $xacro)));
+            assert_kinematics_match_urdf(
+                &OPWKinematics::new(parameters),
+                include_str!(concat!("data/", $xacro)),
+                "base_link",
+                "tool0",
+            );
         }
     };
 }
@@ -219,3 +226,85 @@ preset_test!(
     "abb/opw_parameters_irb1600_6_120.yaml"
 );
 preset_test!(irb4600_40_255, "abb/irb4600_40_255.urdf");
+
+const IRB120_URDF: &str = include_str!("data/abb/irb120_3_58.urdf");
+
+#[test]
+fn imported_abb_chains_match_their_urdf() {
+    for (xml, expected) in [
+        (IRB120_URDF, Parameters::irb120_3_58()),
+        (
+            include_str!("data/abb/irb1600_6_120.urdf"),
+            Parameters::irb1600_6_120(),
+        ),
+    ] {
+        let model = from_urdf_chain(xml, "base_link", "tool0").unwrap();
+        // The shoulder has both radial and vertical components on the IRB1600.
+        // Its forearm length is split over two successive joint translations.
+        let p = model.parameters;
+        assert!((p.a1 - expected.a1).abs() < 1e-12, "a1");
+        assert!((p.c1 - expected.c1).abs() < 1e-12, "c1");
+        assert!((p.c3 - expected.c3).abs() < 1e-12, "c3");
+        assert!(
+            (p.offsets[2] - expected.offsets[2]).abs() < 1e-12,
+            "J3 offset"
+        );
+        let robot = model.to_robot(BY_PREV).unwrap();
+        assert_kinematics_match_urdf(&robot, xml, "base_link", "tool0");
+    }
+}
+
+#[test]
+fn imported_chain_preserves_rotated_mount_and_offset_tcp() {
+    let xml = IRB120_URDF.replace(
+        "</robot>",
+        r#"
+          <joint name="mount" type="fixed">
+            <origin xyz="0.3 -0.2 1.1" rpy="0.7 -0.4 0.2"/>
+            <parent link="cell"/><child link="base_link"/>
+          </joint>
+          <joint name="probe" type="fixed">
+            <origin xyz="0.04 0.08 -0.02" rpy="0.3 0.1 -0.2"/>
+            <parent link="tool0"/><child link="probe_tip"/>
+          </joint>
+        </robot>"#,
+    );
+    let model = from_urdf_chain(&xml, "cell", "probe_tip").unwrap();
+    let robot = model.to_robot(BY_PREV).unwrap();
+    assert_kinematics_match_urdf(&robot, &xml, "cell", "probe_tip");
+}
+
+#[test]
+fn imported_chain_interprets_axes_in_the_joint_frame() {
+    // Rotate the J3 frame by 180 degrees around Z, then undo that rotation
+    // with a fixed adapter before J4. J3's local +Y points along the arm's -Y.
+    let xml = IRB120_URDF
+        .replace(
+            r#"rpy="0 0 0" xyz="0 0 0.27""#,
+            r#"rpy="0 0 3.141592653589793" xyz="0 0 0.27""#,
+        )
+        .replace(
+            r#"<parent link="link_3" />"#,
+            r#"<parent link="adapter" />"#,
+        )
+        .replace(
+            "</robot>",
+            r#"
+          <joint name="adapter_mount" type="fixed">
+            <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
+            <parent link="link_3"/><child link="adapter"/>
+          </joint></robot>"#,
+        );
+    let model = from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    assert_eq!(model.parameters.sign_corrections[2], -1);
+    let robot = model.to_robot(BY_PREV).unwrap();
+    assert_kinematics_match_urdf(&robot, &xml, "base_link", "tool0");
+}
+
+#[test]
+fn imported_chain_rejects_offset_wrist_axis() {
+    // Shifting J6 sideways leaves all axis directions unchanged, but the three
+    // wrist axes no longer pass through a common center.
+    let xml = IRB120_URDF.replace("0.072 0 0", "0.072 0.001 0");
+    assert!(from_urdf_chain(&xml, "base_link", "tool0").is_err());
+}

@@ -315,3 +315,96 @@ fn test_extraction_m20ia() {
 
     assert_parameter_extraction(yaml, urdf, "m20ia");
 }
+
+const ABB_CHAIN: &str = include_str!("data/abb/irb120_3_58.urdf");
+
+#[test]
+fn chain_selects_physical_joints_by_link() {
+    let xml = ABB_CHAIN.replace("joint_2", "shoulder_pitch").replace(
+        "</robot>",
+        r#"<transmission name="drive"><joint name="shoulder_pitch"/></transmission>
+           <ros2_control name="control"><joint name="shoulder_pitch"/></ros2_control>
+           <joint name="gripper" type="prismatic">
+             <parent link="tool0"/><child link="finger"/><origin xyz="unused"/>
+           </joint></robot>"#,
+    );
+    let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    assert_eq!(chain.parameters.c1, 0.29);
+    assert!(urdf::from_urdf_chain(&xml, "base_link", "finger").is_err());
+    assert!(urdf::from_urdf_chain(&xml, "base_link", "unknown").is_err());
+}
+
+#[test]
+fn chain_rejects_multiple_parents_and_cycles_through_mount() {
+    for (extra, expected) in [
+        (
+            r#"<joint><parent link="base_link"/><child link="link_3"/></joint>"#,
+            "multiple parent",
+        ),
+        (
+            r#"<joint><parent link="tool0"/><child link="mount"/></joint>
+            <joint><parent link="mount"/><child link="base_link"/></joint>"#,
+            "cycle",
+        ),
+    ] {
+        let xml = ABB_CHAIN.replace("</robot>", &format!("{extra}</robot>"));
+        let error = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn chain_import_preserves_joint_limits() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematic_traits::Kinematics;
+    use urdf::UrdfJointLimit::{Bounded, Continuous, Unspecified};
+
+    let xml = ABB_CHAIN
+        .replace(
+            r#"name="joint_1" type="revolute">"#,
+            r#"name="joint_1" type="continuous"><limit effort="20" velocity="3"/>"#,
+        )
+        .replace(
+            r#"name="joint_2" type="revolute">"#,
+            r#"name="joint_2" type="revolute"><limit upper="0.5"/>"#,
+        )
+        .replace(
+            r#"name="joint_6" type="revolute">"#,
+            r#"name="joint_6" type="revolute"><limit lower="-9" upper="8"/>"#,
+        );
+    let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+    assert_eq!(
+        chain.limits,
+        [
+            Continuous,
+            Bounded {
+                lower: 0.0,
+                upper: 0.5
+            },
+            Unspecified,
+            Unspecified,
+            Unspecified,
+            Bounded {
+                lower: -9.0,
+                upper: 8.0
+            },
+        ]
+    );
+    let robot = chain.to_robot(BY_PREV).unwrap();
+    let limits = robot.constraints().as_ref().unwrap();
+    assert!(limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.0]));
+    assert!(!limits.compliant(&[20.0, 0.4, 0.0, 0.0, 0.0, 8.1]));
+
+    for upper in ["0", "6.283185307179586"] {
+        let xml = xml.replace(r#"upper="0.5""#, &format!(r#"upper="{upper}""#));
+        let chain = urdf::from_urdf_chain(&xml, "base_link", "tool0").unwrap();
+        assert!(
+            chain
+                .to_robot(BY_PREV)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("J2")
+        );
+    }
+}

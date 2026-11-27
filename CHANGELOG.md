@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `urdf::from_urdf_chain` imports a six-axis arm from expanded URDF 1.0 by
+  base and tip link. It supports the home-axis layout of the ABB IRB120 and
+  IRB1600, including their shoulder offsets, joint signs, fixed mounts and tools.
+
 ## [3.0.2] - 2026-11-27
 
 ### Performance

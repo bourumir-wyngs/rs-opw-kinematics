@@ -2,6 +2,12 @@
 
 extern crate sxd_document;
 
+mod chain;
+mod chain_xml;
+mod geometry;
+
+pub use chain::{UrdfChain, UrdfJointLimit, from_urdf_chain};
+
 use crate::constraints::{BY_PREV, Constraints};
 use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints};
 use crate::kinematics_impl::OPWKinematics;
