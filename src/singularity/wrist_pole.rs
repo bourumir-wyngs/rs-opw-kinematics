@@ -117,7 +117,9 @@ fn nearest_feasible_j4(reference: f64, constraints: &Constraints) -> Option<f64>
     let mut best = None;
     let mut best_distance = f64::INFINITY;
     let mut best_motion = f64::INFINITY;
-    for (lower, upper) in wrist_limit_intervals(center, constraints.tolerances[J4], near, 1.0) {
+    for (lower, upper) in
+        wrist_limit_intervals(center, constraints.angular_half_width(J4), near, 1.0)
+    {
         // The score is piecewise linear on each feasible interval. Its only
         // kinks occur at the previous value and the raw constraint center.
         for candidate in [0.0, center - reference, lower, upper] {
@@ -195,7 +197,7 @@ fn pole_intervals(
     travel.into_iter().chain(
         wrist_limit_intervals(
             constraints.centers[joint],
-            constraints.tolerances[joint],
+            constraints.angular_half_width(joint),
             wrapped_angle(anchor),
             sign,
         )

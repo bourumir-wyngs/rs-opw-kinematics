@@ -3,6 +3,16 @@ use crate::kinematic_traits::{J1, J4, J6, Kinematics};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
 
+// At these angles the analytic J1 root is a few ulps above the -19 degree stop.
+const J1_STOP_POSE_DEGREES: [f64; 6] = [
+    -19.0,
+    1.0 / 3.0 - 7.0,
+    1.0 / 11.0 + 15.0,
+    1.0 / 7.0 - 42.0,
+    1.0 / 6.0 + 25.0,
+    0.25,
+];
+
 #[test]
 fn inverse_selects_the_nearest_legal_turn_for_each_absolute_joint() {
     let limits = Constraints::from_degrees(
@@ -41,15 +51,7 @@ fn continuing_at_a_travel_stop_does_not_jump_one_turn_due_to_ik_roundoff() {
     ranges[J1] = -559.0..=-19.0;
     let limits = Constraints::from_degrees(ranges, BY_PREV);
     let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), limits);
-    let mut joints = [
-        -19.0,
-        1.0 / 3.0 - 7.0,
-        1.0 / 11.0 + 15.0,
-        1.0 / 7.0 - 42.0,
-        1.0 / 6.0 + 25.0,
-        0.25,
-    ]
-    .map(f64::to_radians);
+    let mut joints = J1_STOP_POSE_DEGREES.map(f64::to_radians);
     let mut previous = joints;
     previous[J1] -= 0.01;
 
@@ -69,6 +71,27 @@ fn continuing_at_a_travel_stop_does_not_jump_one_turn_due_to_ik_roundoff() {
         assert!((same_branch[J1] - expected).abs() < 1e-9);
         assert!(limits.compliant(same_branch));
     }
+}
+
+#[test]
+#[cfg(feature = "allow_filesystem")]
+fn inverse_recovers_a_short_absolute_joint_at_its_inclusive_stop() {
+    let mut from = [0.0; 6];
+    let mut to = [0.0; 6];
+    from[J1] = -20.0_f64.to_radians();
+    to[J1] = -19.0_f64.to_radians();
+    let limits = Constraints::from_urdf_bounds(from, to, BY_PREV);
+    let robot = OPWKinematics::new_with_constraints(Parameters::irb2400_10(), limits);
+    let joints = J1_STOP_POSE_DEGREES.map(f64::to_radians);
+    let target = robot.forward(&joints);
+    let solutions = robot.inverse_continuing(&target, &joints);
+    assert!(solutions.iter().any(
+        |q| limits.compliant(q) && (0..6).all(|joint| (q[joint] - joints[joint]).abs() < 1e-8)
+    ));
+
+    let mut outside = joints;
+    outside[J1] += 1e-7;
+    assert!(robot.inverse(&robot.forward(&outside)).is_empty());
 }
 
 #[test]

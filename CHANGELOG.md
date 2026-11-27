@@ -15,9 +15,10 @@ All notable changes to this project will be documented in this file.
   ambiguous or cyclic paths, mimic joints on the selected path, and incompatible
   geometry such as wrist axes that miss their common center.
 - Inspect the imported parameters, base and tool transforms, and per-joint
-  limits through `UrdfChain`. Its `to_robot` method preserves absolute travel
-  stops on bounded revolute joints spanning one full turn or more. Continuous
-  joints and revolute joints without limits remain distinguishable in the import.
+  limits through `UrdfChain`. Its `to_robot` method enforces the declared
+  position bounds of revolute joints, including ranges shorter than or equal
+  to one full turn. Continuous joints permit any turn. Revolute joints
+  without a limit element are recorded separately as unspecified.
 - Add built-in presets for the FANUC LR Mate 200iC and R-2000iC/165F, Stäubli
   TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 using their published
   ROS-Industrial OPW parameters.

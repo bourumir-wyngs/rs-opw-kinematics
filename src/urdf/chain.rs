@@ -14,7 +14,7 @@ pub enum UrdfJointLimit {
     Unspecified,
     /// A continuous joint with unlimited rotation.
     Continuous,
-    /// A revolute joint with inclusive travel limits.
+    /// A revolute joint with inclusive limits on the joint angle, including whole turns.
     Bounded { lower: f64, upper: f64 },
 }
 
@@ -80,9 +80,9 @@ impl UrdfChain {
     /// can have different local origins and orientations.
     ///
     /// `sorting_weight` has the meaning used by [`Constraints::new`]. Unspecified
-    /// and continuous joints are unrestricted. Bounded ranges shorter than one
-    /// turn repeat every revolution in the solver. A full turn or more retains absolute
-    /// travel stops. The original URDF bounds are available in [`Self::limits`].
+    /// and continuous joints are unrestricted. For a bounded revolute joint the solver
+    /// enforces the inclusive URDF limits in joint coordinates, including whole turns.
+    /// The original URDF bounds are available in [`Self::limits`].
     /// Equal endpoints denote unrestricted rotation in [`Constraints`].
     ///
     /// # Errors
@@ -116,7 +116,7 @@ impl UrdfChain {
         }
         let robot = OPWKinematics::new_with_constraints(
             self.parameters,
-            Constraints::new(from, to, sorting_weight).with_bounded_full_turns(),
+            Constraints::from_urdf_bounds(from, to, sorting_weight),
         );
         let mounted = Base {
             robot: Arc::new(robot),

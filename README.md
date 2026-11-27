@@ -171,11 +171,14 @@ Enter a stop at zero as `0.0`. For example, `0°..=720°` sets an absolute lower
 at exactly zero. With `Constraints::new`, a range of exactly one turn (`0.0..=TAU`
 in radians) permits any turn. Setting the upper endpoint to `TAU.next_up()`
 selects absolute travel and allows one representable value beyond `TAU`.
-The [URDF chain reader](#reading-urdf) preserves both exact stops for a revolute
-joint explicitly bounded from zero to one full turn.
+The [URDF chain reader](#reading-urdf) follows the joint declaration. A `revolute`
+joint bounded from 0° to 360° can reach 360° and reverse direction. Moving on
+to 361° would exceed its declared limit. A `continuous` joint can keep turning
+past 360°. Whether the hardware has a mechanical stop at that orientation is a
+separate question.
 
-Narrower ranges repeat every turn, so `350°..=370°` admits both `5°` and `365°`.
-Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted in `Constraints::new`.
+With `Constraints::new`, narrower ranges repeat every turn, so `350°..=370°` admits
+both `5°` and `365°`. Equal endpoints, including `[0.0, 0.0]`, leave the joint unrestricted.
 If an older configuration uses a wider range to mean unlimited rotation, set it to
 `-180°..=180°` to keep that behavior.
 
@@ -849,9 +852,12 @@ coupled wrist joint, produces an error that names the joint.
 
 `chain.limits` retains the original joint limits, including the distinction
 between continuous joints and revolute joints with missing limits. The solver
-treats both as unrestricted. Bounded ranges shorter than one turn repeat
-every turn. A bounded range of one full turn or more retains both absolute
-travel stops. `to_robot` returns an error for a bounded joint with equal endpoints.
+treats both as unrestricted. For a bounded revolute joint, the solver enforces
+the declared lower and upper limits, including whole turns. For example, with
+limits of 350° to 370°, 365° is legal and 5° is outside the range. `to_robot`
+returns an error for a bounded joint with equal endpoints.
+A `continuous` joint may specify effort and velocity limits. The reader reports
+an error if it also declares a lower or upper position bound.
 
 The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
 folder with imported URDF fixtures documents their upstream sources and licenses.
