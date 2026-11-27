@@ -5,20 +5,21 @@
 //! several slots can refer to one family of configurations. A representative
 //! of that family can depend on the reference configuration.
 //!
-//! Use a [`BranchId`] to index [`IKResults`]. For example, this function reads
+//! Use `results[branch.index()]` to look up a branch in the eight-element
+//! [`IKResults`] array. For example, this function reads
 //! the joints for one branch if its pose was verified and it passes all checked limits.
 //!
 //! ```
-//! use rs_opw_kinematics::ik_result::{BranchId, Elbow, GeometryStatus, IKResults, Shoulder, Wrist};
+//! use rs_opw_kinematics::ik_result::{Branch, Elbow, GeometryStatus, IKResults, Shoulder, Wrist};
 //! use rs_opw_kinematics::kinematic_traits::Joints;
 //!
-//! fn joints_for(results: &IKResults, branch: BranchId) -> Option<&Joints> {
+//! fn joints_for(results: &IKResults, branch: Branch) -> Option<&Joints> {
 //!     let slot = &results[branch.index()];
 //!     (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits_violated == 0)
 //!         .then_some(&slot.joints)
 //! }
 //!
-//! let branch = BranchId::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
+//! let branch = Branch::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
 //! assert_eq!(branch.index(), 6);
 //! assert_eq!(branch.wrist(), Wrist::Flipped);
 //! ```
@@ -59,9 +60,9 @@ pub enum Wrist {
 /// wrist choices before joint offsets, axis sign corrections and whole-turn adjustments.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BranchId(u8);
+pub struct Branch(u8);
 
-impl BranchId {
+impl Branch {
     /// Constructs the branch for the given shoulder root, elbow root and wrist solution.
     pub const fn new(shoulder: Shoulder, elbow: Elbow, wrist: Wrist) -> Self {
         Self(((wrist as u8) << 2) | ((shoulder as u8) << 1) | elbow as u8)
@@ -94,7 +95,8 @@ impl BranchId {
         }
     }
 
-    /// Returns the slot in [`IKResults`], in the range `0..8`.
+    /// Returns the zero-based array index (`0..8`) for this branch.
+    /// Use `results[branch.index()]` to access its slot in an [`IKResults`] array.
     ///
     /// The index is `4 * wrist + 2 * shoulder + elbow` using the components'
     /// zero-or-one discriminants. This is the order used by
@@ -126,7 +128,7 @@ pub enum GeometryStatus {
 #[derive(Debug, Clone, Copy)]
 pub struct IKMetadata {
     /// Analytical branch assigned before filtering or ranking candidates.
-    pub branch: BranchId,
+    pub branch: Branch,
     /// Geometric outcome for this slot. A verified pose can still violate joint limits.
     pub geometry: GeometryStatus,
     /// Singularities of the branch in OPW model coordinates. Conditions can coincide.
@@ -184,17 +186,17 @@ pub struct IKResult {
     pub meta: IKMetadata,
 }
 
-/// All eight branch slots in [`BranchId`] order, including missing roots and
+/// All eight branch slots in [`Branch`] order, including missing roots and
 /// failed candidates. Store each entry at `entry.meta.branch.index()`.
 pub type IKResults = [IKResult; 8];
 
-const _: () = assert!(size_of::<BranchId>() == 1);
+const _: () = assert!(size_of::<Branch>() == 1);
 const _: () = assert!(size_of::<IKMetadata>() == 8);
 const _: () = assert!(size_of::<IKResult>() == 64);
 
 #[cfg(test)]
 mod tests {
-    use super::{BranchId, Elbow, Shoulder, Wrist};
+    use super::{Branch, Elbow, Shoulder, Wrist};
 
     #[test]
     fn branch_components_match_all_eight_slots() {
@@ -213,7 +215,7 @@ mod tests {
             (Second, Negative, Flipped),
         ];
         for (index, (shoulder, elbow, wrist)) in slots.into_iter().enumerate() {
-            let branch = BranchId::new(shoulder, elbow, wrist);
+            let branch = Branch::new(shoulder, elbow, wrist);
             assert_eq!(branch.index(), index);
             assert_eq!(
                 (branch.shoulder(), branch.elbow(), branch.wrist()),
