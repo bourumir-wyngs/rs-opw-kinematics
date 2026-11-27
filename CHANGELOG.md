@@ -4,14 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [3.0.2] - 2026-11-27
 
-### Fixed
-
-- Give the `cartesian_stroke` example ±360° of J6 travel, matching the other
-  RX160 examples. Its stroke reaches about +319.4° and failed with the ±225°
-  absolute limits introduced in 3.0.1.
-- Return an error from the Cartesian and RRT planning examples when planning
-  fails, so command-line runs no longer report a successful exit status.
-
 ### Performance
 
 - Reuse the Cartesian planner's collision cache during onboarding and
@@ -44,7 +36,12 @@ All notable changes to this project will be documented in this file.
 - Avoid overflow when computing centers and sampling extremely large finite
   joint ranges, and classify exactly 360° degree ranges correctly despite
   degree-to-radian conversion roundoff.
-
+- Give the `cartesian_stroke` example ±360° of J6 travel, matching the other
+  RX160 examples. Its stroke reaches about +319.4° and failed with the ±225°
+  absolute limits introduced in 3.0.1.
+- Return an error from the Cartesian and RRT planning examples when planning
+  fails, so command-line runs no longer report a successful exit status.
+- 
 ## [3.0.1] - 2026-11-27
 
 Retracted. The following changes are also included in 3.0.2.
