@@ -8,6 +8,9 @@ use crate::tool::{Base, Tool};
 use std::sync::Arc;
 
 /// Position limits in URDF joint coordinates, in radians.
+///
+/// Matches in downstream crates must include a wildcard arm for future limit kinds.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UrdfJointLimit {
     /// A revolute joint with neither a lower nor an upper position bound.

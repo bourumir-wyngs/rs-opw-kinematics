@@ -15,7 +15,8 @@ All notable changes to this project will be documented in this file.
   ambiguous or cyclic paths, mimic joints on the selected path, and incompatible
   geometry such as wrist axes that miss their common center.
 - Inspect the imported parameters, base and tool transforms, and per-joint
-  limits through `UrdfChain`. Explicit position ranges on `revolute` and
+  limits through `UrdfChain`. The joint limits use the non-exhaustive
+  `UrdfJointLimit` enum. Explicit position ranges on `revolute` and
   `continuous` joints repeat every turn for positive spans below 360° and
   bound absolute travel above 360°. At exactly 360°, `continuous` permits any
   turn. For `revolute`, solver conversion moves one endpoint outward just
