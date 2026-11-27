@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1120 665" width="1120" height="665" style="max-width:100%;height:auto" role="img" aria-labelledby="opw-title opw-desc">
+  <title id="opw-title">Eight IK branches for one flange pose</title>
+  <desc id="opw-desc">Stäubli TX2-140 viewed along the flange axis. The columns show First shoulder with Positive and Negative elbows, then Second shoulder with Positive and Negative elbows. The top row shows Principal wrist, indices 0–3. The bottom row shows Flipped wrist, indices 4–7. The orange arrow starts at the wrist and shows the positive J5 axis. Every arrow is parallel to the page and reverses within each column.</desc>
+  <!-- OPW model seed (J1 through J6, degrees): 30, -25, 100, 65, 55, -35. Orthographic projection along the common flange axis. -->
+  <defs>
+    <g id="opw-wrist-arrow">
+      <path d="M0 -1.75 H28 V-6 L41 0 L28 6 V1.75 H0 Z" fill="#b64517" stroke="#fff" stroke-width="1.3" stroke-linejoin="round" />
+    </g>
+    <g id="opw-arm-0" stroke-linecap="round">
+      <path d="M-21 -5 v5 a21 3.9 0 0 0 42 0 v-5 Z" stroke="#526b76" fill="#b2c1c7" />
+      <ellipse cx="0" cy="-5" rx="21" ry="3.9" fill="#dae4e6" stroke="#526b76" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#536a76" stroke-width="18" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#cfdadd" stroke-width="16" />
+      <path d="M0.00 -56.74 L11.90 -58.66" stroke="#536a76" stroke-width="16" />
+      <path d="M0.00 -56.74 L11.90 -58.66" stroke="#cfdadd" stroke-width="14" />
+      <path d="M11.90 -58.66 L-9.06 -113.72" stroke="#265e5b" stroke-width="17" />
+      <path d="M11.90 -58.66 L-9.06 -113.72" stroke="#77bab0" stroke-width="15" />
+      <path d="M-9.06 -113.72 L38.84 -138.13" stroke="#3e607c" stroke-width="13" />
+      <path d="M-9.06 -113.72 L38.84 -138.13" stroke="#9eb7cb" stroke-width="11" />
+      <circle cx="11.90" cy="-58.66" r="7.2" fill="#f8fafb" stroke="#265e5b" stroke-width="1.2" />
+      <circle cx="11.90" cy="-58.66" r="2.1" fill="#265e5b" />
+      <circle cx="-9.06" cy="-113.72" r="6.0" fill="#f8fafb" stroke="#355f67" stroke-width="1.2" />
+      <circle cx="-9.06" cy="-113.72" r="2.1" fill="#355f67" />
+    </g>
+    <g id="opw-arm-1" stroke-linecap="round">
+      <path d="M-21 -5 v5 a21 3.9 0 0 0 42 0 v-5 Z" stroke="#526b76" fill="#b2c1c7" />
+      <ellipse cx="0" cy="-5" rx="21" ry="3.9" fill="#dae4e6" stroke="#526b76" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#536a76" stroke-width="18" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#cfdadd" stroke-width="16" />
+      <path d="M0.00 -56.74 L11.90 -58.66" stroke="#536a76" stroke-width="16" />
+      <path d="M0.00 -56.74 L11.90 -58.66" stroke="#cfdadd" stroke-width="14" />
+      <path d="M11.90 -58.66 L59.80 -83.07" stroke="#265e5b" stroke-width="17" />
+      <path d="M11.90 -58.66 L59.80 -83.07" stroke="#77bab0" stroke-width="15" />
+      <path d="M59.80 -83.07 L38.84 -138.13" stroke="#3e607c" stroke-width="13" />
+      <path d="M59.80 -83.07 L38.84 -138.13" stroke="#9eb7cb" stroke-width="11" />
+      <circle cx="11.90" cy="-58.66" r="7.2" fill="#f8fafb" stroke="#265e5b" stroke-width="1.2" />
+      <circle cx="11.90" cy="-58.66" r="2.1" fill="#265e5b" />
+      <circle cx="59.80" cy="-83.07" r="6.0" fill="#f8fafb" stroke="#355f67" stroke-width="1.2" />
+      <circle cx="59.80" cy="-83.07" r="2.1" fill="#355f67" />
+    </g>
+    <g id="opw-arm-2" stroke-linecap="round">
+      <path d="M-21 -5 v5 a21 3.9 0 0 0 42 0 v-5 Z" stroke="#526b76" fill="#b2c1c7" />
+      <ellipse cx="0" cy="-5" rx="21" ry="3.9" fill="#dae4e6" stroke="#526b76" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#536a76" stroke-width="18" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#cfdadd" stroke-width="16" />
+      <path d="M0.00 -56.74 L-11.90 -54.82" stroke="#536a76" stroke-width="16" />
+      <path d="M0.00 -56.74 L-11.90 -54.82" stroke="#cfdadd" stroke-width="14" />
+      <path d="M-11.90 -54.82 L37.00 -73.40" stroke="#265e5b" stroke-width="17" />
+      <path d="M-11.90 -54.82 L37.00 -73.40" stroke="#77bab0" stroke-width="15" />
+      <path d="M37.00 -73.40 L38.84 -138.13" stroke="#3e607c" stroke-width="13" />
+      <path d="M37.00 -73.40 L38.84 -138.13" stroke="#9eb7cb" stroke-width="11" />
+      <circle cx="-11.90" cy="-54.82" r="7.2" fill="#f8fafb" stroke="#265e5b" stroke-width="1.2" />
+      <circle cx="-11.90" cy="-54.82" r="2.1" fill="#265e5b" />
+      <circle cx="37.00" cy="-73.40" r="6.0" fill="#f8fafb" stroke="#355f67" stroke-width="1.2" />
+      <circle cx="37.00" cy="-73.40" r="2.1" fill="#355f67" />
+    </g>
+    <g id="opw-arm-3" stroke-linecap="round">
+      <path d="M-21 -5 v5 a21 3.9 0 0 0 42 0 v-5 Z" stroke="#526b76" fill="#b2c1c7" />
+      <ellipse cx="0" cy="-5" rx="21" ry="3.9" fill="#dae4e6" stroke="#526b76" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#536a76" stroke-width="18" />
+      <path d="M0.00 -7.00 L0.00 -56.74" stroke="#cfdadd" stroke-width="16" />
+      <path d="M0.00 -56.74 L-11.90 -54.82" stroke="#536a76" stroke-width="16" />
+      <path d="M0.00 -56.74 L-11.90 -54.82" stroke="#cfdadd" stroke-width="14" />
+      <path d="M-11.90 -54.82 L-10.06 -119.56" stroke="#265e5b" stroke-width="17" />
+      <path d="M-11.90 -54.82 L-10.06 -119.56" stroke="#77bab0" stroke-width="15" />
+      <path d="M-10.06 -119.56 L38.84 -138.13" stroke="#3e607c" stroke-width="13" />
+      <path d="M-10.06 -119.56 L38.84 -138.13" stroke="#9eb7cb" stroke-width="11" />
+      <circle cx="-11.90" cy="-54.82" r="7.2" fill="#f8fafb" stroke="#265e5b" stroke-width="1.2" />
+      <circle cx="-11.90" cy="-54.82" r="2.1" fill="#265e5b" />
+      <circle cx="-10.06" cy="-119.56" r="6.0" fill="#f8fafb" stroke="#355f67" stroke-width="1.2" />
+      <circle cx="-10.06" cy="-119.56" r="2.1" fill="#355f67" />
+    </g>
+  </defs>
+  <rect width="1120" height="665" fill="#fff" />
+  <g font-family="DejaVu Sans, Arial, sans-serif" fill="#203747">
+    <text x="36" y="45" font-size="33" font-weight="bold">Eight IK branches for one flange pose</text>
+    <text x="37" y="76" font-size="15" fill="#49616c">Stäubli TX2-140   ·   One nonsingular target   ·   Before joint limits and collision checks</text>
+    <text x="384.5" y="121" font-size="20" font-weight="bold" text-anchor="middle">First shoulder</text>
+    <path d="M163.5 131 h442" stroke="#c4d2d6" />
+    <text x="854.5" y="121" font-size="20" font-weight="bold" text-anchor="middle">Second shoulder</text>
+    <path d="M633.5 131 h442" stroke="#c4d2d6" />
+    <text x="267" y="154" font-size="16" text-anchor="middle">Positive elbow</text>
+    <text x="502" y="154" font-size="16" text-anchor="middle">Negative elbow</text>
+    <text x="737" y="154" font-size="16" text-anchor="middle">Positive elbow</text>
+    <text x="972" y="154" font-size="16" text-anchor="middle">Negative elbow</text>
+    <text x="36" y="245" font-size="19" font-weight="bold">Principal</text>
+    <text x="36" y="269" font-size="16" fill="#49616c">wrist</text>
+    <g transform="translate(242 351)">
+      <use xlink:href="#opw-arm-0" />
+      <g transform="translate(38.84 -138.13) rotate(-117.005)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="267" y="382" font-size="14" text-anchor="middle">index 0   ·   J5 +55°</text>
+    <g transform="translate(477 351)">
+      <use xlink:href="#opw-arm-1" />
+      <g transform="translate(38.84 -138.13) rotate(159.164)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="502" y="382" font-size="14" text-anchor="middle">index 1   ·   J5 +116°</text>
+    <g transform="translate(712 351)">
+      <use xlink:href="#opw-arm-2" />
+      <g transform="translate(38.84 -138.13) rotate(-178.370)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="737" y="382" font-size="14" text-anchor="middle">index 2   ·   J5 +99°</text>
+    <g transform="translate(947 351)">
+      <use xlink:href="#opw-arm-3" />
+      <g transform="translate(38.84 -138.13) rotate(-110.800)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="972" y="382" font-size="14" text-anchor="middle">index 3   ·   J5 +53°</text>
+    <text x="36" y="471" font-size="19" font-weight="bold">Flipped</text>
+    <text x="36" y="495" font-size="16" fill="#49616c">wrist</text>
+    <g transform="translate(242 577)">
+      <use xlink:href="#opw-arm-0" />
+      <g transform="translate(38.84 -138.13) rotate(62.995)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="267" y="608" font-size="14" text-anchor="middle">index 4   ·   J5 -55°</text>
+    <g transform="translate(477 577)">
+      <use xlink:href="#opw-arm-1" />
+      <g transform="translate(38.84 -138.13) rotate(-20.836)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="502" y="608" font-size="14" text-anchor="middle">index 5   ·   J5 -116°</text>
+    <g transform="translate(712 577)">
+      <use xlink:href="#opw-arm-2" />
+      <g transform="translate(38.84 -138.13) rotate(1.630)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="737" y="608" font-size="14" text-anchor="middle">index 6   ·   J5 -99°</text>
+    <g transform="translate(947 577)">
+      <use xlink:href="#opw-arm-3" />
+      <g transform="translate(38.84 -138.13) rotate(69.200)">
+        <use xlink:href="#opw-wrist-arrow" />
+      </g>
+    </g>
+    <text x="972" y="608" font-size="14" text-anchor="middle">index 7   ·   J5 -53°</text>
+    <path d="M36 396 H1085 M36 626 H1085" stroke="#d3dee0" />
+    <text x="36" y="650" font-size="14" fill="#a63c14" font-weight="bold">Orange arrow</text>
+    <text x="155" y="650" font-size="14">Positive J5 axis, viewed in the plane of the page</text>
+    <text x="1085" y="650" font-size="14" text-anchor="end">index = branch.index() in the result array</text>
+  </g>
+</svg>

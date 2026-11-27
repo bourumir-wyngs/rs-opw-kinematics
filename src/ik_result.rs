@@ -67,6 +67,18 @@ pub enum Wrist {
 
 /// One of the eight analytical branches, identified by its shoulder, elbow and
 /// wrist choices before joint offsets, axis sign corrections and whole-turn adjustments.
+///
+/// The figure shows all eight branches of a Stäubli TX2-140 reaching the same
+/// flange position and orientation. Read across for the shoulder and elbow
+/// choices or down a column for the wrist flip. Each label gives the
+/// [`branch.index()`](Branch::index) used to index the result array.
+///
+/// The view looks along the flange axis, so the flange origin and wrist center
+/// coincide on the page. The orange arrow starts there and points along the
+/// positive J5 axis. It lies in the plane of the page for every branch and
+/// reverses when the wrist flips.
+///
+#[doc = include_str!("../documentation/opw-branches.svg")]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Branch(u8);
