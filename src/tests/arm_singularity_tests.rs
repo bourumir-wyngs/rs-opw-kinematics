@@ -62,6 +62,39 @@ fn singular_candidates_are_bounded_before_validation() {
 }
 
 #[test]
+fn free_arm_solutions_retain_turns_inside_absolute_stops() {
+    // The fixtures respectively free J1, J2, or both. Keep three wrist joints
+    // near the witness so the free arm and wrist must be solved together.
+    for (kind, free_joints) in [(0, &[0][..]), (1, &[1][..]), (4, &[0, 1][..])] {
+        let (parameters, mut witness) = fixture(kind, 1.0, true, 50.0);
+        let mut from = witness.map(|q| q - 0.05);
+        let mut to = witness.map(|q| q + 0.05);
+        for &joint in free_joints {
+            witness[joint] += 2.0 * TAU;
+            from[joint] = witness[joint] - 0.1;
+            to[joint] = witness[joint] + TAU + 0.1;
+        }
+        let limits = Constraints::new(from, to, BY_PREV);
+        let robot = OPWKinematics::new_with_constraints(parameters, limits);
+        let target = robot.forward(&witness);
+        for solutions in all_inverse(&robot, &target, &witness) {
+            assert!(!solutions.is_empty(), "arm fixture {kind}");
+            assert!(solutions.iter().all(|q| limits.compliant(q)));
+            for q in solutions {
+                let actual = robot.forward(&q);
+                assert!(
+                    actual.translation.distance(target.translation) <= robot.distance_tolerance
+                );
+                assert!(
+                    (actual.rotation * DVec3::Z - target.rotation * DVec3::Z).length()
+                        <= ANGULAR_TOLERANCE
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn singular_continuation_rejects_overflowing_arm_references() {
     for kind in [0, 1, 4] {
         for transformed in [false, true] {

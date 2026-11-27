@@ -71,6 +71,25 @@ pub struct Parallelogram {
     /// The index of the coupled joint in the parallelogram mechanism (`joints[coupled]`).
     pub coupled: usize,
 }
+
+impl Parallelogram {
+    /// Undo this coupling only. A nested wrapper handles its own joint coordinates.
+    fn wrapped_joints(&self, joints: &Joints) -> Joints {
+        let mut joints = *joints;
+        joints[self.coupled] -= self.scaling * joints[self.driven];
+        joints
+    }
+
+    fn wrapped_reference(&self, previous: &Joints) -> Joints {
+        // Preserve CONSTRAINT_CENTERED and let the wrapped solver handle invalid input.
+        if previous.iter().all(|joint| joint.is_finite()) {
+            self.wrapped_joints(previous)
+        } else {
+            *previous
+        }
+    }
+}
+
 impl Kinematics for Parallelogram {
     fn inverse(&self, tcp: &Pose) -> Solutions {
         let mut solutions = self.robot.inverse(tcp);
@@ -93,7 +112,9 @@ impl Kinematics for Parallelogram {
     }
 
     fn inverse_continuing_5dof(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        let mut solutions = self.robot.inverse_continuing_5dof(tcp, previous);
+        let mut solutions = self
+            .robot
+            .inverse_continuing_5dof(tcp, &self.wrapped_reference(previous));
 
         // Reversing the influence of driven joint in inverse kinematics
         solutions
@@ -103,7 +124,9 @@ impl Kinematics for Parallelogram {
     }
 
     fn inverse_continuing(&self, tcp: &Pose, previous: &Joints) -> Solutions {
-        let mut solutions = self.robot.inverse_continuing(tcp, previous);
+        let mut solutions = self
+            .robot
+            .inverse_continuing(tcp, &self.wrapped_reference(previous));
 
         // Reversing the influence of driven joint in inverse kinematics
         solutions
@@ -113,17 +136,12 @@ impl Kinematics for Parallelogram {
     }
 
     fn forward(&self, qs: &Joints) -> Pose {
-        let mut joints = *qs;
-        // Adjusting coupled joint based on driven joint in forward kinematics
-        joints[self.coupled] -= self.scaling * joints[self.driven];
-        self.robot.forward(&joints)
+        self.robot.forward(&self.wrapped_joints(qs))
     }
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
-        let mut joints = *joints;
-        // Adjusting coupled joint based on driven joint in forward kinematics
-        joints[self.coupled] -= self.scaling * joints[self.driven];
-        self.robot.forward_with_joint_poses(&joints)
+        self.robot
+            .forward_with_joint_poses(&self.wrapped_joints(joints))
     }
 
     fn constraints(&self) -> &Option<Constraints> {
@@ -131,9 +149,8 @@ impl Kinematics for Parallelogram {
     }
 
     fn to_constraint_joints(&self, joints: &Joints) -> Joints {
-        let mut joints = *joints;
-        joints[self.coupled] -= self.scaling * joints[self.driven];
-        self.robot.to_constraint_joints(&joints)
+        self.robot
+            .to_constraint_joints(&self.wrapped_joints(joints))
     }
 
     fn from_constraint_joints(&self, joints: &Joints) -> Joints {

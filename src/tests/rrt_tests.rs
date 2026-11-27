@@ -450,7 +450,7 @@ fn assert_valid_path(constraints: Constraints, start: Joints, goal: Joints) {
 }
 
 #[test]
-fn example_preserves_configured_sampling_ranges_for_unrestricted_joints() {
+fn multi_turn_sampling_uses_the_configured_travel_limits() {
     let constraints = Constraints::from_degrees(
         [
             -225.0..=225.0,
@@ -623,12 +623,30 @@ fn stationary_requests_without_constraints_remain_supported() {
 
 #[test]
 fn unrestricted_joints_allow_multiple_turns() {
-    for (from, to) in [(0.0, 0.0), (9.0, 9.0), (-PI, PI), (-TAU, TAU)] {
+    for (from, to) in [(0.0, 0.0), (9.0, 9.0), (-PI, PI)] {
         assert_valid_path(
             Constraints::new([from; 6], [to; 6], BY_PREV),
             first_joint(0.0),
             first_joint(2.0 * TAU),
         );
+    }
+}
+
+#[test]
+fn multi_turn_paths_preserve_legal_turns_and_reject_endpoints_past_a_stop() {
+    let constraints = first_joint_constraints(-TAU, TAU);
+    assert_valid_path(constraints, first_joint(-TAU), first_joint(TAU));
+
+    let robot = robot_with_constraints(constraints);
+    let stop = AtomicBool::new(false);
+    for beyond in [first_joint(-TAU - 0.1), first_joint(TAU + 0.1)] {
+        for (start, goal) in [(beyond, [0.0; 6]), ([0.0; 6], beyond), (beyond, beyond)] {
+            assert!(
+                RRTPlanner::default()
+                    .plan_rrt(&start, &goal, &robot, &stop)
+                    .is_err()
+            );
+        }
     }
 }
 
