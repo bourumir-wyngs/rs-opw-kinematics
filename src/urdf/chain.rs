@@ -83,11 +83,11 @@ impl UrdfChain {
     /// and continuous joints are unrestricted. Bounded ranges shorter than one
     /// turn repeat every revolution in the solver. A full turn or more retains absolute
     /// travel stops. The original URDF bounds are available in [`Self::limits`].
+    /// Equal endpoints denote unrestricted rotation in [`Constraints`].
     ///
     /// # Errors
     ///
-    /// Equal endpoints denote unrestricted rotation in [`Constraints`].
-    /// A bounded joint with equal endpoints returns an error.
+    /// Returns an error if a bounded URDF joint has equal lower and upper limits.
     ///
     /// # Panics
     ///
