@@ -645,6 +645,28 @@ fn concurrent_cold_cache_misses_respect_capacity_and_collision_results() {
 }
 
 #[test]
+fn onboarding_rejects_a_start_just_past_the_travel_stop() {
+    use crate::constraints::BY_PREV;
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
+    use std::f64::consts::TAU;
+
+    let mut robot = linear_robot();
+    robot.kinematics = Arc::new(OPWKinematics::new_with_constraints(
+        Parameters::irb2400_10(),
+        Constraints::new([-TAU; 6], [TAU; 6], BY_PREV),
+    ));
+    let mut start = [0.3, 0.4, 0.5, 0.6, 0.7, TAU - 1e-8];
+    let land = robot.forward(&start);
+    start[5] = TAU + 1e-8; // Close enough to land to skip the onboarding RRT.
+    let planner = test_planner(&robot, usize::MAX);
+    assert_eq!(
+        planner.plan(&start, &land, vec![], &land).unwrap_err(),
+        "Onboarding point violates joint limits"
+    );
+}
+
+#[test]
 fn real_opw_kinematics_reaches_every_retained_cartesian_pose() {
     use crate::constraints::BY_PREV;
     use crate::kinematics_impl::OPWKinematics;

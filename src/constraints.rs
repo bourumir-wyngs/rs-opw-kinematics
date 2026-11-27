@@ -1,6 +1,7 @@
 //! Joint limit support
 
 use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints};
+use crate::kinematics_impl::normalize_near;
 use crate::utils::deg;
 use rand::{Rng, RngExt};
 use std::f64::consts::PI;
@@ -8,16 +9,22 @@ use std::ops::RangeInclusive;
 
 /// Joint limits with inclusive comparisons and no floating-point tolerance.
 ///
+/// An ordered interval wider than one full revolution defines absolute travel
+/// in the robot's joint coordinates. An angle must lie between the two supplied
+/// endpoints, including its whole turns. Shorter intervals repeat every turn.
+/// Exactly one full revolution, or two equal endpoints, permits every turn.
+/// Reversed endpoints describe a periodic arc through zero.
+///
 /// Exact boundary values cannot be checked reliably after floating-point
 /// calculations: degree/radian conversions or forward/inverse kinematics can
 /// round an angle just outside its limit, causing an otherwise compliant pose
 /// to be rejected. Allow a small margin when reliable acceptance is required.
 #[derive(Clone, Debug, Copy)]
 pub struct Constraints {
-    /// Normalized lower limit. If more than upper limit, the range wraps-around through 0
+    /// Lower endpoint in radians. Reversed endpoints specify a periodic arc.
     pub from: [f64; 6],
 
-    /// Normalized upper limit. If less than lower limit, the range wraps-around through 0
+    /// Upper endpoint in radians. Ordered ranges wider than one turn bound absolute travel.
     pub to: [f64; 6],
 
     // Constraint centers. Used in distance from constraints based sorting.
@@ -42,13 +49,11 @@ pub const BY_PREV: f64 = 0.0;
 const TWO_PI: f64 = 2.0 * PI;
 
 impl Constraints {
-    /// Create constraints that restrict the joint rotations between 'from' to 'to' values.
-    /// Wrapping arround is supported so order is important. For instance,
-    /// from = 0.1 and to = 0.2 (radians) means the joint
-    /// is allowed to rotate to 0.11, 0.12 ... 1.99, 0.2.
-    /// from = 0.2 ant to = 0.1 is also valid but means the joint is allowed to rotate
-    /// to 0.21, 0.22, 0.99, 2 * PI or 0.0 (wrapping around), then to 0.09 and finally 0.1,
-    /// so the other side of the circle. The sorting_weight parameter influences sorting of the
+    /// Creates joint limits from `from` and `to` angles in radians.
+    /// For example, `0.1..=0.2` describes a short periodic arc, and reversing
+    /// its endpoints selects the arc through zero. The ordered interval from
+    /// `-3π` to `3π` defines absolute travel stops at those two angles.
+    /// The sorting_weight parameter influences sorting of the
     /// results: 0.0 (or BY_PREV) gives absolute priority to the previous values of the joints,
     /// 1.0 (or BY_CONSTRAINTS) gives absolute priority to the middle values of constraints.
     /// Intermediate values like 0.5 provide the weighted compromise.
@@ -86,33 +91,21 @@ impl Constraints {
     ///   BY_PREV);
     /// ```
     pub fn from_degrees(ranges: [RangeInclusive<f64>; 6], sorting_weight: f64) -> Self {
-        let from: Joints = [
-            ranges[0].start().to_radians(),
-            ranges[1].start().to_radians(),
-            ranges[2].start().to_radians(),
-            ranges[3].start().to_radians(),
-            ranges[4].start().to_radians(),
-            ranges[5].start().to_radians(),
-        ];
-
-        let to: Joints = [
-            ranges[0].end().to_radians(),
-            ranges[1].end().to_radians(),
-            ranges[2].end().to_radians(),
-            ranges[3].end().to_radians(),
-            ranges[4].end().to_radians(),
-            ranges[5].end().to_radians(),
-        ];
-
-        let (centers, tolerances) = Self::compute_centers(from, to);
-
-        Constraints {
-            from,
-            to,
-            centers,
-            tolerances,
-            sorting_weight,
+        let from = ranges.each_ref().map(|range| range.start().to_radians());
+        let to = ranges.each_ref().map(|range| range.end().to_radians());
+        let mut constraints = Self::new(from, to, sorting_weight);
+        for (joint, range) in ranges.iter().enumerate() {
+            let (lower, upper) = (*range.start(), *range.end());
+            if lower.is_finite() && upper.is_finite() && lower < upper {
+                // Converting each endpoint separately can move an exactly
+                // 360-degree interval to either side of the one-turn boundary.
+                let half_width = upper.midpoint(-lower);
+                if half_width >= 180.0 || constraints.tolerances[joint] >= PI {
+                    constraints.tolerances[joint] = half_width.to_radians();
+                }
+            }
         }
+        constraints
     }
 
     fn compute_centers(from: Joints, to: Joints) -> (Joints, Joints) {
@@ -130,9 +123,8 @@ impl Constraints {
             } else if a == b {
                 tolerances[j_idx] = f64::INFINITY; // No constraint, not checked
             } else if a < b {
-                // Values do not wrap arround
-                centers[j_idx] = (a + b) / 2.0;
-                tolerances[j_idx] = (b - a) / 2.0;
+                centers[j_idx] = a.midpoint(b);
+                tolerances[j_idx] = b.midpoint(-a);
             } else {
                 // Values wrap around. Compute the forward arc in constant time: repeatedly
                 // adding TWO_PI can never finish for infinities or sufficiently large values.
@@ -166,12 +158,66 @@ impl Constraints {
         difference <= tolerance
     }
 
-    /// Checks if all values in the given vector or angles satisfy these constraints.
+    /// Whether this joint's range is wider than one turn and has two finite travel stops.
+    pub(crate) fn is_absolute(&self, joint: usize) -> bool {
+        let half_width = self.tolerances[joint];
+        half_width.is_finite() && half_width > PI
+    }
+
+    /// Checks one joint in the robot's joint coordinates, including its whole turns.
+    pub(crate) fn joint_compliant(&self, joint: usize, angle: f64) -> bool {
+        if self.is_absolute(joint) {
+            self.from[joint] <= angle && angle <= self.to[joint]
+        } else {
+            Self::inside_bounds(angle, self.centers[joint], self.tolerances[joint])
+        }
+    }
+
+    /// Selects the equivalent of `angle` nearest `reference` allowed on `joint`.
+    /// Both angles are in robot coordinates and in radians. A forbidden periodic
+    /// orientation or non-finite input has no valid turn.
+    pub(crate) fn nearest_valid_turn(
+        &self,
+        joint: usize,
+        angle: f64,
+        reference: f64,
+    ) -> Option<f64> {
+        if !angle.is_finite() || !reference.is_finite() {
+            return None;
+        }
+        if !self.is_absolute(joint) {
+            let mut candidate = angle;
+            normalize_near(&mut candidate, reference);
+            return (candidate.is_finite() && self.joint_compliant(joint, candidate))
+                .then_some(candidate);
+        }
+
+        let lower = self.from[joint];
+        let upper = self.to[joint];
+        let target = reference.max(lower).min(upper);
+        if (angle - target).abs() < PI && self.joint_compliant(joint, angle) {
+            return Some(angle);
+        }
+        // Find the nearest turn to the bounded reference. If it crosses a stop,
+        // the adjacent turn fits because the interval is wider than a full turn.
+        let phase = angle % TWO_PI;
+        // At a half-turn tie, prefer the lower angle, as normalize_near does.
+        let turns = (((target - phase) / TWO_PI) - 0.5).ceil();
+        let mut candidate = turns.mul_add(TWO_PI, phase);
+        if candidate < lower {
+            candidate = (turns + 1.0).mul_add(TWO_PI, phase);
+        } else if candidate > upper {
+            candidate = (turns - 1.0).mul_add(TWO_PI, phase);
+        }
+        self.joint_compliant(joint, candidate).then_some(candidate)
+    }
+
+    /// Checks whether all six joint angles satisfy the configured limits.
     pub fn compliant(&self, angles: &[f64; 6]) -> bool {
-        angles.iter().enumerate().all(|(i, &angle)| {
-            // '!' is used to negate the condition from 'out_of_bounds' directly in the 'all' call.
-            Self::inside_bounds(angle, self.centers[i], self.tolerances[i])
-        })
+        angles
+            .iter()
+            .enumerate()
+            .all(|(i, &angle)| self.joint_compliant(i, angle))
     }
 
     /// Return new vector of angle arrays, removing all that have members not satisfying these
@@ -200,6 +246,10 @@ impl Constraints {
 
         fn random_angle(rng: &mut impl Rng, from: f64, to: f64) -> f64 {
             if from < to {
+                if (to - from).is_infinite() {
+                    // Uniform sampling uses the span, which can exceed f64::MAX.
+                    return 2.0 * rng.random_range(from / 2.0..to / 2.0);
+                }
                 rng.random_range(from..to)
             } else {
                 let range_length = TWO_PI - (from - to);
@@ -324,6 +374,95 @@ mod tests {
         let to = [2.0 * PI; 6];
         let limits = Constraints::new(from, to, BY_CONSTRAINS);
         assert!(limits.compliant(&angles));
+    }
+
+    #[test]
+    fn absolute_stops_check_the_unwrapped_joint_and_select_the_nearest_legal_turn() {
+        let limits = Constraints::from_degrees(
+            [
+                0.0..=0.0,
+                0.0..=0.0,
+                0.0..=0.0,
+                0.0..=0.0,
+                0.0..=0.0,
+                -540.0..=540.0,
+            ],
+            BY_PREV,
+        );
+        let angle = |degrees: f64| [0.0, 0.0, 0.0, 0.0, 0.0, degrees.to_radians()];
+        assert!(limits.compliant(&angle(-540.0)));
+        assert!(limits.compliant(&angle(540.0)));
+        assert!(!limits.compliant(&angle(550.0)));
+        assert!(!limits.compliant(&angle(-550.0)));
+        for (q, reference, expected) in [
+            (-170.0_f64, 535.0_f64, 190.0_f64),
+            (170.0, -535.0, -190.0),
+            (-180.0, 535.0, 540.0),
+            (180.0, -535.0, -540.0),
+            (10.0, 90_000.0, 370.0),
+            (10.0, -90_000.0, -350.0),
+            (-180.0, 0.0, -180.0),
+            (180.0, 0.0, -180.0),
+        ] {
+            let actual = limits
+                .nearest_valid_turn(5, q.to_radians(), reference.to_radians())
+                .unwrap();
+            assert!((actual.to_degrees() - expected).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn periodic_and_absolute_limits_can_coexist_and_change_mode_on_update() {
+        let mut limits = Constraints::from_degrees(
+            [
+                720.0..=1110.0,
+                350.0..=370.0,
+                170.0..=-170.0,
+                10.0..=10.0,
+                60.0..=420.0,
+                90_000.0..=90_360.0,
+            ],
+            BY_PREV,
+        );
+        assert!((1..6).all(|joint| !limits.is_absolute(joint)));
+        assert!(limits.is_absolute(0));
+        assert!(limits.compliant(&[725.0, 5.0, 540.0, 800.0, -800.0, -800.0].map(f64::to_radians)));
+        assert!(!limits.joint_compliant(0, 5.0_f64.to_radians()));
+        let lifted = limits
+            .nearest_valid_turn(0, 5.0_f64.to_radians(), 0.0)
+            .unwrap();
+        assert!((lifted.to_degrees() - 725.0).abs() < 1e-10);
+        assert!(
+            limits
+                .nearest_valid_turn(1, 150.0_f64.to_radians(), 0.0)
+                .is_none()
+        );
+        assert!(limits.nearest_valid_turn(2, 0.0, 0.0).is_none());
+
+        limits.update_range([0.0; 6], [TWO_PI; 6]);
+        assert!(!limits.is_absolute(0));
+        assert!(limits.compliant(&[500.0; 6]));
+        limits.update_range([0.0; 6], [TWO_PI.next_up(); 6]);
+        assert!(limits.is_absolute(0));
+        assert!(!limits.compliant(&[500.0; 6]));
+
+        let ranges = std::array::from_fn(|_| 60.0..=420.0_f64.next_up());
+        let limits = Constraints::from_degrees(ranges, BY_PREV);
+        assert!(limits.is_absolute(0));
+        assert!(!limits.compliant(&[0.0; 6]));
+    }
+
+    #[test]
+    fn large_finite_ranges_retain_their_absolute_bounds() {
+        for (lower, upper) in [(-f64::MAX, f64::MAX), (1.0e308, 1.7e308)] {
+            let limits = Constraints::new([lower; 6], [upper; 6], BY_PREV);
+            assert!(limits.is_absolute(0));
+            assert!(limits.centers[0].is_finite());
+            assert!(limits.compliant(&[lower; 6]));
+            assert!(limits.compliant(&[upper; 6]));
+            assert!(!limits.compliant(&[f64::INFINITY; 6]));
+            assert!(limits.compliant(&limits.random_angles()));
+        }
     }
 
     #[test]

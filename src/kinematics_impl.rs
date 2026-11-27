@@ -187,7 +187,11 @@ impl Kinematics for OPWKinematics {
             return self.inverse_5dof(pose, 0.0);
         }
 
-        self.filter_constraints_compliant(self.inverse_intern(pose, self.constraint_centers()))
+        self.filter_constraints_compliant(self.inverse_intern(
+            pose,
+            self.constraint_centers(),
+            None,
+        ))
     }
 
     // Resolves wrist singularities near the previous joint values in wrist_branch.
@@ -207,7 +211,7 @@ impl Kinematics for OPWKinematics {
         if !previous.iter().all(|joint| joint.is_finite()) {
             return Vec::new();
         }
-        let mut solutions = self.inverse_intern(pose, previous);
+        let mut solutions = self.inverse_intern(pose, previous, None);
         self.normalize_and_validate(&mut solutions, pose, previous, false);
         self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
@@ -278,7 +282,7 @@ impl Kinematics for OPWKinematics {
         }
         let mut preferred = *self.constraint_centers();
         preferred[J6] = j6;
-        self.filter_constraints_compliant(self.inverse_intern_5_dof(pose, j6, &preferred))
+        self.filter_constraints_compliant(self.inverse_intern(pose, &preferred, Some(j6)))
     }
 
     fn inverse_continuing_5dof(&self, pose: &Pose, prev: &Joints) -> Solutions {
@@ -292,7 +296,7 @@ impl Kinematics for OPWKinematics {
             return Vec::new();
         }
 
-        let mut solutions = self.inverse_intern_5_dof(pose, previous[5], previous);
+        let mut solutions = self.inverse_intern(pose, previous, Some(previous[J6]));
         self.normalize_and_validate(&mut solutions, pose, previous, true);
         self.sort_by_closeness(&mut solutions, previous);
         self.filter_constraints_compliant(solutions)
@@ -619,6 +623,19 @@ impl OPWKinematics {
         if let Some(j6) = fixed_j6 {
             joints[J6] = j6;
         }
+        if let Some(limits) = &self.constraints {
+            // Pole recovery has already selected the physical J4/J6 pair together.
+            // At a regular bend each joint can choose its turn independently.
+            let pole = wrist.q5 == 0.0 || wrist.q5.abs() == PI;
+            for (i, joint) in joints.iter_mut().enumerate() {
+                if limits.is_absolute(i)
+                    && !(pole && (i == J4 || i == J6))
+                    && !(i == J6 && fixed_j6.is_some())
+                {
+                    *joint = absolute_ik_angle(limits, i, *joint, reference[i])?;
+                }
+            }
+        }
         Some(joints)
     }
 
@@ -642,7 +659,7 @@ impl OPWKinematics {
                 continue;
             }
             for i in 0..6 {
-                if i == J6 && fixed_j6.is_some() {
+                if self.preserve_turn(i, fixed_j6) {
                     continue;
                 }
                 joints[i] = wrapped_angle(joints[i]);
@@ -655,7 +672,7 @@ impl OPWKinematics {
                 // inclusive limit. Move only roundoff-sized violations inside
                 // before the strict constraints and FK checks below.
                 for (i, joint) in joints.iter_mut().enumerate() {
-                    if i == J6 && fixed_j6.is_some() {
+                    if self.preserve_turn(i, fixed_j6) {
                         continue;
                     }
                     let tolerance = constraints.tolerances[i];
@@ -669,9 +686,10 @@ impl OPWKinematics {
                 if !constraints.compliant(&joints) {
                     continue;
                 }
-                // The public inverse paths also use a bounded representation.
-                let bounded = joints.map(wrapped_angle);
-                if !constraints.compliant(&bounded) {
+                // Plain IK uses principal angles for the periodically limited joints.
+                let mut principal = joints;
+                self.wrap_periodic_joints(&mut principal, fixed_j6);
+                if !constraints.compliant(&principal) {
                     continue;
                 }
             }
@@ -686,7 +704,7 @@ impl OPWKinematics {
             if (actual.translation - pose.translation).length() <= self.distance_tolerance
                 && orientation_error <= ANGULAR_TOLERANCE
             {
-                push_unique(&mut result, joints);
+                self.push_unique(&mut result, joints);
             }
         }
         result
@@ -730,10 +748,15 @@ impl OPWKinematics {
         let mut result = Vec::new();
         for arm in arms {
             for joints in self.arm_wrist_candidates(pose, arm, reference, fixed_j6) {
-                push_unique(&mut result, joints);
+                self.push_unique(&mut result, joints);
             }
         }
         self.sort_by_closeness(&mut result, reference);
+        // Search ranks near the reference. Only the periodic joints go back
+        // to their principal representation for subsequent IK validation.
+        for joints in &mut result {
+            self.wrap_periodic_joints(joints, fixed_j6);
+        }
         result
     }
 
@@ -758,107 +781,64 @@ impl OPWKinematics {
                     robot.wrist_to_joints(arm, wrist, &reference, fixed_j6)
                 })
             })
-            // Search ranks near the user's reference, which may contain many
-            // turns. Pass bounded angles into validation just as the discrete
-            // formulas do; continuation restores the selected turns afterward.
-            .chain(singular.into_iter().map(|joints| joints.map(wrapped_angle)))
+            .chain(singular)
     }
 
-    fn inverse_intern(&self, pose: &Pose, reference: &Joints) -> Solutions {
-        let mut result: Solutions = Vec::with_capacity(8);
+    fn has_absolute_limit(&self, joint: usize) -> bool {
+        self.constraints
+            .as_ref()
+            .is_some_and(|c| c.is_absolute(joint))
+    }
 
-        // Debug check. Solution failing cross-verification is flagged
-        // as invalid. This loop also normalizes valid solutions to 0
-        for (si, mut solution) in self.inverse_candidates(pose, reference, None).enumerate() {
-            let mut valid = true;
-            for angle in solution.iter_mut() {
-                let mut current = *angle;
-                if current.is_finite() {
-                    while current > PI {
-                        current -= 2.0 * PI;
-                    }
-                    while current < -PI {
-                        current += 2.0 * PI;
-                    }
-                    *angle = current;
-                } else {
-                    valid = false;
-                    break;
-                }
-            }
-            if valid {
-                let Ok(check_pose) = self.try_forward(&solution) else {
-                    continue;
-                };
-                if compare_poses(
-                    pose,
-                    &check_pose,
-                    self.distance_tolerance,
-                    ANGULAR_TOLERANCE,
-                ) {
-                    push_unique(&mut result, solution);
-                } else {
-                    if DEBUG {
-                        println!("********** Pose Failure sol {} *********", si);
-                    }
-                }
+    fn preserve_turn(&self, joint: usize, fixed_j6: Option<f64>) -> bool {
+        self.has_absolute_limit(joint) || (joint == J6 && fixed_j6.is_some())
+    }
+
+    fn wrap_periodic_joints(&self, joints: &mut Joints, fixed_j6: Option<f64>) {
+        for (i, joint) in joints.iter_mut().enumerate() {
+            if !self.preserve_turn(i, fixed_j6) {
+                *joint = wrapped_angle(*joint);
             }
         }
-
-        result
     }
 
-    fn inverse_intern_5_dof(&self, pose: &Pose, j6: f64, reference: &Joints) -> Solutions {
-        let mut result: Solutions = Vec::with_capacity(8);
-
-        // Debug check. Solution failing cross-verification is flagged
-        // as invalid. This loop also normalizes valid solutions to 0
-        // J6 is fixed below and its orientation is ignored; do not constrain
-        // the provisional six-axis wrist phase in this path.
-        for (si, mut solution) in self
-            .inverse_candidates(pose, reference, Some(j6))
-            .enumerate()
-        {
-            solution[J6] = j6; // J6 goes directly to response and is not more adjusted
-            let mut valid = true;
-            for angle in solution.iter_mut().take(5) {
-                let mut current = *angle;
-                if current.is_finite() {
-                    while current > PI {
-                        current -= 2.0 * PI;
+    fn inverse_intern(&self, pose: &Pose, reference: &Joints, fixed_j6: Option<f64>) -> Solutions {
+        // Five-axis plain IK checks position. When lifting a moving joint to a
+        // physical turn, check the tool direction too: a large turn can lose
+        // angle precision even when c4 = 0 and the TCP position is unaffected.
+        let verify_lifted_axis = fixed_j6.is_some() && (0..J6).any(|i| self.has_absolute_limit(i));
+        let mut result = Vec::with_capacity(8);
+        for mut solution in self.inverse_candidates(pose, reference, fixed_j6) {
+            if !solution.iter().all(|angle| angle.is_finite()) {
+                continue;
+            }
+            // Preserve small angles and the sign of ±π in the regular solutions.
+            for (i, angle) in solution.iter_mut().enumerate() {
+                if !self.preserve_turn(i, fixed_j6) {
+                    while *angle > PI {
+                        *angle -= 2.0 * PI;
                     }
-                    while current < -PI {
-                        current += 2.0 * PI;
+                    while *angle < -PI {
+                        *angle += 2.0 * PI;
                     }
-                    *angle = current;
-                } else {
-                    valid = false;
-                    break;
                 }
             }
+            let Ok(actual) = self.try_forward(&solution) else {
+                continue;
+            };
+            let valid = if fixed_j6.is_some() {
+                (actual.translation - pose.translation).length() <= self.distance_tolerance
+                    && (!verify_lifted_axis
+                        || (actual.rotation * DVec3::Z - pose.rotation * DVec3::Z).length()
+                            <= ANGULAR_TOLERANCE)
+            } else {
+                compare_poses(pose, &actual, self.distance_tolerance, ANGULAR_TOLERANCE)
+            };
             if valid {
-                let Ok(check_pose) = self.try_forward(&solution) else {
-                    continue;
-                };
-                if Self::compare_xyz_only(
-                    &pose.translation,
-                    &check_pose.translation,
-                    self.distance_tolerance,
-                ) {
-                    push_unique(&mut result, solution);
-                } else {
-                    if DEBUG {
-                        println!("********** Pose Failure 5DOF sol {} *********", si);
-                    }
-                }
+                self.push_unique(&mut result, solution);
             }
         }
-
         result
-    }
-
-    fn compare_xyz_only(pose_translation: &DVec3, check_xyz: &DVec3, tolerance: f64) -> bool {
-        (*pose_translation - *check_xyz).length() <= tolerance
     }
 
     fn filter_constraints_compliant(&self, solutions: Solutions) -> Solutions {
@@ -881,7 +861,9 @@ impl OPWKinematics {
             // Five-axis J6 is fixed by the caller, not chosen by normalization.
             let moving_joints = if five_dof { 5 } else { 6 };
             for i in 0..moving_joints {
-                normalize_near(&mut solution[i], previous[i]);
+                if !self.has_absolute_limit(i) {
+                    normalize_near(&mut solution[i], previous[i]);
+                }
             }
             if !solution.iter().all(|joint| joint.is_finite()) {
                 return false;
@@ -902,6 +884,28 @@ impl OPWKinematics {
             (actual.translation - pose.translation).length() <= self.distance_tolerance
                 && orientation_error <= ANGULAR_TOLERANCE
         });
+    }
+
+    /// Deduplicate joint positions in their physical coordinate systems.
+    fn push_unique(&self, solutions: &mut Solutions, candidate: Joints) {
+        let duplicate = solutions.iter().any(|solution| {
+            solution
+                .iter()
+                .zip(candidate)
+                .enumerate()
+                .all(|(i, (existing, angle))| {
+                    let difference = existing - angle;
+                    let distance = if self.has_absolute_limit(i) {
+                        difference.abs()
+                    } else {
+                        wrapped_angle(difference).abs()
+                    };
+                    distance <= JOINT_DUPLICATE_THR
+                })
+        });
+        if !duplicate {
+            solutions.push(candidate);
+        }
     }
 
     /// Sorts the solutions vector by closeness to the `previous` joint.
@@ -925,6 +929,32 @@ impl OPWKinematics {
             .as_ref()
             .map_or(&JOINTS_AT_ZERO, |c| &c.centers)
     }
+}
+
+/// Recover the legal turn of an analytically computed joint angle. An IK root a
+/// few ulps past a stop can otherwise jump a full turn even for FK of that stop.
+/// Only the exact stop is substituted, and the caller verifies the resulting FK.
+fn absolute_ik_angle(
+    limits: &Constraints,
+    joint: usize,
+    angle: f64,
+    reference: f64,
+) -> Option<f64> {
+    let mut selected = limits.nearest_valid_turn(joint, angle, reference)?;
+    let stops = [limits.from[joint], limits.to[joint]];
+    let target = reference.clamp(stops[0], stops[1]);
+    for stop in stops {
+        if (stop - selected).abs() > PI && (stop - target).abs() < (selected - target).abs() {
+            // Compare orientations without subtracting many revolutions from
+            // the stop. A real overshoot must take the other legal turn.
+            let (sin, cos) = angle.sin_cos();
+            let (stop_sin, stop_cos) = stop.sin_cos();
+            if (sin - stop_sin).hypot(cos - stop_cos) <= POLE_PHASE_ROUNDOFF_THR {
+                selected = stop;
+            }
+        }
+    }
+    Some(selected)
 }
 
 pub(crate) fn wrapped_angle(angle: f64) -> f64 {
@@ -996,18 +1026,6 @@ pub(crate) fn weighted_distance(
     }
     previous_distance * (1.0 - sorting_weight)
         + calculate_distance(joints, centers) * sorting_weight
-}
-
-fn push_unique(solutions: &mut Solutions, candidate: Joints) {
-    let duplicate = solutions.iter().any(|solution| {
-        solution.iter().zip(candidate).all(|(existing, angle)| {
-            let difference = (existing - angle + PI).rem_euclid(2.0 * PI) - PI;
-            difference.abs() <= JOINT_DUPLICATE_THR
-        })
-    });
-    if !duplicate {
-        solutions.push(candidate);
-    }
 }
 
 pub(crate) fn compare_poses(

@@ -108,6 +108,20 @@ pub(crate) fn adjust_joints(
 
 /// Choose free five-axis J4 using the public sorter's weighted L1 distance.
 fn nearest_feasible_j4(reference: f64, constraints: &Constraints) -> Option<f64> {
+    if constraints.is_absolute(J4) {
+        // At a five-axis pole the joint can take any angle. Over the nearest
+        // allowed turn the weighted L1 minimum is the reference or the center.
+        let anchor = wrist_anchor(constraints, J4, reference);
+        let preferred = if constraints.sorting_weight > 0.5 {
+            constraints.centers[J4]
+        } else {
+            reference
+        };
+        return Some(preferred.clamp(
+            (anchor - PI).max(constraints.from[J4]),
+            (anchor + PI).min(constraints.to[J4]),
+        ));
+    }
     let near = wrapped_angle(reference);
     let center = constraints.centers[J4];
     let margin = JOINT_DUPLICATE_THR * (1.0 + reference.abs());
@@ -159,7 +173,20 @@ fn nearest_feasible_j4(reference: f64, constraints: &Constraints) -> Option<f64>
     best
 }
 
-/// Intersects J4 + sign*J6 = phase (modulo 2*pi) with both circular limits,
+/// Center of the one-turn window containing the nearest legal representative
+/// of every angle. An absolute stop can translate the whole window away from
+/// the reference. Its width is always one turn because absolute travel is wider.
+fn wrist_anchor(constraints: &Constraints, joint: usize, reference: f64) -> f64 {
+    if constraints.is_absolute(joint) {
+        reference
+            .max(constraints.from[joint] + PI)
+            .min(constraints.to[joint] - PI)
+    } else {
+        reference
+    }
+}
+
+/// Intersects J4 + sign*J6 = phase (modulo 2*pi) with both joint limits,
 /// choosing the feasible pair using the public sorter's weighted L1 distance.
 fn nearest_feasible_pole(
     phase: f64,
@@ -167,7 +194,20 @@ fn nearest_feasible_pole(
     reference: [f64; 2],
     constraints: &Constraints,
 ) -> Option<[f64; 2]> {
-    let near = reference.map(wrapped_angle);
+    let anchors = [
+        wrist_anchor(constraints, J4, reference[0]),
+        wrist_anchor(constraints, J6, reference[1]),
+    ];
+    let near = anchors.map(wrapped_angle);
+    let origin: [f64; 2] = std::array::from_fn(|i| {
+        if constraints.is_absolute([J4, J6][i]) {
+            anchors[i]
+        } else {
+            near[i]
+        }
+    });
+    let ref4 = reference[0] - anchors[0];
+    let ref6 = sign * (reference[1] - anchors[1]);
     let correction = wrapped_angle(phase - near[0] - sign * near[1]);
     let intervals4 = wrist_limit_intervals(
         constraints.centers[J4],
@@ -185,25 +225,22 @@ fn nearest_feasible_pole(
     // Constraint comparisons are inclusive but exact. Check the actual angle
     // representations used by inverse and inverse_continuing so conversion
     // roundoff cannot turn a feasible endpoint into a rejected solution.
-    let compliant = |pair: [f64; 2]| {
-        let mut joints = constraints.centers;
-        for (joint, angle) in [J4, J6].into_iter().zip(pair) {
-            joints[joint] = angle;
-            while joints[joint] > PI {
-                joints[joint] -= 2.0 * PI;
+    let compliant = |mut pair: [f64; 2]| {
+        for (i, joint) in [J4, J6].into_iter().enumerate() {
+            if !constraints.is_absolute(joint) {
+                while pair[i] > PI {
+                    pair[i] -= 2.0 * PI;
+                }
+                while pair[i] < -PI {
+                    pair[i] += 2.0 * PI;
+                }
+                if !constraints.joint_compliant(joint, pair[i]) {
+                    return None;
+                }
             }
-            while joints[joint] < -PI {
-                joints[joint] += 2.0 * PI;
-            }
+            pair[i] = constraints.nearest_valid_turn(joint, pair[i], reference[i])?;
         }
-        if !constraints.compliant(&joints) {
-            return None;
-        }
-        normalize_near(&mut joints[J4], reference[0]);
-        normalize_near(&mut joints[J6], reference[1]);
-        constraints
-            .compliant(&joints)
-            .then_some([joints[J4], joints[J6]])
+        Some(pair)
     };
 
     let mut best = None;
@@ -216,7 +253,8 @@ fn nearest_feasible_pole(
     let margin = JOINT_DUPLICATE_THR * (1.0 + reference[0].abs().max(reference[1].abs()));
     for (lower4, upper4) in intervals4 {
         for (lower6, upper6) in intervals6.clone() {
-            // x = J4 - near4 and y = sign*(J6 - near6) lie in [-pi, pi].
+            // Displacements x and y are measured from the centers of the
+            // two allowed turn windows; both always lie in [-pi, pi].
             // Their sum can require either neighboring phase winding.
             for winding in [-1.0, 0.0, 1.0] {
                 let sum = correction + winding * 2.0 * PI;
@@ -233,13 +271,13 @@ fn nearest_feasible_pole(
                 // reference or center. Keep the balanced split for tied scores.
                 // Centers stay in user coordinates, as in the public sorter.
                 let candidates = [
-                    sum / 2.0,
+                    (sum + ref4 - ref6) / 2.0,
                     lower,
                     upper,
-                    0.0,
-                    sum,
-                    centers[0] - reference[0],
-                    sum - sign * (centers[1] - reference[1]),
+                    ref4,
+                    sum - ref6,
+                    centers[0] - anchors[0],
+                    sum - sign * (centers[1] - anchors[1]),
                     // At the turn cut, +pi normalizes to -pi. A point just
                     // inside can have a better distance to the raw centers.
                     inward(lower, lower, upper, margin),
@@ -250,7 +288,7 @@ fn nearest_feasible_pole(
                         .clamp(lower.min(upper), lower.max(upper))
                         .clamp(lower4, upper4);
                     let mut y = (sum - x).clamp(lower6, upper6);
-                    let make_pair = |x, y| [near[0] + x, near[1] + sign * y];
+                    let make_pair = |x, y| [origin[0] + x, origin[1] + sign * y];
                     let mut pair = make_pair(x, y);
                     if compliant(pair).is_none() && lower < upper {
                         // Move a rejected endpoint slightly inside its feasible
@@ -282,14 +320,20 @@ fn nearest_feasible_pole(
                     );
                     // Preserve balanced motion only when the requested scores
                     // tie within arithmetic roundoff.
-                    let motion = x * x + y * y;
+                    let motion = (normalized[0] - reference[0]).hypot(normalized[1] - reference[1]);
                     let roundoff =
                         64.0 * f64::EPSILON * (1.0 + distance.abs().max(best_distance.abs()));
                     if best.is_none()
                         || distance < best_distance - roundoff
                         || ((distance - best_distance).abs() <= roundoff && motion < best_motion)
                     {
-                        best = Some(pair);
+                        best = Some(std::array::from_fn(|i| {
+                            if constraints.is_absolute([J4, J6][i]) {
+                                normalized[i]
+                            } else {
+                                pair[i]
+                            }
+                        }));
                         best_distance = distance;
                         best_motion = motion;
                     }
@@ -298,4 +342,43 @@ fn nearest_feasible_pole(
         }
     }
     best
+}
+
+#[cfg(test)]
+mod absolute_travel_tests {
+    use super::*;
+    use crate::constraints::BY_PREV;
+
+    #[test]
+    fn a_wrist_pole_shares_the_correction_at_an_absolute_stop() {
+        let mut from = [0.0_f64; 6];
+        let mut to = [0.0_f64; 6];
+        from[J4] = -540.0;
+        to[J4] = 540.0;
+        from[J6] = -90.0;
+        to[J6] = 90.0;
+        let limits = Constraints::new(from.map(f64::to_radians), to.map(f64::to_radians), BY_PREV);
+        let reference = [539.0_f64.to_radians(), 0.0];
+        for sign in [-1.0, 1.0] {
+            let pair = nearest_feasible_pole((-120.0_f64).to_radians(), sign, reference, &limits)
+                .expect("540 degrees on J4 leaves 60 degrees of phase on J6");
+            assert!((pair[0].to_degrees() - 540.0).abs() < 1e-8);
+            assert!((pair[1].to_degrees() - sign * 60.0).abs() < 1e-8);
+        }
+    }
+
+    #[test]
+    fn pole_recovery_can_move_both_wrists_to_distant_absolute_intervals() {
+        let mut from = [0.0_f64; 6];
+        let mut to = [0.0_f64; 6];
+        from[J4] = 3600.0;
+        to[J4] = 4320.0;
+        from[J6] = 7200.0;
+        to[J6] = 7920.0;
+        let limits = Constraints::new(from.map(f64::to_radians), to.map(f64::to_radians), BY_PREV);
+        let pair = nearest_feasible_pole(30.0_f64.to_radians(), 1.0, [0.0; 2], &limits).unwrap();
+        assert!((pair[0].to_degrees() - 3630.0).abs() < 1e-8);
+        assert!((pair[1].to_degrees() - 7200.0).abs() < 1e-8);
+        assert_eq!(nearest_feasible_j4(0.0, &limits), Some(limits.from[J4]));
+    }
 }

@@ -869,6 +869,14 @@ impl Cartesian<'_> {
         park: &Pose,
         collisions: &PlanningCollisionCache<'_>,
     ) -> Result<(Vec<Joints>, Vec<AnnotatedPose>), String> {
+        let kinematics = &self.robot.kinematics;
+        if kinematics
+            .constraints()
+            .as_ref()
+            .is_some_and(|limits| !limits.compliant(&kinematics.to_constraint_joints(from)))
+        {
+            return Err("Onboarding point violates joint limits".into());
+        }
         if collisions.collides(from) {
             return Err("Onboarding point collides".into());
         }

@@ -533,6 +533,18 @@ pub(crate) fn search(
         reference[0] * robot.parameters.sign_corrections[0] as f64 - robot.parameters.offsets[0],
     );
     let mut slices = vec![model_reference, lower, upper];
+    if let Some(constraints) = robot.constraints()
+        && constraints.is_absolute(0)
+    {
+        // Include the actual travel endpoints even though all model angles can
+        // be lifted into this interval. Either endpoint can minimize J1 travel.
+        for angle in [constraints.from[0], constraints.to[0]] {
+            slices.push(wrapped_angle(
+                wrapped_angle(angle) * robot.parameters.sign_corrections[0] as f64
+                    - robot.parameters.offsets[0],
+            ));
+        }
+    }
     let curves = boundaries(robot, pose, q3, reference, fixed_j6);
     let bend_slices = bend_slices(robot, pose, q3, reference, fixed_j6);
     // Two overlapping-endpoint charts keep tan(q1/2) in [-1,1], avoiding its

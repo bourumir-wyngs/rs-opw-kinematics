@@ -160,8 +160,17 @@ if _from_ = 5&deg; and _to_ = 15&deg;, values 6&deg;, 8&deg;, and 11&deg; are va
 180&deg; are not. If _from_ = 15&deg; and _to_ = 5&deg; (the opposite), values 16&deg;, 17&deg;, 100&deg;, 180&deg;,
 359&deg;, 0&deg;, 1&deg;, 3&deg;, 4&deg; are valid, while 6&deg;, 8&deg;, and 11&deg; are not.
 
-Constraints are tested for the range from -2&pi; to 2&pi;, but as angles repeat with the period of 2&pi;, the
-constraint from -&pi; to &pi; already permits free rotation, covering any angle.
+An ordered range wider than 360° sets inclusive **absolute travel limits** for that joint.
+For example, J6 limits of `-540°..=540°` allow `190°` and reject `550°`, although both
+produce the same flange pose. With J6 previously at `535°`, inverse continuation selects
+`190°` on that branch, the nearest equivalent inside the stops. Plain inverse kinematics
+selects the turn nearest the interval midpoint. An explicitly fixed J6 in five-axis IK
+must itself be within the configured limits.
+
+Exactly 360° still permits any turn. Narrower ranges repeat every turn, so `350°..=370°`
+admits both `5°` and `365°`. Equal endpoints leave the joint unrestricted.
+If an older configuration uses a wider range to mean unlimited rotation, set it to
+`-180°..=180°` to keep that behavior.
 
 Since 1.8.2, convenience method exists to specify constraints as ranges in degrees.
 

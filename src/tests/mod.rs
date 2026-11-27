@@ -4,6 +4,7 @@ mod arm_boundary_tests;
 mod arm_singularity_tests;
 mod j1j2free_tests;
 mod kinematics_impl_tests;
+mod multiturn_tests;
 mod wrist_singularity_tests;
 
 #[cfg(feature = "allow_filesystem")]
