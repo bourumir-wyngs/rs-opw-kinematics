@@ -821,7 +821,7 @@ For a five-axis model, set `dof: 5` in the YAML file. The default is six.
 
 ## Reading URDF
 
-Version 3.0.3 significantly improves URDF reading for six-axis OPW arms.
+Version 3.1.0 significantly improves URDF reading for six-axis OPW arms.
 Pass the base and tip link names to `from_urdf_chain` with an expanded URDF 1.0
 document. The reader follows the links between them and composes the translation
 and rotation of every fixed joint, including mounts before J1, adapters between
