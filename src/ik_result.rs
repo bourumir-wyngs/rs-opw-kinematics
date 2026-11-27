@@ -68,8 +68,8 @@ pub enum Wrist {
 /// One of the eight analytical branches, identified by its shoulder, elbow and
 /// wrist choices before joint offsets, axis sign corrections and whole-turn adjustments.
 ///
-/// The figure shows all eight branches of a Stäubli TX2-140 reaching the same
-/// flange position and orientation. Read across for the shoulder and elbow
+/// The figure shows all eight branches of a six-axis OPW robot reaching the
+/// same flange position and orientation. Read across for the shoulder and elbow
 /// choices or down a column for the wrist flip. Each label gives the
 /// [`branch.index()`](Branch::index) used to index the result array.
 ///
