@@ -1,4 +1,4 @@
-use super::{chain_xml::read_chain, geometry::extract_geometry};
+use super::{UrdfAngle, bounded_solver_limits, chain_xml::read_chain, geometry::extract_geometry};
 use crate::constraints::Constraints;
 use crate::kinematic_traits::Pose;
 use crate::kinematics_impl::OPWKinematics;
@@ -12,9 +12,9 @@ use std::sync::Arc;
 pub enum UrdfJointLimit {
     /// A revolute joint with no limit element in the input.
     Unspecified,
-    /// A continuous joint without an explicit multi-turn travel range.
+    /// A continuous joint with a missing endpoint, equal endpoints, or a one-turn span.
     Continuous,
-    /// Position limits for a revolute joint or an explicitly bounded multi-turn continuous joint.
+    /// Declared lower and upper position limits, in radians.
     Bounded { lower: f64, upper: f64 },
 }
 
@@ -79,10 +79,11 @@ impl UrdfChain {
     /// Intermediate joint poses use the solver's OPW frames. URDF link meshes
     /// can have different local origins and orientations.
     ///
-    /// `sorting_weight` has the meaning used by [`Constraints::new`]. Unspecified
-    /// and continuous joints without a multi-turn range are unrestricted. Bounded
-    /// ranges shorter than one turn repeat every turn. Exactly one turn permits
-    /// any turn. Wider ranges have absolute lower and upper limits.
+    /// `sorting_weight` has the meaning used by [`Constraints::new`].
+    /// [`UrdfJointLimit::Unspecified`] and [`UrdfJointLimit::Continuous`] permit any turn.
+    /// Bounded ranges shorter than one turn repeat every turn. At one turn or
+    /// wider, they have absolute stops. For an exact one-turn range the reader
+    /// widens one solver endpoint just enough for [`Constraints`] to select absolute limits.
     /// The imported limits are available in [`Self::limits`].
     /// Equal endpoints denote unrestricted rotation in [`Constraints`].
     ///
@@ -111,8 +112,8 @@ impl UrdfChain {
                         index + 1
                     )));
                 }
-                from[index] = lower;
-                to[index] = upper;
+                (from[index], to[index]) =
+                    bounded_solver_limits(UrdfAngle::Radians(lower), UrdfAngle::Radians(upper));
             }
         }
         let robot = OPWKinematics::new_with_constraints(

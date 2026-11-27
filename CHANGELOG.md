@@ -15,10 +15,13 @@ All notable changes to this project will be documented in this file.
   ambiguous or cyclic paths, mimic joints on the selected path, and incompatible
   geometry such as wrist axes that miss their common center.
 - Inspect the imported parameters, base and tool transforms, and per-joint
-  limits through `UrdfChain`. Explicit ranges wider than 360° bound absolute
-  travel, including on `continuous` joints. Otherwise `continuous` joints
-  permit any turn. For `revolute` joints, shorter ranges repeat every turn
-  and exactly 360° permits any turn.
+  limits through `UrdfChain`. Explicit position ranges on `revolute` and
+  `continuous` joints repeat every turn for positive spans below 360° and
+  bound absolute travel above 360°. At exactly 360°, `continuous` permits any
+  turn. For `revolute`, solver conversion moves one endpoint outward just
+  enough to select absolute travel. `UrdfChain::limits` retains the declared
+  revolute bounds. A `continuous` joint with either endpoint missing or both
+  equal is unrestricted.
 - Add built-in presets for the FANUC LR Mate 200iC and R-2000iC/165F, Stäubli
   TX2-60, and Yaskawa Motoman GP7, GP180 and GP180-120 using their published
   ROS-Industrial OPW parameters.

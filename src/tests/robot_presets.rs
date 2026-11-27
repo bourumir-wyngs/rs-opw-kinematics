@@ -450,7 +450,7 @@ fn lateral_offset_roundoff_preserves_explicit_small_offset() {
 }
 
 #[test]
-fn imported_tx2_60_full_turn_j1_accepts_other_turns() {
+fn imported_tx2_60_full_turn_j1_respects_its_stops() {
     let xml = include_str!("data/staubli/tx2_60.urdf");
     let chain = from_urdf_chain(xml, "base_link", "tool0").unwrap();
     assert_eq!(
@@ -462,11 +462,19 @@ fn imported_tx2_60_full_turn_j1_accepts_other_turns() {
     );
     let robot = chain.to_robot(BY_PREV).unwrap();
     let limits = robot.constraints().as_ref().unwrap();
-    for j1 in [-3.0 * PI, 0.0, 3.0 * PI] {
-        let mut angles = [0.0; 6];
-        angles[0] = j1;
-        assert!(limits.compliant(&angles));
+    let joints = |j1| [j1, -0.4, 0.3, 0.5, -0.4, 0.3];
+    for j1 in [-PI, 0.0, PI] {
+        assert!(limits.compliant(&joints(j1)));
     }
+    for j1 in [-3.0 * PI, 3.0 * PI] {
+        assert!(!limits.compliant(&joints(j1)));
+    }
+
+    let target = robot.forward(&joints(0.2));
+    let previous = joints(0.2 + std::f64::consts::TAU);
+    let solutions = robot.inverse_continuing(&target, &previous);
+    assert!(solutions.iter().any(|q| (q[0] - 0.2).abs() < 1e-10));
+    assert!(solutions.iter().all(|q| (-PI..=PI).contains(&q[0])));
 }
 
 #[test]

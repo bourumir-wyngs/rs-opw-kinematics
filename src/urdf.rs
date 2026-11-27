@@ -15,6 +15,7 @@ use crate::parameter_error::ParameterError;
 use crate::parameters::opw_kinematics::Parameters;
 use crate::simplify_joint_name::preprocess_joint_name;
 use regex::Regex;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
@@ -313,13 +314,73 @@ fn parse_finite_xml_number(value: &str, field: &str) -> Result<f64, Box<dyn Erro
     Ok(parsed)
 }
 
-fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
+#[derive(Clone, Copy)]
+enum UrdfAngle {
+    Radians(f64),
+    Degrees(f64),
+}
+
+impl UrdfAngle {
+    fn radians(self) -> f64 {
+        match self {
+            Self::Radians(value) => value,
+            Self::Degrees(value) => value.to_radians(),
+        }
+    }
+
+    fn span_cmp_one_turn(self, upper: Self) -> Ordering {
+        // Compare Xacro degree literals before conversion: 60°..420° would
+        // otherwise round slightly wider than one turn in radians.
+        let (a, b, turn) = match (self, upper) {
+            (Self::Degrees(a), Self::Degrees(b)) => (a, b, 360.0),
+            _ => (self.radians(), upper.radians(), std::f64::consts::TAU),
+        };
+        let span = b - a;
+        if span != turn {
+            return span.partial_cmp(&turn).unwrap();
+        }
+        // Subtraction can round a span just above or below one turn to exactly
+        // one turn. Recover the remainder using the larger-magnitude endpoint.
+        if b.abs() >= a.abs() {
+            (b - turn).partial_cmp(&a).unwrap()
+        } else {
+            b.partial_cmp(&(a + turn)).unwrap()
+        }
+    }
+}
+
+// Constraints selects absolute stops when the rounded half-width exceeds π.
+// Adjust the endpoint farther from zero so a declared stop at zero stays exact.
+fn bounded_solver_limits(lower: UrdfAngle, upper: UrdfAngle) -> (f64, f64) {
+    let (a, b) = (lower.radians(), upper.radians());
+    let absolute = lower.span_cmp_one_turn(upper) != Ordering::Less;
+    if (b.midpoint(-a) > std::f64::consts::PI) == absolute {
+        return (a, b);
+    }
+    // Reflect negative ranges so increasing the selected endpoint always widens the span.
+    let adjust_upper = b.abs() >= a.abs();
+    let (mut endpoint, opposite) = if adjust_upper { (b, -a) } else { (-a, b) };
+    while (endpoint.midpoint(opposite) > std::f64::consts::PI) != absolute {
+        endpoint = if absolute {
+            endpoint.next_up()
+        } else {
+            endpoint.next_down()
+        };
+    }
+    if adjust_upper {
+        (a, endpoint)
+    } else {
+        (-endpoint, b)
+    }
+}
+
+fn parse_angle(attr_value: &str) -> Result<UrdfAngle, ParameterError> {
     // Regular expression to match the ${radians(<number>)} format that is common in xacro
     let re = Regex::new(r"^\$\{radians\((-?\d+(\.\d+)?)\)\}$")
         .map_err(|_| ParameterError::ParseError("Invalid regex pattern".to_string()))?;
 
     // Check if the input matches the special format
-    let radians = if let Some(caps) = re.captures(attr_value) {
+    let angle = if let Some(caps) = re.captures(attr_value) {
         let degrees_str = caps
             .get(1)
             .ok_or(ParameterError::WrongAngle(
@@ -329,29 +390,30 @@ fn parse_angle(attr_value: &str) -> Result<f64, ParameterError> {
         let degrees: f64 = degrees_str
             .parse()
             .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?;
-        degrees.to_radians()
+        UrdfAngle::Degrees(degrees)
     } else {
         // Try to parse the input as a plain number in that case it is in radians
-        attr_value
-            .parse()
-            .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?
+        UrdfAngle::Radians(
+            attr_value
+                .parse()
+                .map_err(|_| ParameterError::WrongAngle(attr_value.to_string()))?,
+        )
     };
 
-    if !radians.is_finite() {
+    if !angle.radians().is_finite() {
         return Err(ParameterError::WrongAngle(format!(
             "{attr_value} (must be finite)"
         )));
     }
 
-    Ok(radians)
+    Ok(angle)
 }
 
 // The name-based reader accepts Xacro angles. The chain reader requires numbers in radians.
-// Both treat a continuous joint as unrestricted unless its explicit bounds span multiple turns.
 fn continuous_position_limits(
     limit: Option<dom::Element<'_>>,
-    parse_bound: impl Fn(&str, &str) -> Result<f64, String>,
-) -> Result<UrdfJointLimit, String> {
+    parse_bound: impl Fn(&str, &str) -> Result<UrdfAngle, String>,
+) -> Result<Option<(UrdfAngle, UrdfAngle)>, String> {
     let bound = |name: &str| {
         limit
             .and_then(|element| element.attribute_value(name))
@@ -359,18 +421,18 @@ fn continuous_position_limits(
             .transpose()
     };
     let (Some(lower), Some(upper)) = (bound("lower")?, bound("upper")?) else {
-        return Ok(UrdfJointLimit::Continuous);
+        return Ok(None);
     };
-    if lower > upper {
+    let (start, end) = (lower.radians(), upper.radians());
+    if start > end {
         return Err(format!(
-            "lower position limit {lower} exceeds upper limit {upper}"
+            "lower position limit {start} exceeds upper limit {end}"
         ));
     }
-    // Use the same overflow-safe half-width comparison as Constraints.
-    if upper.midpoint(-lower) > std::f64::consts::PI {
-        Ok(UrdfJointLimit::Bounded { lower, upper })
+    if start == end || lower.span_cmp_one_turn(upper) == Ordering::Equal {
+        Ok(None)
     } else {
-        Ok(UrdfJointLimit::Continuous)
+        Ok(Some((lower, upper)))
     }
 }
 
@@ -380,10 +442,9 @@ fn get_limits(element: dom::Element, kind: Option<&str>) -> Result<(f64, f64), P
             parse_angle(value).map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
         })
         .map_err(ParameterError::XmlProcessingError)?;
-        return Ok(match limits {
-            UrdfJointLimit::Bounded { lower, upper } => (lower, upper),
-            _ => (0.0, 0.0),
-        });
+        return Ok(limits.map_or((0.0, 0.0), |(lower, upper)| {
+            bounded_solver_limits(lower, upper)
+        }));
     }
     let lower_attr = element
         .attribute("lower")
@@ -397,7 +458,11 @@ fn get_limits(element: dom::Element, kind: Option<&str>) -> Result<(f64, f64), P
         .value();
     let upper_limit = parse_angle(upper_attr)?;
 
-    Ok((lower_limit, upper_limit))
+    if kind == Some("revolute") {
+        Ok(bounded_solver_limits(lower_limit, upper_limit))
+    } else {
+        Ok((lower_limit.radians(), upper_limit.radians()))
+    }
 }
 
 fn convert_to_map(joints: Vec<JointData>) -> Result<HashMap<String, JointData>, Box<dyn Error>> {
@@ -651,14 +716,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn named_reader_uses_only_explicit_multiturn_limits_for_continuous_joints() {
+    fn named_reader_imports_explicit_continuous_joint_ranges() {
         let fixture = include_str!("tests/data/abb/irb120_3_58.urdf");
         let joint = r#"name="joint_1" type="revolute">"#;
+        let below_one_turn = std::f64::consts::TAU.next_down();
+        let nearly_full = format!(r#"lower="0" upper="{below_one_turn}""#);
         for (attributes, bounds) in [
             (r#"effort="2" velocity="1""#, (0.0, 0.0)),
             (r#"upper="${radians(540)}""#, (0.0, 0.0)),
-            (r#"lower="1" upper="2""#, (0.0, 0.0)),
+            (r#"lower="1" upper="1""#, (0.0, 0.0)),
+            (r#"lower="0" upper="5e-324""#, (0.0, f64::from_bits(1))),
+            (r#"lower="1" upper="2""#, (1.0, 2.0)),
+            (
+                r#"lower="${radians(360)}" upper="${radians(370)}""#,
+                (360.0_f64.to_radians(), 370.0_f64.to_radians()),
+            ),
+            (nearly_full.as_str(), (0.0, below_one_turn)),
+            // The converted radian endpoints alone would select absolute stops.
+            (
+                r#"lower="${radians(-593)}" upper="${radians(-233.00000000000003)}""#,
+                (
+                    (-593.0_f64).to_radians().next_up(),
+                    (-233.00000000000003_f64).to_radians(),
+                ),
+            ),
             (r#"lower="0" upper="${radians(360)}""#, (0.0, 0.0)),
+            (
+                r#"lower="${radians(60)}" upper="${radians(420)}""#,
+                (0.0, 0.0),
+            ),
             (
                 r#"lower="${radians(-540)}" upper="${radians(540)}""#,
                 ((-540.0_f64).to_radians(), 540.0_f64.to_radians()),
@@ -674,6 +760,49 @@ mod tests {
                 bounds,
                 "{attributes}"
             );
+        }
+    }
+
+    #[test]
+    fn named_reader_revolute_full_turn_has_absolute_stops_in_radians_and_xacro_degrees() {
+        use crate::constraints::BY_PREV;
+        use std::f64::consts::TAU;
+
+        let fixture = include_str!("tests/data/abb/irb120_3_58.urdf");
+        let joint = r#"name="joint_1" type="revolute">"#;
+        for (lower_xml, upper_xml, lower, upper) in [
+            ("0", "6.283185307179586", 0.0, TAU),
+            (
+                "${radians(60)}",
+                "${radians(420)}",
+                60.0_f64.to_radians(),
+                420.0_f64.to_radians(),
+            ),
+            (
+                "${radians(102)}",
+                "${radians(462)}",
+                102.0_f64.to_radians(),
+                462.0_f64.to_radians(),
+            ),
+        ] {
+            let xml = fixture.replace(
+                joint,
+                &format!(r#"{joint}<limit lower="{lower_xml}" upper="{upper_xml}"/>"#),
+            );
+            let limits = from_urdf(xml, &None).unwrap().constraints(BY_PREV);
+            let joints = |j1| [j1, 0.0, 0.0, 0.0, 0.0, 0.0];
+            assert!(limits.compliant(&joints(lower)));
+            assert!(limits.compliant(&joints(upper)));
+            assert!(
+                !limits.compliant(&joints(lower - TAU)),
+                "{lower_xml}..{upper_xml}"
+            );
+            assert!(
+                !limits.compliant(&joints(upper + TAU)),
+                "{lower_xml}..{upper_xml}"
+            );
+            assert!(limits.from[0] >= lower.next_down().next_down());
+            assert!(limits.to[0] <= upper.next_up().next_up());
         }
     }
 

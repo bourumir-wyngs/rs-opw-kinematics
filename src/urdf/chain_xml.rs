@@ -1,4 +1,4 @@
-use super::{UrdfJointLimit, continuous_position_limits, parse_finite_xml_number};
+use super::{UrdfAngle, UrdfJointLimit, continuous_position_limits, parse_finite_xml_number};
 use crate::kinematic_traits::Pose;
 use crate::parameter_error::ParameterError::{self, XmlProcessingError};
 use glam::{DQuat, DVec3, EulerRot};
@@ -190,7 +190,16 @@ fn position_limits(kind: &str, limit: Option<Element<'_>>) -> Result<UrdfJointLi
             .map_err(|e| format!("invalid {name} position limit {value:?}: {e}"))
     };
     if kind == "continuous" {
-        return continuous_position_limits(limit, parse_bound);
+        let bounds = continuous_position_limits(limit, |name, value| {
+            parse_bound(name, value).map(UrdfAngle::Radians)
+        })?;
+        return Ok(match bounds {
+            Some((lower, upper)) => UrdfJointLimit::Bounded {
+                lower: lower.radians(),
+                upper: upper.radians(),
+            },
+            None => UrdfJointLimit::Continuous,
+        });
     }
     let Some(limit) = limit else {
         return Ok(UrdfJointLimit::Unspecified);

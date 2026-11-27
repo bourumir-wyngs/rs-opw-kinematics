@@ -845,17 +845,23 @@ The reader ignores side branches, such as a gripper finger driven by a mimic
 joint. A rotary mimic joint on the selected path, such as the ABB IRB5400's
 coupled wrist joint, produces an error that names the joint.
 
-A `continuous` joint permits any number of turns unless the file supplies both
-position limits and their range exceeds 360°. For example, explicit limits of
--540° to 540° allow 365° and reject 725°, even for a `continuous` joint.
-Effort and velocity limits alone leave rotation unrestricted.
+`chain.limits` retains the declared revolute bounds. When a `revolute` or
+`continuous` joint has explicit position limits, a positive range shorter
+than 360° repeats every turn. For example, 360° to 370° admits both 5° and
+365°. A range wider than 360° sets absolute limits, so -540° to 540° allows
+365° and rejects 725°.
 
-For a `revolute` joint with position limits, the solver uses the usual
-[constraint rules](#constraints). Ranges wider than 360° bound absolute travel,
-exactly 360° permits any turn, and shorter ranges repeat every turn. A range
-of 360° to 370° therefore admits 5° and 365°. A missing limit element is
-recorded as unspecified and leaves rotation unrestricted. `to_robot` reports
-an error for a bounded revolute joint with equal endpoints.
+At exactly 360°, a `continuous` joint permits any turn. For a `revolute`
+joint, both readers move one solver endpoint outward just far enough to
+activate [absolute travel limits](#constraints). For `[0, TAU]`, the upper
+endpoint becomes `TAU.next_up()`. For `[-TAU, 0]`, the lower endpoint
+becomes `(-TAU).next_down()`. In both cases the stop at zero stays exactly zero.
+
+A `continuous` joint is unrestricted if either position limit is missing or
+both limits are equal. Effort and velocity limits alone also leave rotation
+unrestricted. For a `revolute` joint, a missing limit element is recorded as
+unspecified and leaves rotation unrestricted. `to_robot` reports an error
+for a bounded revolute joint with equal endpoints.
 
 The [test models](src/tests/data) are organized by manufacturer. Each manufacturer
 folder with imported URDF fixtures documents their upstream sources and licenses.
