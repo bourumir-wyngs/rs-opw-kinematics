@@ -184,7 +184,7 @@ fn example(name: &str, start: Joints, goal: Joints, kinematics: KinematicsWithSh
             play_planned_path(kinematics, &path)?;
         }
         Err(message) => {
-            println!("Planning failed: {}", message);
+            return Err(anyhow!("Planning failed: {}", message));
         }
     }
 

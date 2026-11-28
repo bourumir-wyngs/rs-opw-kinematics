@@ -168,6 +168,11 @@ pub(super) fn sample_angles(
             if tolerance.is_finite() && (0.0..PI).contains(&tolerance) {
                 limits[joint - 3] = vec![center - tolerance, center + tolerance];
                 angles.extend_from_slice(&limits[joint - 3]);
+            } else if constraints.is_absolute(joint) {
+                // Every orientation has a legal turn, but the nearest physical
+                // representative can change by a turn at either end stop.
+                angles.push(model_angle(joint, constraints.from[joint]));
+                angles.push(model_angle(joint, constraints.to[joint]));
             }
         }
         for angle in angles.into_iter().filter(|angle| angle.is_finite()) {
@@ -214,6 +219,12 @@ pub(super) fn sample_angles(
         )
     });
     roots.push(center);
+    if let Some(c) = robot.constraints()
+        && c.is_absolute(free_joint)
+    {
+        roots.push(model_angle(free_joint, c.from[free_joint]));
+        roots.push(model_angle(free_joint, c.to[free_joint]));
+    }
     let mut result = Vec::new();
     for (lower, upper) in wrist_limit_intervals(center, tolerance, near, 1.0) {
         let lower = near + lower;

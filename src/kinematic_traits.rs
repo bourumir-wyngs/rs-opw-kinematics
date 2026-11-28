@@ -58,6 +58,8 @@ pub trait Kinematics: Send + Sync {
     /// Find inverse kinematics (joint position) for this glam-backed f64 pose.
     /// At wrist singularities, OPWKinematics prefers J4/J6 values near the
     /// constraint centers, or zeros when no constraints are set.
+    /// For a joint with absolute travel limits, it selects an equivalent turn
+    /// inside the interval, nearest its midpoint.
     /// All returned solutions are cross-checked with forward kinematics and
     /// valid.
     fn inverse(&self, pose: &Pose) -> Solutions;
@@ -68,6 +70,8 @@ pub trait Kinematics: Send + Sync {
     /// Use CONSTRAINT_CENTERED as previous if there is no previous position but we prefer
     /// to be as close to the center of constraints (or zeroes if not set) as
     /// possible. "Previous" can be in a wide range, say 90000 degrees.
+    /// When a joint has absolute travel limits, OPWKinematics selects its
+    /// nearest equivalent turn within those stops.
     /// OPWKinematics rejects non-finite references after resolving the sentinel
     /// and validates the final angles after restoring their turns. Extremely
     /// large finite references may yield no solutions if f64 precision is

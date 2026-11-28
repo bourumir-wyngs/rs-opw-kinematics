@@ -61,7 +61,10 @@ fn joint_space_bounds(
     let mut to = [0.0; 6];
     for joint in 0..6 {
         let tolerance = constraints.tolerances[joint];
-        if tolerance.is_infinite() || tolerance >= PI {
+        if constraints.is_absolute(joint) {
+            from[joint] = constraints.from[joint];
+            to[joint] = constraints.to[joint];
+        } else if tolerance.is_infinite() || tolerance == PI {
             // Keep the configured sampling range for unrestricted joints. A
             // different turn can require a different collision-free route, so
             // recentering a full turn around the endpoints can hide useful paths.
@@ -330,15 +333,14 @@ where
 }
 
 impl RRTPlanner {
-    /// Plans a path from `start` to `goal` joint configuration,
-    /// using `KinematicsWithShape` for collision checking.
-    /// start and goal are included into the returned path.
+    /// Plans a joint-space path including both endpoints.
     fn plan_path(
         &self,
         kinematics: &KinematicsWithShape,
         start: &Joints,
         goal: &Joints,
         stop: &AtomicBool,
+        collides: impl Fn(&Joints) -> bool,
     ) -> Result<Vec<Vec<f64>>, String> {
         check_cancelled(stop)?;
         let constraints = kinematics.constraints().as_ref();
@@ -366,7 +368,7 @@ impl RRTPlanner {
 
         let mut collision_free = |joint_angles: &[f64]| -> bool {
             let joints = &<Joints>::try_from(joint_angles).expect("Cannot convert vector to array");
-            within_limits(joints) && !kinematics.collides(joints)
+            within_limits(joints) && !collides(joints)
         };
 
         // Sample the connected intervals in constraint coordinates, then apply
@@ -468,6 +470,8 @@ impl RRTPlanner {
     /// Requested joint values are preserved, including their turns. Each limited
     /// joint's goal must lie in the same continuous allowed interval as its start;
     /// for a wrapped move, supply continuous angles such as 175° to 185°.
+    /// For travel limits wider than one turn, both endpoints and the path must
+    /// lie between the configured physical stops.
     /// For coupled joints, limits and connected intervals are checked in the
     /// underlying constraint coordinates. Paths and step sizes use public joints.
     /// Returns `Err("Cancelled")` when cancellation is observed during planning,
@@ -479,12 +483,26 @@ impl RRTPlanner {
         kinematics: &KinematicsWithShape,
         stop: &AtomicBool,
     ) -> Result<Vec<Joints>, String> {
+        self.plan_rrt_with_collision_check(start, goal, kinematics, stop, |joints| {
+            kinematics.collides(joints)
+        })
+    }
+
+    /// Allows a Cartesian planning call to reuse its cached geometry checks.
+    pub(crate) fn plan_rrt_with_collision_check(
+        &self,
+        start: &Joints,
+        goal: &Joints,
+        kinematics: &KinematicsWithShape,
+        stop: &AtomicBool,
+        collides: impl Fn(&Joints) -> bool,
+    ) -> Result<Vec<Joints>, String> {
         check_cancelled(stop)?;
         if self.debug {
             debug!(?start, ?goal, "RRT started");
         }
         let started = self.debug.then(Instant::now);
-        let path = self.plan_path(kinematics, start, goal, stop);
+        let path = self.plan_path(kinematics, start, goal, stop, collides);
         let result = self.convert_result(path, stop);
 
         if self.debug {

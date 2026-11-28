@@ -1,11 +1,50 @@
 #[cfg(test)]
 mod tests {
-    use crate::kinematic_traits::{J2, J3, Joints, Kinematics, Pose};
+    use crate::constraints::{BY_PREV, Constraints};
+    use crate::kinematic_traits::{J1, J2, J3, Joints, Kinematics, Pose};
     use crate::kinematics_impl::OPWKinematics;
     use crate::parallelogram::Parallelogram;
     use crate::parameters::opw_kinematics::Parameters;
     use crate::utils::dump_joints;
     use std::sync::Arc;
+
+    #[test]
+    fn continuation_preserves_turns_through_nested_couplings() {
+        let travel = Constraints::new(
+            [(-540.0_f64).to_radians(); 6],
+            [540.0_f64.to_radians(); 6],
+            BY_PREV,
+        );
+        let inner = Parallelogram {
+            robot: Arc::new(OPWKinematics::new_with_constraints(
+                Parameters::irb2400_10(),
+                travel,
+            )),
+            driven: J1,
+            coupled: J2,
+            scaling: 1.0,
+        };
+        let outer = Parallelogram {
+            robot: Arc::new(inner),
+            driven: J2,
+            coupled: J3,
+            scaling: 1.0,
+        };
+        let actuator_joints = [225.0, 205.0, 50.0, 30.0, 45.0, 60.0].map(f64::to_radians);
+        let previous = outer.from_constraint_joints(&actuator_joints);
+        let target = outer.forward(&previous);
+        for solutions in [
+            outer.inverse_continuing(&target, &previous),
+            outer.inverse_continuing_5dof(&target, &previous),
+        ] {
+            assert!(solutions.iter().any(|solution| {
+                solution
+                    .iter()
+                    .zip(previous)
+                    .all(|(joint, expected)| (joint - expected).abs() < 1e-10)
+            }));
+        }
+    }
 
     #[test]
     fn test_parallelogram_orientation_changes() {
