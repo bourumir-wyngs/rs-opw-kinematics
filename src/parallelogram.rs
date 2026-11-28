@@ -2,7 +2,9 @@
 //! both wraps arround some instance of Kinematics and implements Kinematics itself.
 
 use crate::constraints::Constraints;
+use crate::ik_result::{GeometryStatus, IKResult, IKResults};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
+use crate::kinematics_impl::ANGULAR_TOLERANCE;
 use std::sync::Arc;
 
 /// Parallelogram Mechanism:
@@ -91,6 +93,54 @@ impl Parallelogram {
 }
 
 impl Kinematics for Parallelogram {
+    /// Converts the reference and each representative between coupled and wrapped joints.
+    /// A linkage that loses a representative's joint rotations to rounding cannot verify
+    /// that branch in public coordinates. Its finite joints carry `FailedPoseCheck`.
+    fn ik(&self, tcp: &Pose, reference: Option<&Joints>) -> IKResults {
+        if self.driven >= 6
+            || self.coupled >= 6
+            || self.driven == self.coupled
+            || !self.scaling.is_finite()
+        {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        }
+        let reference = reference.map(|joints| self.wrapped_reference(joints));
+        let mut results = self.robot.ik(tcp, reference.as_ref());
+        for slot in &mut results {
+            let wrapped = slot.joints;
+            let original = wrapped[self.coupled];
+            if !original.is_finite() {
+                continue;
+            }
+            let offset = self.scaling * slot.joints[self.driven];
+            slot.joints[self.coupled] += offset;
+            let restored = slot.joints[self.coupled] - offset;
+            if !restored.is_finite() {
+                *slot = IKResult::empty(slot.meta.branch, GeometryStatus::InvalidInput);
+                continue;
+            }
+            if restored != original {
+                // A nested linkage can propagate rounding to more than one physical joint.
+                let before = self.robot.to_constraint_joints(&wrapped);
+                let after = self.to_constraint_joints(&slot.joints);
+                if !after.iter().all(|angle| angle.is_finite()) {
+                    *slot = IKResult::empty(slot.meta.branch, GeometryStatus::InvalidInput);
+                    continue;
+                }
+                slot.check_limits(self.constraints().as_ref(), &after);
+                if before.into_iter().zip(after).any(|(a, b)| {
+                    (a - b).abs() > ANGULAR_TOLERANCE
+                        && glam::DQuat::from_rotation_z(a)
+                            .angle_between(glam::DQuat::from_rotation_z(b))
+                            > ANGULAR_TOLERANCE
+                }) {
+                    slot.meta.geometry = GeometryStatus::FailedPoseCheck;
+                }
+            }
+        }
+        results
+    }
+
     fn inverse(&self, tcp: &Pose) -> Solutions {
         let mut solutions = self.robot.inverse(tcp);
 
@@ -157,5 +207,37 @@ impl Kinematics for Parallelogram {
         let mut joints = self.robot.from_constraint_joints(joints);
         joints[self.coupled] += self.scaling * joints[self.driven];
         joints
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kinematic_traits::{J2, J3};
+    use crate::kinematics_impl::OPWKinematics;
+    use crate::parameters::opw_kinematics::Parameters;
+
+    #[test]
+    fn ordered_ik_detects_a_coupled_angle_lost_to_roundoff() {
+        let robot = Arc::new(OPWKinematics::new(Parameters::irb2400_10()));
+        let target = robot.forward(&[0.1, 0.3, -0.4, 0.5, 0.6, -0.7]);
+        let coupling = Parallelogram {
+            robot,
+            scaling: 1e30,
+            driven: J2,
+            coupled: J3,
+        };
+        let results = coupling.ik(&target, None);
+        assert!(
+            results
+                .iter()
+                .any(|slot| slot.meta.geometry == GeometryStatus::FailedPoseCheck)
+        );
+        for slot in results
+            .iter()
+            .filter(|slot| slot.meta.geometry == GeometryStatus::Verified)
+        {
+            assert!(coupling.forward(&slot.joints).angular_distance(target) <= ANGULAR_TOLERANCE);
+        }
     }
 }

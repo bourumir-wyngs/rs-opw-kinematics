@@ -29,6 +29,7 @@ data for the test suite. This documentation also incorporates the robot diagram 
 - Inverse solutions are cross-checked with forward kinematics: the full pose for 6 DOF,
   and the tool position for 5 DOF. Continuation normalizes joint angles near the previous values.
 - `inverse` and `inverse_continuing` filter their solution lists by the configured joint constraints.
+- [`ik`](#branch-indexed-inverse-kinematics-results) returns all eight six-axis branches in fixed order, with per-branch geometry and joint-limit diagnostics.
 - Collision detection (with [Parry](https://parry.rs/)) allows excluding solutions where the robot would collide with
   itself or environment objects. It is possible to configure minimum clearances between surfaces rather than
   just checking if they touch.
@@ -110,10 +111,12 @@ See example [complete_visible_robot.rs](examples/complete_visible_robot.rs).
 
 ## Branch-indexed inverse kinematics results
 
-`IKResults` describes all eight analytical branches of a six-axis OPW robot.
-It is a fixed array, `[IKResult; 8]`, with one slot per branch. A slot keeps its place when the
+`robot.ik(&pose, None)` returns an `IKResults` array containing all eight analytical branches
+of a six-axis OPW robot. It is a fixed array, `[IKResult; 8]`. A slot keeps its place when the
 target moves, when a joint limit excludes its solution, or when two branches meet at a singularity.
-This lets you follow one posture across waypoints and inspect what happened to it at a particular pose.
+To follow one posture across waypoints, pass the last joint configuration as `Some(&previous)` and
+read the same slot again. The reference guides the choice of whole turns and free angles at a
+singularity. With `None`, the solver uses joint-limit centers, or zero for unconstrained joints.
 The public types live in `rs_opw_kinematics::ik_result`.
 
 ### Selecting a branch
@@ -135,18 +138,20 @@ second shoulder and positive elbow. Their orange arrows point in opposite direct
 positive J5 axes. The view looks along the flange axis, so every arrow lies in the plane of the page.
 
 ```rust
-use rs_opw_kinematics::ik_result::{Branch, Elbow, GeometryStatus, IKResults, Shoulder, Wrist};
-use rs_opw_kinematics::kinematic_traits::Joints;
+use rs_opw_kinematics::ik_result::{Branch, Elbow, GeometryStatus, Shoulder, Wrist};
+use rs_opw_kinematics::kinematic_traits::Kinematics;
+use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
 
-/// Return the joints for this branch if the pose verifies and all checked limits pass.
-fn joints_for(results: &IKResults, branch: Branch) -> Option<&Joints> {
-    let slot = &results[branch.index()];
-    (slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits.violated().is_empty())
-        .then_some(&slot.joints)
-}
-
+let robot = OPWKinematics::new(Parameters::irb2400_10());
+let previous = [0.2, 0.1, -0.4, 0.3, 0.7, -0.2];
+let target = robot.forward(&previous);
+let results = robot.ik(&target, Some(&previous));
 let branch = Branch::new(Shoulder::Second, Elbow::Positive, Wrist::Flipped);
-assert_eq!(branch.index(), 6);
+let slot = &results[branch.index()]; // slot 6
+if slot.meta.geometry == GeometryStatus::Verified && slot.meta.limits.violated().is_empty() {
+    println!("Joint angles for this branch: {:?}", slot.joints);
+}
 ```
 
 ### Reading a result
@@ -161,6 +166,11 @@ minimum signed joint-limit margin (`limit_margin_rad`), and eight bytes of typed
 | `NoRealRoot` | This branch has no real root for the target pose. | All six angles are `NaN`. |
 | `FailedPoseCheck` | The equations produced a candidate, but its forward pose failed verification. | The six finite candidate angles are retained for diagnosis. |
 | `NoRepresentativeFound` | The solver identified a singular family and found no representative under the supplied conditions. Other members may exist. | All six angles are `NaN`. |
+| `InvalidInput` | The target pose, joint reference, or coordinate transform cannot be represented. | All six angles are `NaN`. |
+| `Unsupported` | The solver does not implement six-axis OPW branches. This includes five-axis OPW models. | All six angles are `NaN`. |
+
+`ik` reports kinematics and joint limits. On a robot with collision geometry, call
+`robot.collides(&slot.joints)` to check a verified configuration against the scene.
 
 ### Singularities, recovery, and shared branches
 
@@ -175,7 +185,8 @@ At model J5 = 0, the target fixes the sum J4 + J6. At J5 = ±π, it fixes the di
 `Recovery::WristPhase` means the solver used that relation to select the stored J4/J6 pair.
 The principal and flipped slots can then belong to the same family, even when their stored
 joint angles differ. An ordinary solution's `meta.family` contains only its own branch.
-An empty family means no family was identified.
+An empty family means no family was identified. Near a branch boundary, the solver uses
+floating-point roundoff bounds to decide whether the roots can be distinguished.
 
 ```rust
 use rs_opw_kinematics::ik_result::{Branch, IKMetadata, Recovery, Singularity};
@@ -198,11 +209,13 @@ or `Violated`. Use `meta.limits.checked().iter()` to see which joints were evalu
 `meta.limits.violated().iter()` to list the violations in J1–J6 order. An empty violation set
 means every checked limit passed. The checked set can also be empty.
 
-`limit_margin_rad` is the smallest signed angular distance to an evaluated limit boundary,
-accounting for wraparound. A positive value gives the least remaining clearance. Zero places a
+`limit_margin_rad` is the smallest signed angular distance to an evaluated limit boundary.
+Periodic limits use distance around the circle. Absolute multi-turn limits use distance to the
+physical stops in unwrapped joint coordinates. A positive value gives the least remaining clearance. Zero places a
 joint on its boundary, and a negative value gives the worst violation. For example, a margin
 of `-0.1` with `meta.limiting_joint == Some(Joint::J3)` means J3 is 0.1 radians outside its
-allowed range. Its stored angle is `slot.joints[Joint::J3.index()]`.
+allowed range. With coupled joints, use `robot.to_constraint_joints(&slot.joints)` to read the angle
+in the coordinates used for that check.
 
 An evaluated configuration with no effective limits has margin `f64::INFINITY`. An unevaluated
 margin is `NaN`. In both cases `limiting_joint` is `None`. Equal finite margins select the

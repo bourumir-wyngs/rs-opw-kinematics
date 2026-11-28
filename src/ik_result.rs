@@ -1,6 +1,7 @@
 //! Branch-indexed results for six-axis OPW inverse kinematics.
 //!
-//! Each slot identifies a choice in the analytical equations. Its index stays
+//! [`Kinematics::ik`](crate::kinematic_traits::Kinematics::ik) fills one slot
+//! for each choice in the analytical equations. Its index stays
 //! fixed across poses, joint limits and continuation references. At a singularity
 //! several slots can refer to one family of configurations. A representative
 //! of that family can depend on the reference configuration.
@@ -27,6 +28,7 @@
 //! See the [`IKMetadata`] example for reading the singularities, recovery
 //! methods, branch family and joint-limit diagnostics of the selected slot.
 
+use crate::constraints::Constraints;
 use crate::kinematic_traits::Joints;
 
 mod metadata;
@@ -83,6 +85,19 @@ pub enum Wrist {
 pub struct Branch(u8);
 
 impl Branch {
+    /// All branches in result-array order. Each branch indexes its own slot
+    /// with [`branch.index()`](Self::index).
+    pub const ALL: [Self; 8] = [
+        Self(0),
+        Self(1),
+        Self(2),
+        Self(3),
+        Self(4),
+        Self(5),
+        Self(6),
+        Self(7),
+    ];
+
     /// Constructs the branch for the given shoulder root, elbow root and wrist solution.
     pub const fn new(shoulder: Shoulder, elbow: Elbow, wrist: Wrist) -> Self {
         Self(((wrist as u8) << 2) | ((shoulder as u8) << 1) | elbow as u8)
@@ -141,6 +156,10 @@ pub enum GeometryStatus {
     /// A singular family was identified, but the search found no representative
     /// under the supplied conditions. Other members of the family may exist.
     NoRepresentativeFound,
+    /// The pose, joint reference, or coordinate transform cannot be represented.
+    InvalidInput,
+    /// This kinematics implementation does not provide the eight six-axis OPW branches.
+    Unsupported,
 }
 
 /// One fixed slot in a complete six-axis inverse-kinematics result.
@@ -149,13 +168,14 @@ pub enum GeometryStatus {
 pub struct IKResult {
     /// Six angles in radians, in the robot's joint coordinates. Verified and
     /// failed-pose-check candidates retain their finite angles, including angles
-    /// that violate limits. With no real root or no representative, all six are NaN.
+    /// that violate limits. All other outcomes store six NaNs.
     pub joints: Joints,
     /// Minimum signed angular distance, in radians, to an evaluated joint-limit
     /// boundary. Each joint contributes positive clearance inside its allowed arc,
     /// zero on the boundary, or negative distance to the arc outside it. Thus a
     /// negative minimum describes the worst violation. Periodic limits use angular
-    /// distance around the circle. An evaluated configuration with no effective
+    /// distance around the circle. Absolute limits use distance to a physical stop
+    /// in unwrapped joint coordinates. An evaluated configuration with no effective
     /// limits has margin +∞; an unevaluated margin is NaN.
     pub limit_margin_rad: f64,
     /// Identity and diagnostics for the stored representative.
@@ -166,6 +186,62 @@ pub struct IKResult {
 /// failed candidates. Store each entry at `entry.meta.branch.index()`.
 pub type IKResults = [IKResult; 8];
 
+impl IKResult {
+    /// Records the effective joint limits evaluated for a finite candidate in constraint coordinates.
+    pub(crate) fn check_limits(
+        &mut self,
+        constraints: Option<&Constraints>,
+        constraint_joints: &Joints,
+    ) {
+        self.meta.limits = JointLimitChecks::default();
+        self.meta.limiting_joint = None;
+        self.limit_margin_rad = f64::INFINITY;
+        let Some(constraints) = constraints else {
+            return;
+        };
+        for joint in Joint::ALL {
+            let index = joint.index();
+            let Some(margin) = constraints.joint_margin(index, constraint_joints[index]) else {
+                continue;
+            };
+            let status = if margin >= 0.0 {
+                JointLimitStatus::WithinLimits
+            } else {
+                JointLimitStatus::Violated
+            };
+            self.meta.limits.set(joint, status);
+            if margin < self.limit_margin_rad {
+                self.limit_margin_rad = margin;
+                self.meta.limiting_joint = Some(joint);
+            }
+        }
+        if !self.meta.limits.checked().is_empty() && self.meta.limiting_joint.is_none() {
+            // Invalid bounds reject the candidate but supply no measurable clearance.
+            self.limit_margin_rad = f64::NAN;
+        }
+    }
+
+    pub(crate) fn empty(branch: Branch, geometry: GeometryStatus) -> Self {
+        Self {
+            joints: [f64::NAN; 6],
+            limit_margin_rad: f64::NAN,
+            meta: IKMetadata {
+                branch,
+                geometry,
+                singularities: SingularitySet::empty(),
+                recovery: RecoverySet::empty(),
+                family: BranchSet::empty(),
+                limits: JointLimitChecks::default(),
+                limiting_joint: None,
+            },
+        }
+    }
+
+    pub(crate) fn empty_slots(geometry: GeometryStatus) -> IKResults {
+        Branch::ALL.map(|branch| Self::empty(branch, geometry))
+    }
+}
+
 const _: () = assert!(size_of::<Branch>() == 1);
 const _: () = assert!(size_of::<IKMetadata>() == 8);
 const _: () = assert!(size_of::<IKResult>() == 64);
@@ -173,6 +249,57 @@ const _: () = assert!(size_of::<IKResult>() == 64);
 #[cfg(test)]
 mod tests {
     use super::{Branch, Elbow, Shoulder, Wrist};
+
+    #[test]
+    fn signed_margins_follow_periodic_and_absolute_joint_limits() {
+        use super::{GeometryStatus, IKResult, Joint, JointLimitStatus};
+        use crate::constraints::{BY_PREV, Constraints};
+        use std::f64::consts::{PI, TAU};
+
+        let constraints = Constraints::new(
+            [-1.0, -1.0, 1.0, -TAU, -PI, 0.0],
+            [1.0, 1.0, -1.0, TAU, PI, 0.0],
+            BY_PREV,
+        );
+        let branch = Branch::new(Shoulder::First, Elbow::Positive, Wrist::Principal);
+        let mut slot = IKResult::empty(branch, GeometryStatus::Verified);
+        let mut joints = [0.0, 0.0, PI, 0.0, 27.0, -85.0];
+
+        slot.check_limits(Some(&constraints), &joints);
+        assert_eq!(slot.limit_margin_rad, 1.0);
+        assert_eq!(slot.meta.limiting_joint, Some(Joint::J1)); // J2 ties.
+        assert_eq!(
+            slot.meta.limits.status(Joint::J5),
+            JointLimitStatus::Unchecked
+        );
+        assert_eq!(
+            slot.meta.limits.status(Joint::J6),
+            JointLimitStatus::Unchecked
+        );
+        assert!(slot.meta.limits.violated().is_empty());
+
+        joints[2] = 1.0 + TAU;
+        joints[3] = TAU;
+        slot.check_limits(Some(&constraints), &joints);
+        assert_eq!(slot.limit_margin_rad, 0.0);
+        assert_eq!(slot.meta.limiting_joint, Some(Joint::J3));
+        assert!(slot.meta.limits.violated().is_empty());
+
+        joints[2] = TAU;
+        joints[3] = TAU + 3.0;
+        slot.check_limits(Some(&constraints), &joints);
+        assert_eq!(slot.limit_margin_rad, -3.0);
+        assert_eq!(slot.meta.limiting_joint, Some(Joint::J4));
+        assert_eq!(
+            slot.meta.limits.violated().iter().collect::<Vec<_>>(),
+            [Joint::J3, Joint::J4]
+        );
+
+        slot.check_limits(None, &joints);
+        assert_eq!(slot.limit_margin_rad, f64::INFINITY);
+        assert_eq!(slot.meta.limiting_joint, None);
+        assert!(slot.meta.limits.checked().is_empty());
+    }
 
     #[test]
     fn branch_components_match_all_eight_slots() {

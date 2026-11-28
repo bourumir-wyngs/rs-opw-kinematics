@@ -12,6 +12,7 @@
 //! this package also implements the Kinematics trait if such would be required.
 
 use crate::constraints::Constraints;
+use crate::ik_result::{GeometryStatus, IKResult, IKResults};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 use glam::{DMat3, DQuat, DVec3};
 use std::error::Error;
@@ -261,6 +262,24 @@ impl Frame {
 }
 
 impl Kinematics for Frame {
+    fn ik(&self, tcp: &Pose, reference: Option<&Joints>) -> IKResults {
+        let frame_pose = Pose {
+            translation: self.frame.translation,
+            rotation: self.frame.rotation,
+        };
+        let Some(mut local) = tcp.checked_relative_to(frame_pose) else {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        };
+        if !self.frame.scale.is_finite() || self.frame.scale <= 0.0 {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        }
+        local.translation /= self.frame.scale;
+        if !local.translation.is_finite() {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        }
+        self.robot.ik(&local, reference)
+    }
+
     fn inverse(&self, tcp: &Pose) -> Solutions {
         self.robot.inverse(&self.frame.inverse_transform_pose(*tcp))
     }

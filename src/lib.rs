@@ -11,12 +11,12 @@
 //!
 //! # Features
 //!
-//! - All returned solutions are valid, normalized, and cross-checked with forward kinematics.
-//! - Joint angles can be checked against constraints, ensuring only compliant solutions are returned.
-//! - To generate a trajectory of the robot (sequence of poses), it is possible to use "previous joint positions" as
-//!   additional input.
-//! - If the previous joint positions are provided, the solutions are sorted by proximity to them (closest first).
-//!   It is also possible to prioritize proximity to the center of constraints.
+//! - [`Kinematics::ik`](kinematic_traits::Kinematics::ik) returns a fixed slot for each of the
+//!   eight six-axis OPW branches, including missing roots and joint-limit violations.
+//!   A joint reference guides the choice of turns and singular representatives within each slot.
+//! - [`inverse`](kinematic_traits::Kinematics::inverse) returns verified, constraint-compliant
+//!   solutions. [`inverse_continuing`](kinematic_traits::Kinematics::inverse_continuing) also
+//!   orders them by proximity to the previous joints and the configured constraint centers.
 //! - For kinematic singularity at J5 = 0° or J5 = ±180° positions, this solver provides reasonable J4 and J6
 //!   values close to the previous positions of these joints (and not arbitrary ones that may result in a large jerk
 //!   of the real robot).

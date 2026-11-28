@@ -40,6 +40,7 @@ use std::sync::Arc;
 use glam::DVec3;
 
 use crate::constraints::Constraints;
+use crate::ik_result::{GeometryStatus, IKResult, IKResults};
 use crate::kinematic_traits::{Joints, Kinematics, Pose, Solutions};
 
 /// Defines the fixed tool that can be attached to the last joint (joint 6) of robot.
@@ -69,6 +70,20 @@ pub struct Base {
 }
 
 impl Kinematics for Tool {
+    fn ik(&self, tcp: &Pose, reference: Option<&Joints>) -> IKResults {
+        if !tcp.is_valid() || !self.tool.is_valid() {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        }
+        // TCP = flange * tool. Compute the flange origin directly.
+        let rotation = tcp.rotation * self.tool.rotation.inverse();
+        let Ok(flange) =
+            Pose::try_from_parts(tcp.translation - rotation * self.tool.translation, rotation)
+        else {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        };
+        self.robot.ik(&flange, reference)
+    }
+
     fn inverse(&self, tcp: &Pose) -> Solutions {
         self.robot.inverse(&(*tcp * self.tool.inverse()))
     }
@@ -116,6 +131,13 @@ impl Kinematics for Tool {
 }
 
 impl Kinematics for Base {
+    fn ik(&self, tcp: &Pose, reference: Option<&Joints>) -> IKResults {
+        let Some(local) = tcp.checked_relative_to(self.base) else {
+            return IKResult::empty_slots(GeometryStatus::InvalidInput);
+        };
+        self.robot.ik(&local, reference)
+    }
+
     fn inverse(&self, tcp: &Pose) -> Solutions {
         self.robot.inverse(&(self.base.inverse() * *tcp))
     }
@@ -287,6 +309,41 @@ mod tests {
         let tcp_without_tool = robot_without.forward(joints);
         let tcp_with_tool = robot_with.forward(joints);
         (tcp_without_tool, tcp_with_tool)
+    }
+
+    #[test]
+    fn ordered_ik_rejects_malformed_targets_and_transform_overflow() {
+        use crate::frame::{Frame, FrameTransform};
+
+        let robot = Arc::new(DelegationRobot);
+        let offset = Pose::from_translation(DVec3::new(-f64::MAX, 0.0, 0.0));
+        let tool = Tool {
+            robot: robot.clone(),
+            tool: offset,
+        };
+        let base = Base {
+            robot: robot.clone(),
+            base: offset,
+        };
+        let frame = Frame {
+            robot,
+            frame: FrameTransform::from_pose(offset),
+        };
+        let malformed = Pose {
+            translation: DVec3::ZERO,
+            rotation: glam::DQuat::from_xyzw(0.0, 0.0, 0.0, 2.0),
+        };
+        let too_far = Pose::from_translation(DVec3::new(f64::MAX, 0.0, 0.0));
+        for wrapper in [&tool as &dyn Kinematics, &base, &frame] {
+            for target in [malformed, too_far] {
+                assert!(
+                    wrapper
+                        .ik(&target, None)
+                        .iter()
+                        .all(|slot| slot.meta.geometry == GeometryStatus::InvalidInput)
+                );
+            }
+        }
     }
 
     #[test]

@@ -234,6 +234,8 @@ fn exact_wrist_poles_recover_nearest_pair_on_original_arm_branch() {
 
 #[test]
 fn exact_wrist_poles_preserve_previous_despite_arm_recovery_error() {
+    use crate::ik_result::{Branch, Recovery, Singularity, Wrist};
+
     let robot = OPWKinematics::new(Parameters::irb2400_10());
     // Recovering this nearly degenerate arm branch amplifies roundoff enough
     // that the recovered wrist has a nonzero sine even at an exact pole.
@@ -263,6 +265,42 @@ fn exact_wrist_poles_preserve_previous_despite_arm_recovery_error() {
                 previous[joint].to_degrees(),
                 best[joint].to_degrees(),
             );
+        }
+        let kept = robot
+            .ik(&pose, Some(&previous))
+            .into_iter()
+            .find(|slot| {
+                slot.joints
+                    .iter()
+                    .zip(previous)
+                    .all(|(a, b)| (a - b).abs() < 1e-7)
+            })
+            .expect("an ordered branch must preserve the exact wrist reference");
+        assert!(kept.meta.recovery.contains(Recovery::WristPhase));
+        let pole = if j5_degrees == 0.0 {
+            Singularity::WristZero
+        } else {
+            Singularity::WristPi
+        };
+        let branch = kept.meta.branch;
+        let family = [Wrist::Principal, Wrist::Flipped]
+            .map(|wrist| Branch::new(branch.shoulder(), branch.elbow(), wrist));
+        // The target determines the family even without a known arm solution.
+        let unrelated = [0.6, 1.2, -0.3, -0.1, 0.4, -0.7];
+        for reference in [None, Some(&unrelated), Some(&previous)] {
+            let slots = robot.ik(&pose, reference);
+            for member in family {
+                let slot = slots[member.index()];
+                assert_eq!(slot.meta.branch, member);
+                assert!(slot.meta.singularities.contains(pole));
+                assert!(slot.meta.recovery.contains(Recovery::WristPhase));
+                assert!(
+                    family
+                        .iter()
+                        .all(|&member| slot.meta.family.contains(member))
+                );
+                assert_pose(&robot, &slot.joints, &pose);
+            }
         }
         for solution in &solutions {
             assert_pose(&robot, solution, &pose);

@@ -1,4 +1,5 @@
 use crate::constraints::{BY_PREV, Constraints};
+use crate::ik_result::GeometryStatus;
 use crate::kinematic_traits::{J1, J4, J6, Kinematics};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
@@ -20,9 +21,15 @@ fn inverse_selects_the_nearest_legal_turn_for_each_absolute_joint() {
     let target = robot.forward(&[12.0, 18.0, 25.0, 30.0, 40.0, -170.0].map(f64::to_radians));
     let previous = [375.0, 18.0, 25.0, 30.0, 40.0, 535.0].map(f64::to_radians);
 
-    for (solutions, expected_j1, expected_j6) in [
-        (robot.inverse(&target), 732.0, -170.0),
-        (robot.inverse_continuing(&target, &previous), 372.0, 190.0),
+    let mut branch = None;
+    for (solutions, reference, expected_j1, expected_j6) in [
+        (robot.inverse(&target), None, 732.0, -170.0),
+        (
+            robot.inverse_continuing(&target, &previous),
+            Some(&previous),
+            372.0,
+            190.0,
+        ),
     ] {
         assert_eq!(solutions.len(), 1);
         let joints = solutions[0];
@@ -32,6 +39,16 @@ fn inverse_selects_the_nearest_legal_turn_for_each_absolute_joint() {
         let pose = robot.forward(&joints);
         assert!(pose.angular_distance(target) < 1e-8);
         assert!(pose.translation.distance(target.translation) < 1e-8);
+
+        let slots = robot.ik(&target, reference);
+        let mut usable = slots.iter().filter(|s| {
+            s.meta.geometry == GeometryStatus::Verified && s.meta.limits.violated().is_empty()
+        });
+        let slot = usable.next().expect("one branch fits the physical stops");
+        assert!(usable.next().is_none());
+        assert!((slot.joints[J1].to_degrees() - expected_j1).abs() < 1e-8);
+        assert!((slot.joints[J6].to_degrees() - expected_j6).abs() < 1e-8);
+        assert_eq!(*branch.get_or_insert(slot.meta.branch), slot.meta.branch);
     }
 }
 

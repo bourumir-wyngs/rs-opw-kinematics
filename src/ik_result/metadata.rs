@@ -53,6 +53,8 @@ pub enum Joint {
 }
 
 impl Joint {
+    pub(super) const ALL: [Self; 6] = [Self::J1, Self::J2, Self::J3, Self::J4, Self::J5, Self::J6];
+
     /// Returns the zero-based index into a [`Joints`](crate::kinematic_traits::Joints) array.
     pub const fn index(self) -> usize {
         self as usize
@@ -153,22 +155,14 @@ define_set!(
     /// Analytical branches in the order of [`Branch::index`].
     BranchSet(Branch),
     |branch| branch.index(),
-    (0..8).map(Branch)
+    Branch::ALL.into_iter()
 );
 
 define_set!(
     /// Rotary joints in J1 through J6 order.
     JointSet(Joint),
     |joint| joint.index(),
-    [
-        Joint::J1,
-        Joint::J2,
-        Joint::J3,
-        Joint::J4,
-        Joint::J5,
-        Joint::J6
-    ]
-    .into_iter()
+    Joint::ALL.into_iter()
 );
 
 /// The outcome of checking one joint's configured angular range.

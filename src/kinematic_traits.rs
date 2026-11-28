@@ -1,6 +1,7 @@
 //! Defines traits for direct and inverse kinematics.
 
 use crate::constraints::Constraints;
+use crate::ik_result::{GeometryStatus, IKResult, IKResults};
 
 /// Pose of the robot TCP. It contains a Cartesian position and a unit rotation quaternion.
 ///
@@ -55,6 +56,40 @@ pub type Solutions = Vec<Joints>;
 
 /// Defines agreed functionality of direct and inverse kinematics.
 pub trait Kinematics: Send + Sync {
+    /// Solves a six-axis pose and returns all eight OPW branches in fixed order.
+    /// Use `results[branch.index()]` to read the same shoulder, elbow and wrist
+    /// choice across calls. Missing roots and joint-limit violations keep their slots.
+    ///
+    /// Pass `None` to choose representatives using the joint-limit centers (zero
+    /// for unconstrained joints). With `Some(&previous)`, the solver can select
+    /// whole turns and resolve free angles near those joints. Both calls return
+    /// the same branch order. A supplied reference must contain six finite angles.
+    ///
+    /// A slot with [`GeometryStatus::Verified`] reproduces the target pose.
+    /// Inspect its limit diagnostics to decide whether the joints are usable.
+    /// Collision checks are separate. Five-axis OPW models and implementations
+    /// that use this method's default return [`GeometryStatus::Unsupported`] in
+    /// every slot.
+    ///
+    /// ```
+    /// use rs_opw_kinematics::ik_result::{Branch, Elbow, GeometryStatus, Shoulder, Wrist};
+    /// use rs_opw_kinematics::kinematic_traits::Kinematics;
+    /// use rs_opw_kinematics::kinematics_impl::OPWKinematics;
+    /// use rs_opw_kinematics::parameters::opw_kinematics::Parameters;
+    ///
+    /// let robot = OPWKinematics::new(Parameters::irb2400_10());
+    /// let previous = [0.2, 0.1, -0.4, 0.3, 0.7, -0.2];
+    /// let pose = robot.forward(&previous);
+    /// let branch = Branch::new(Shoulder::First, Elbow::Positive, Wrist::Principal);
+    /// let results = robot.ik(&pose, Some(&previous));
+    /// let slot = &results[branch.index()];
+    /// assert_eq!(slot.meta.geometry, GeometryStatus::Verified);
+    /// assert!(slot.meta.limits.violated().is_empty());
+    /// ```
+    fn ik(&self, _pose: &Pose, _reference: Option<&Joints>) -> IKResults {
+        IKResult::empty_slots(GeometryStatus::Unsupported)
+    }
+
     /// Find inverse kinematics (joint position) for this glam-backed f64 pose.
     /// At wrist singularities, OPWKinematics prefers J4/J6 values near the
     /// constraint centers, or zeros when no constraints are set.
