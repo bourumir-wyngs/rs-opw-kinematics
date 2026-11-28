@@ -1,6 +1,7 @@
 //! Provides implementation of inverse and direct kinematics.
 
 use crate::constraints::{BY_CONSTRAINS, BY_PREV, Constraints};
+use crate::ik_result::{IKResults, Singularity, Wrist};
 use crate::kinematic_traits::{J4, J6};
 use crate::kinematic_traits::{JOINTS_AT_ZERO, Joints, Kinematics, Pose, Solutions};
 use crate::parameters::opw_kinematics::Parameters;
@@ -9,7 +10,9 @@ use crate::singularity::wrist_pole::{self, POLE_PHASE_ROUNDOFF_THR};
 use crate::singularity::{j1free, j1j2free, j2free};
 use glam::{DMat3, DQuat, DVec3};
 use std::f64::consts::PI;
-use std::ops::Index;
+use std::ops::{Index, Range};
+
+mod ordered;
 
 const DEBUG: bool = false;
 
@@ -39,7 +42,8 @@ impl OPWKinematics {
     }
 
     /// Create a new instance that takes also Constraints.
-    /// If constraints are set, all solutions returned by this solver are constraint compliant.
+    /// The vector-returning inverse methods filter solutions by these limits.
+    /// [`Kinematics::ik`] retains all branch slots and reports violations in each result.
     ///
     /// # Panics
     /// Panics if any joint offset is non-finite or outside ±2π radians (±360°).
@@ -117,6 +121,8 @@ struct ArmRecovery {
     free_j1: bool,
     free_j2: [bool; 2],
     folded_q3: f64,
+    shoulder_boundary: bool,
+    elbow_boundary: [Option<Singularity>; 2],
 }
 
 /// Preferred J4 and J6 in model coordinates, after sign corrections and offsets.
@@ -178,6 +184,10 @@ fn mat3_from_rows(rows: [[f64; 3]; 3]) -> DMat3 {
 }
 
 impl Kinematics for OPWKinematics {
+    fn ik(&self, pose: &Pose, reference: Option<&Joints>) -> IKResults {
+        self.ordered_ik(pose, reference)
+    }
+
     /// Return the solution that is constraint compliant anv values are valid
     /// (no NaNs, etc) but otherwise not sorted.
     /// If this is 5 degree of freedom robot only, the 6 joint is set to 0.0
@@ -509,7 +519,26 @@ impl OPWKinematics {
                 && tmp3.abs() <= height_error + link_error
         };
 
+        // Detect coalescing roots using the same propagated error bounds as
+        // the position equations. Testing q3 for exact equality misses a
+        // boundary after a forward/inverse round trip.
+        let elbow_boundary = |numerator: f64, error: f64, angle: f64| {
+            if angle.is_finite() && (numerator.abs() - tmp9.abs()).abs() <= error {
+                Some(if angle < PI / 2.0 {
+                    Singularity::ExtendedElbow
+                } else {
+                    Singularity::FoldedElbow
+                })
+            } else {
+                None
+            }
+        };
         ArmRecovery {
+            shoulder_boundary: params.b != 0.0 && radial_squared.abs() <= radial_squared_error,
+            elbow_boundary: [
+                elbow_boundary(tmp7, triangle1_error, tmp11),
+                elbow_boundary(tmp8, triangle2_error, tmp12),
+            ],
             free_j1,
             free_j2: [folded(nx1), folded(tmp4)],
             folded_q3: PI - tmp10,
@@ -545,6 +574,14 @@ impl OPWKinematics {
         arm: ArmBranch,
         near: &J4J6Near,
     ) -> impl Iterator<Item = WristBranch> + use<> {
+        Self::wrist_choices(matrix, arm, near).map(|choice| choice.angles)
+    }
+
+    fn wrist_choices(
+        matrix: &RotationMatrix,
+        arm: ArmBranch,
+        near: &J4J6Near,
+    ) -> impl Iterator<Item = ordered::WristChoice> + use<> {
         let (sin1, cos1) = arm.q1.sin_cos();
         let (sin23, cos23) = (arm.q2 + arm.q3).sin_cos();
 
@@ -586,16 +623,31 @@ impl OPWKinematics {
         // Return two candidates when only one method applies, or four when
         // pole recovery and regular solutions overlap. The iterator skips absent options
         // without allocating a Vec for each arm branch.
-        [pole, regular].into_iter().flatten().flat_map(|wrist| {
-            // Each method contributes the original wrist and its flipped orientation.
-            [
-                wrist,
-                WristBranch {
-                    q4: wrist.q4 + PI,
-                    q5: -wrist.q5,
-                    q6: wrist.q6 - PI,
-                },
-            ]
+        let resolved_pole = pole.is_some() && regular.is_none();
+        [(pole, true), (regular, false)]
+            .into_iter()
+            .filter_map(|(angles, recovered)| angles.map(|angles| (angles, recovered)))
+            .flat_map(move |(angles, recovered)| {
+                let flipped = WristBranch {
+                    q4: angles.q4 + PI,
+                    q5: -angles.q5,
+                    q6: angles.q6 - PI,
+                };
+                [(Wrist::Principal, angles), (Wrist::Flipped, flipped)].map(|(wrist, angles)| {
+                    ordered::WristChoice {
+                        wrist,
+                        angles,
+                        recovered,
+                        resolved_pole,
+                    }
+                })
+            })
+    }
+
+    fn user_joints(&self, arm: ArmBranch, wrist: WristBranch) -> Joints {
+        let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
+        std::array::from_fn(|i| {
+            (theta[i] + self.parameters.offsets[i]) * self.parameters.sign_corrections[i] as f64
         })
     }
 
@@ -608,10 +660,7 @@ impl OPWKinematics {
         fixed_j6: Option<f64>,
     ) -> Option<Joints> {
         let params = &self.parameters;
-        let theta = [arm.q1, arm.q2, arm.q3, wrist.q4, wrist.q5, wrist.q6];
-        let mut joints = std::array::from_fn(|i| {
-            (theta[i] + params.offsets[i]) * params.sign_corrections[i] as f64
-        });
+        let mut joints = self.user_joints(arm, wrist);
         wrist_pole::adjust_joints(
             &mut joints,
             wrist.q5,
@@ -668,21 +717,7 @@ impl OPWKinematics {
                 }
             }
             if let Some(constraints) = self.constraints {
-                // Analytic interval endpoints can recover just outside an
-                // inclusive limit. Move only roundoff-sized violations inside
-                // before the strict constraints and FK checks below.
-                for (i, joint) in joints.iter_mut().enumerate() {
-                    if self.preserve_turn(i, fixed_j6) {
-                        continue;
-                    }
-                    let tolerance = constraints.tolerances[i];
-                    let delta = wrapped_angle(*joint - constraints.centers[i]);
-                    let excess = delta.abs() - tolerance;
-                    if excess > 0.0 && excess <= POLE_PHASE_ROUNDOFF_THR {
-                        *joint -=
-                            delta.signum() * (excess + POLE_PHASE_ROUNDOFF_THR.min(tolerance));
-                    }
-                }
+                self.snap_singular_limits(&mut joints, &constraints, fixed_j6);
                 if !constraints.compliant(&joints) {
                     continue;
                 }
@@ -710,23 +745,39 @@ impl OPWKinematics {
         result
     }
 
-    /// Search free arm angles before FK validation and final constraint filtering.
-    fn singular_arm_candidates(
+    /// Correct roundoff where a singular search sampled an inclusive periodic limit.
+    fn snap_singular_limits(
+        &self,
+        joints: &mut Joints,
+        constraints: &Constraints,
+        fixed_j6: Option<f64>,
+    ) {
+        for (i, joint) in joints.iter_mut().enumerate() {
+            if self.preserve_turn(i, fixed_j6) {
+                continue;
+            }
+            let tolerance = constraints.tolerances[i];
+            let delta = wrapped_angle(*joint - constraints.centers[i]);
+            let excess = delta.abs() - tolerance;
+            if excess > 0.0 && excess <= POLE_PHASE_ROUNDOFF_THR {
+                *joint -= delta.signum() * (excess + POLE_PHASE_ROUNDOFF_THR.min(tolerance));
+            }
+        }
+    }
+
+    /// Visits each recovered arm with the range of analytical arm slots it represents.
+    fn visit_singular_arms(
         &self,
         pose: &Pose,
         recovery: &ArmRecovery,
         reference: &Joints,
         fixed_j6: Option<f64>,
-    ) -> Vec<Joints> {
-        let mut arms = Vec::new();
+        mut visit: impl FnMut(Range<usize>, ArmBranch),
+    ) {
         if self.j1j2free && recovery.free_j1 && recovery.free_j2.iter().any(|free| *free) {
-            arms.extend(j1j2free::search(
-                self,
-                pose,
-                recovery.folded_q3,
-                reference,
-                fixed_j6,
-            ));
+            for arm in j1j2free::search(self, pose, recovery.folded_q3, reference, fixed_j6) {
+                visit(0..4, arm);
+            }
         } else {
             for shoulder in 0..2 {
                 if self.j2free && recovery.free_j2[shoulder] {
@@ -735,22 +786,37 @@ impl OPWKinematics {
                         q2: 0.0,
                         q3: recovery.folded_q3,
                     };
-                    arms.extend(j2free::search(self, pose, arm, reference, fixed_j6));
+                    for arm in j2free::search(self, pose, arm, reference, fixed_j6) {
+                        visit(2 * shoulder..2 * shoulder + 2, arm);
+                    }
                 } else if self.j1free && recovery.free_j1 {
-                    for arm in recovery.branches[2 * shoulder..2 * shoulder + 2].iter() {
+                    for index in 2 * shoulder..2 * shoulder + 2 {
+                        let arm = recovery.branches[index];
                         if arm.q2.is_finite() && arm.q3.is_finite() {
-                            arms.extend(j1free::search(self, pose, *arm, reference, fixed_j6));
+                            for arm in j1free::search(self, pose, arm, reference, fixed_j6) {
+                                visit(index..index + 1, arm);
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Search free arm angles before FK validation and final constraint filtering.
+    fn singular_arm_candidates(
+        &self,
+        pose: &Pose,
+        recovery: &ArmRecovery,
+        reference: &Joints,
+        fixed_j6: Option<f64>,
+    ) -> Vec<Joints> {
         let mut result = Vec::new();
-        for arm in arms {
+        self.visit_singular_arms(pose, recovery, reference, fixed_j6, |_, arm| {
             for joints in self.arm_wrist_candidates(pose, arm, reference, fixed_j6) {
                 self.push_unique(&mut result, joints);
             }
-        }
+        });
         self.sort_by_closeness(&mut result, reference);
         // Search ranks near the reference. Only the periodic joints go back
         // to their principal representation for subsequent IK validation.

@@ -123,6 +123,24 @@ impl Pose {
         })
     }
 
+    /// Checks the rigid-transform invariant after direct access to the public fields.
+    pub(crate) fn is_valid(self) -> bool {
+        self.translation.is_finite() && self.rotation.is_normalized()
+    }
+
+    /// Expresses a valid pose in the given coordinate system, if representable.
+    pub(crate) fn checked_relative_to(self, parent: Self) -> Option<Self> {
+        if !self.is_valid() || !parent.is_valid() {
+            return None;
+        }
+        let rotation = parent.rotation.inverse();
+        Self::try_from_parts(
+            rotation * (self.translation - parent.translation),
+            rotation * self.rotation,
+        )
+        .ok()
+    }
+
     /// Returns the inverse rigid transform.
     pub fn inverse(self) -> Self {
         let rotation = self.rotation.inverse();

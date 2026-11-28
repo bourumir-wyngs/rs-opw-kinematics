@@ -146,16 +146,13 @@ impl Constraints {
         // This method does not change the sorting weight.
     }
 
-    fn inside_bounds(angle1: f64, angle2: f64, tolerance: f64) -> bool {
-        if tolerance.is_infinite() {
-            return true;
-        }
-        let mut difference = (angle1 - angle2).abs();
-        difference %= TWO_PI;
+    fn periodic_distance(angle1: f64, angle2: f64) -> f64 {
+        let difference = (angle1 - angle2).abs() % TWO_PI;
         if difference > PI {
-            difference = TWO_PI - difference;
+            TWO_PI - difference
+        } else {
+            difference
         }
-        difference <= tolerance
     }
 
     /// Whether this joint's range is wider than one turn and has two finite travel stops.
@@ -169,7 +166,22 @@ impl Constraints {
         if self.is_absolute(joint) {
             self.from[joint] <= angle && angle <= self.to[joint]
         } else {
-            Self::inside_bounds(angle, self.centers[joint], self.tolerances[joint])
+            let tolerance = self.tolerances[joint];
+            tolerance.is_infinite()
+                || Self::periodic_distance(angle, self.centers[joint]) <= tolerance
+        }
+    }
+
+    /// Signed clearance to the nearest travel stop or periodic arc boundary, in radians.
+    /// Unrestricted joints have no boundary. Invalid bounds yield an undefined margin.
+    pub(crate) fn joint_margin(&self, joint: usize, angle: f64) -> Option<f64> {
+        let tolerance = self.tolerances[joint];
+        if self.is_absolute(joint) {
+            Some((angle - self.from[joint]).min(self.to[joint] - angle))
+        } else if tolerance == PI || tolerance.is_infinite() {
+            None
+        } else {
+            Some(tolerance - Self::periodic_distance(angle, self.centers[joint]))
         }
     }
 

@@ -4,6 +4,7 @@
 
 use crate::collisions::{BaseBody, CheckMode, CollisionBody, RobotBody, SafetyDistances};
 use crate::constraints::Constraints;
+use crate::ik_result::IKResults;
 use crate::kinematic_traits::{J6, Joints, Kinematics, Pose, Solutions};
 use crate::kinematics_impl::OPWKinematics;
 use crate::parameters::opw_kinematics::Parameters;
@@ -301,6 +302,12 @@ impl KinematicsWithShape {
 }
 
 impl Kinematics for KinematicsWithShape {
+    /// Returns all analytical branches, including configurations that may collide.
+    /// Call [`Self::collides`] on a verified slot to check its scene clearance.
+    fn ik(&self, pose: &Pose, reference: Option<&Joints>) -> IKResults {
+        self.kinematics.ik(pose, reference)
+    }
+
     /// Delegates call to underlying Kinematics, but will filter away colliding poses
     fn inverse(&self, pose: &Pose) -> Solutions {
         let solutions = self.kinematics.inverse(pose);
@@ -343,5 +350,52 @@ impl Kinematics for KinematicsWithShape {
 
     fn forward_with_joint_poses(&self, joints: &Joints) -> [Pose; 6] {
         self.kinematics.forward_with_joint_poses(joints)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ik_result::GeometryStatus;
+    use glam::{DQuat, DVec3};
+    use parry3d::math::Vector;
+    use std::f64::consts::FRAC_PI_2;
+
+    #[test]
+    fn ordered_ik_preserves_branches_whose_flange_hits_an_obstacle() {
+        let robot = Arc::new(OPWKinematics::new(Parameters::irb2400_10()));
+        let target = robot.forward(&[0.2, 0.3, -0.4, 0.5, 0.6, -0.7]);
+        // The obstacle crosses the flange triangle at its center for every solution.
+        let mesh = TriMesh::new(
+            vec![
+                Vector::new(-0.1, -0.1, 0.0),
+                Vector::new(0.1, -0.1, 0.0),
+                Vector::new(0.0, 0.1, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+        let obstacle = target * Pose::from_parts(DVec3::ZERO, DQuat::from_rotation_x(FRAC_PI_2));
+        let shaped = KinematicsWithShape {
+            kinematics: robot,
+            body: RobotBody {
+                joint_meshes: std::array::from_fn(|_| mesh.clone()),
+                base: None,
+                tool: None,
+                collision_environment: vec![CollisionBody {
+                    mesh,
+                    pose: obstacle.to_f32(),
+                }],
+                safety: SafetyDistances::standard(CheckMode::FirstCollisionOnly),
+            },
+        };
+        let slots = shaped.ik(&target, None);
+        let verified: Vec<_> = slots
+            .iter()
+            .filter(|slot| slot.meta.geometry == GeometryStatus::Verified)
+            .collect();
+        assert!(!verified.is_empty());
+        assert!(verified.iter().all(|slot| shaped.collides(&slot.joints)));
+        assert!(shaped.inverse(&target).is_empty());
     }
 }
